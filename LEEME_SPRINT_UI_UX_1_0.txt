@@ -1,0 +1,27 @@
+TECHSOUL OS — SPRINT UI/UX 1.0
+
+Esta entrega estandariza la presentación de todas las vistas sin cambiar la lógica de negocio.
+
+MEJORAS PRINCIPALES
+- Ancho y espaciado uniforme para todas las páginas.
+- Encabezados, paneles, métricas, formularios, filtros y estados vacíos consistentes.
+- Historiales acomodados dentro de tarjetas y adaptables a celular/tablet.
+- Historial de Inventario colocado al final del contenido principal.
+- Tarjetas de inventario y tarifario con alturas y separación uniformes.
+- Tablas, inputs, selects y botones con el mismo sistema visual.
+- Mejoras responsive para laptop, tablet y móvil.
+- Tema oscuro compatible con los nuevos componentes.
+- Componentes UI reutilizables en src/components/ui.
+
+COMPONENTES DISPONIBLES
+- PageHeader.vue
+- SectionCard.vue
+- StatCard.vue
+- EmptyState.vue
+- StatusBadge.vue
+
+EJECUCIÓN
+1. npm install
+2. npm run dev
+
+Esta versión sigue utilizando el mismo almacenamiento y la misma arquitectura local/Supabase-ready.

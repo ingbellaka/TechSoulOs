@@ -1,0 +1,22 @@
+TECHSOUL OS — FRONTEND COMPLETO V1
+
+Incluye los rediseños acumulados de:
+- Layout, sidebar, topbar, dashboard y modo oscuro.
+- Clientes y órdenes.
+- Inventario, compras y proveedores.
+- Equipos, ventas y caja.
+- Conversaciones omnicanal (interfaz preparada).
+- TechSoul AI (centro visual de agentes).
+- Automatizaciones (interfaz preparada).
+- Garantías.
+- Reportes.
+- Usuarios.
+
+INSTALACIÓN
+1. Haz respaldo de tu carpeta actual.
+2. Copia el contenido de este proyecto o usa el ZIP "Solo cambios".
+3. Ejecuta: npm install
+4. Ejecuta: npm run dev
+
+IMPORTANTE
+Las pantallas de IA, conversaciones y automatizaciones son frontend funcional de demostración. Las conexiones reales con WhatsApp, Instagram, Messenger y proveedores requieren APIs y credenciales oficiales.

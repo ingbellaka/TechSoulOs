@@ -1,0 +1,23 @@
+TECHSOUL OS — RECUPERACIÓN COMPLETA
+
+Este paquete contiene el proyecto completo con todas las vistas y assets acumulados hasta:
+- Frontend completo v1.2
+- Nueva Orden UX 2.0 con checklist legible
+- Gestión de órdenes: editar, cancelar y eliminar para administrador
+- Detalle de Orden UX 2.0
+
+INSTALACIÓN SEGURA
+1. NO pegues carpetas sueltas encima de src.
+2. Renombra tu carpeta actual como respaldo, por ejemplo:
+   techsoul-manager-main-RESPALDO
+3. Extrae esta carpeta completa en una ubicación nueva.
+4. Copia tu archivo .env del respaldo a la raíz de esta carpeta.
+5. Abre PowerShell dentro de esta carpeta.
+6. Ejecuta:
+   npm install
+   npm run dev
+
+IMPORTANTE
+- El archivo .env no se incluye por seguridad.
+- No copies node_modules desde el respaldo.
+- No ejecutes npm audit fix --force.

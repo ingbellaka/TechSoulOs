@@ -1,0 +1,15 @@
+TechSoul OS Frontend v1.2
+
+Incluye todo el frontend v1 y corrige el checklist de Nueva orden:
+- nombres de prueba visibles
+- icono y descripción por prueba
+- tarjetas claras en modo claro y oscuro
+- estados con un toque
+- notas desplegables solo cuando hacen falta
+- responsive en escritorio, tablet y celular
+
+Instalación:
+1. Haz respaldo de tu carpeta actual.
+2. Copia el contenido de este proyecto sobre tu proyecto local.
+3. Conserva tu archivo .env actual si contiene las claves de Supabase.
+4. Ejecuta npm install y npm run dev.

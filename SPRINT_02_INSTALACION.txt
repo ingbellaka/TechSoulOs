@@ -1,0 +1,26 @@
+TECHSOUL OS — SPRINT 02
+Clientes + Órdenes
+
+ARCHIVOS INCLUIDOS
+- src/views/ClientesView.vue
+- src/views/OrdenesView.vue
+- src/assets/styles/modules.css
+- src/main.js
+
+INSTALACIÓN
+1. Cierra el servidor con Ctrl + C.
+2. Copia los archivos sobre tu proyecto y acepta reemplazar.
+3. Ejecuta: npm run dev
+
+NO requiere instalar nuevas dependencias.
+
+MEJORAS
+- Nuevo directorio visual de clientes.
+- Formulario desplegable y responsive.
+- Búsqueda mejorada y accesos a WhatsApp.
+- Métricas de clientes.
+- Panel de órdenes completamente rediseñado.
+- Filtros por estado y búsqueda combinada.
+- Indicadores operativos y saldo por cobrar.
+- Progreso de pagos por orden.
+- Conserva la lógica existente de Supabase.

@@ -1,0 +1,21 @@
+TECHSOUL OS — SPRINT INVENTARIO PROGRESIVO
+
+Este sprint convierte Inventario en un catálogo que se construye con el uso real.
+
+FUNCIONES:
+- Refacciones con existencia física o bajo pedido.
+- Alta rápida por marca, modelo, tipo y calidad.
+- Costo, precio opcional, proveedor y ubicación.
+- Entradas y salidas rápidas.
+- Stock mínimo y alertas.
+- Kardex local de movimientos.
+- Valor del inventario a costo.
+- Edición de refacciones.
+- Desde Cotizador: botón "Guardar como refacción" que precarga el formulario.
+
+USO:
+1. npm install
+2. npm run dev
+3. Abre Inventario desde el menú.
+
+No necesitas capturar un catálogo completo. Agrega cada pieza conforme la compres, cotices o uses.

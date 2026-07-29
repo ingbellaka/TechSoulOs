@@ -1,0 +1,28 @@
+TECHSOUL OS — SPRINT TARIFARIO + COTIZADOR + INTELIGENCIA
+
+Módulos nuevos:
+1. Finanzas > Tarifario
+   - Tarifario precargado desde las imágenes compartidas de pantallas y baterías iPhone.
+   - Precio público, precio mínimo y costo actual de compra.
+   - Alta, edición, búsqueda, filtro y eliminación.
+   - Alerta cuando el margen baja de 30%.
+
+2. Finanzas > Cotizador inteligente
+   - Para Android y reparaciones sin precio establecido.
+   - Captura únicamente costo de pieza, envío y nivel de riesgo.
+   - El sistema agrega operación, reserva de garantía y margen real.
+   - Configuración editable de márgenes y cargos por riesgo.
+   - Guardar cotización y convertirla en precio del tarifario.
+
+3. Inteligencia > Inteligencia de precios
+   - Resumen de márgenes.
+   - Alertas de precios bajos.
+   - Reparaciones con mayor utilidad estimada.
+
+Los datos se guardan localmente en el navegador y la arquitectura puede migrarse posteriormente a Supabase.
+
+INSTALACIÓN
+1. Extraer el ZIP.
+2. Abrir la carpeta en VS Code.
+3. Ejecutar npm install
+4. Ejecutar npm run dev

@@ -1,0 +1,22 @@
+TECHSOUL OS · SPRINT 04
+Equipos, Ventas y Caja
+
+INSTALACIÓN
+1. Haz una copia de seguridad de tu proyecto actual.
+2. Copia el contenido de este paquete encima de la carpeta raíz del proyecto.
+3. Acepta reemplazar los archivos existentes.
+4. Ejecuta:
+   npm run dev
+
+No se agregaron dependencias nuevas.
+
+ARCHIVOS MODIFICADOS
+- src/views/EquiposView.vue
+- src/views/VentasView.vue
+- src/views/CajaView.vue
+- src/assets/styles/modules.css
+
+MEJORAS
+- Equipos: métricas, filtros, tarjetas y formulario moderno.
+- Ventas: punto de venta con validación de stock y vista previa del total.
+- Caja: métricas, filtros y movimientos visuales de entrada/salida.

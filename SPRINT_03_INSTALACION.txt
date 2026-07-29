@@ -1,0 +1,22 @@
+TECHSOUL OS — SPRINT 03
+Inventario, compras y proveedores
+
+CAMBIOS INCLUIDOS
+- Inventario rediseñado con métricas, búsqueda y filtros.
+- Tarjetas de producto con costo, precio, margen, stock y proveedor.
+- Ajuste rápido de stock con botones + y -.
+- Alertas visuales para productos agotados o con stock bajo.
+- Compras rediseñadas con órdenes y proveedores en pestañas.
+- Formulario moderno para órdenes de compra con subtotales en vivo.
+- Directorio de proveedores con acceso a WhatsApp.
+- Conserva la lógica y tablas actuales de Supabase.
+
+INSTALACIÓN
+1. Copia los archivos sobre tu proyecto y acepta reemplazar.
+2. Ejecuta: npm run dev
+3. No se requieren dependencias nuevas.
+
+ARCHIVOS MODIFICADOS
+src/views/InventarioView.vue
+src/views/ComprasView.vue
+src/assets/styles/modules.css

@@ -1,0 +1,301 @@
+<script setup>
+import { computed, onMounted, ref } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import { supabase } from '../lib/supabase'
+
+const route = useRoute()
+const router = useRouter()
+
+const orden = ref(null)
+const equipo = ref(null)
+const garantia = ref(null)
+const configuracionGarantias = ref([])
+const cargando = ref(false)
+const errorCarga = ref('')
+const seccion = ref('equipo')
+const estadoOriginal = ref('')
+
+const estados = [
+  { value: 'Recibido', label: 'Recibido', help: 'El equipo acaba de ingresar al taller.' },
+  { value: 'Diagnóstico', label: 'En diagnóstico', help: 'Se está revisando la causa de la falla.' },
+  { value: 'Esperando autorización', label: 'Esperando autorización', help: 'La cotización fue enviada y falta aprobación.' },
+  { value: 'Esperando pieza', label: 'Esperando refacción', help: 'La reparación depende de una pieza o material.' },
+  { value: 'En reparación', label: 'En reparación', help: 'El técnico ya está trabajando en el equipo.' },
+  { value: 'Listo', label: 'Listo para entregar', help: 'La reparación terminó y el cliente puede recogerlo.' },
+  { value: 'Entregado', label: 'Entregado', help: 'El equipo fue entregado al cliente.' },
+  { value: 'Garantía', label: 'En garantía', help: 'El equipo regresó para revisión de garantía.' },
+  { value: 'Cancelado', label: 'Cancelado', help: 'La orden queda archivada sin eliminarse.' }
+]
+
+const saldo = computed(() => Math.max(0, Number(orden.value?.costo_total || 0) - Number(orden.value?.anticipo || 0)))
+const porcentajePagado = computed(() => {
+  const total = Number(orden.value?.costo_total || 0)
+  if (!total) return 0
+  return Math.min(100, Math.round((Number(orden.value?.anticipo || 0) / total) * 100))
+})
+
+function moneda(valor) {
+  return Number(valor || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN' })
+}
+
+async function cargar() {
+  errorCarga.value = ''
+  const id = route.params.id
+
+  const { data, error } = await supabase
+    .from('ordenes')
+    .select('*, equipos(*)')
+    .eq('id', id)
+    .single()
+
+  if (error) {
+    errorCarga.value = error.message
+    return
+  }
+
+  orden.value = data
+  equipo.value = data.equipos
+  estadoOriginal.value = data.estado || 'Recibido'
+
+  const [{ data: garantias }, { data: configs }] = await Promise.all([
+    supabase.from('garantias').select('*').eq('orden_id', id).order('id', { ascending: false }),
+    supabase.from('configuracion_garantias').select('*').eq('activo', true).order('tipo_servicio')
+  ])
+
+  garantia.value = (garantias || [])[0] || {
+    orden_id: id,
+    tipo_servicio: 'Reparación',
+    dias_garantia: orden.value.garantia_dias || 0,
+    condiciones: orden.value.garantia_condiciones || '',
+    activa: true
+  }
+
+  configuracionGarantias.value = configs || []
+}
+
+function aplicarGarantia() {
+  const seleccion = configuracionGarantias.value.find(g => g.tipo_servicio === garantia.value.tipo_servicio)
+  if (seleccion) {
+    garantia.value.dias_garantia = seleccion.dias_garantia
+    garantia.value.condiciones = seleccion.condiciones
+  }
+}
+
+async function registrarHistorial(tipo, titulo, descripcion, estadoAnterior = null, estadoNuevo = null) {
+  const { data: auth } = await supabase.auth.getUser()
+  const payload = {
+    orden_id: orden.value.id,
+    tipo,
+    titulo,
+    descripcion,
+    estado_anterior: estadoAnterior,
+    estado_nuevo: estadoNuevo,
+    usuario_id: auth.user?.id || null
+  }
+
+  const { error } = await supabase.from('orden_historial').insert(payload)
+  // La edición no se bloquea si la migración del historial todavía no fue ejecutada.
+  if (error && !String(error.message).toLowerCase().includes('orden_historial')) {
+    console.warn('No se pudo registrar historial:', error.message)
+  }
+}
+
+async function guardarCambios() {
+  if (!orden.value.falla_reportada?.trim()) {
+    alert('Escribe la falla reportada por el cliente.')
+    seccion.value = 'servicio'
+    return
+  }
+
+  if (Number(orden.value.anticipo || 0) > Number(orden.value.costo_total || 0) && Number(orden.value.costo_total || 0) > 0) {
+    const continuar = window.confirm('El pago registrado es mayor que el total de la orden. ¿Deseas guardar de todas formas?')
+    if (!continuar) return
+  }
+
+  cargando.value = true
+
+  try {
+    const cambioEstado = estadoOriginal.value !== orden.value.estado
+
+    const { error: errorOrden } = await supabase
+      .from('ordenes')
+      .update({
+        falla_reportada: orden.value.falla_reportada,
+        diagnostico: orden.value.diagnostico,
+        trabajo_realizado: orden.value.trabajo_realizado,
+        costo_total: Number(orden.value.costo_total || 0),
+        anticipo: Number(orden.value.anticipo || 0),
+        saldo: saldo.value,
+        estado: orden.value.estado,
+        garantia_dias: Number(garantia.value.dias_garantia || 0),
+        garantia_condiciones: garantia.value.condiciones,
+        tecnico: orden.value.tecnico,
+        notas: orden.value.notas
+      })
+      .eq('id', orden.value.id)
+
+    if (errorOrden) throw errorOrden
+
+    const { error: errorEquipo } = await supabase
+      .from('equipos')
+      .update({
+        tipo_equipo: equipo.value.tipo_equipo,
+        marca: equipo.value.marca,
+        modelo: equipo.value.modelo,
+        color: equipo.value.color,
+        imei_serie: equipo.value.imei_serie,
+        codigo_bloqueo: equipo.value.codigo_bloqueo,
+        observaciones: equipo.value.observaciones
+      })
+      .eq('id', equipo.value.id)
+
+    if (errorEquipo) throw errorEquipo
+
+    if (garantia.value.id) {
+      const { error: errorGarantia } = await supabase
+        .from('garantias')
+        .update({
+          tipo_servicio: garantia.value.tipo_servicio,
+          dias_garantia: Number(garantia.value.dias_garantia || 0),
+          condiciones: garantia.value.condiciones,
+          activa: garantia.value.activa
+        })
+        .eq('id', garantia.value.id)
+      if (errorGarantia) throw errorGarantia
+    } else if (Number(garantia.value.dias_garantia || 0) > 0) {
+      const { error: errorGarantia } = await supabase.from('garantias').insert({ ...garantia.value })
+      if (errorGarantia) throw errorGarantia
+    }
+
+    if (cambioEstado) {
+      await registrarHistorial(
+        'estado',
+        `Estado cambiado a ${orden.value.estado}`,
+        `La orden avanzó de “${estadoOriginal.value}” a “${orden.value.estado}”.`,
+        estadoOriginal.value,
+        orden.value.estado
+      )
+    }
+
+    await registrarHistorial('edicion', 'Orden actualizada', 'Se actualizaron los datos técnicos, financieros o administrativos de la orden.')
+
+    alert('Orden actualizada correctamente.')
+    router.push(`/ordenes/${orden.value.id}`)
+  } catch (error) {
+    alert(error.message)
+  } finally {
+    cargando.value = false
+  }
+}
+
+onMounted(cargar)
+</script>
+
+<template>
+  <div v-if="errorCarga" class="ts-edit-order-state">
+    <h2>No se pudo cargar la orden</h2>
+    <p>{{ errorCarga }}</p>
+    <router-link to="/ordenes" class="ts-action-primary">Volver a órdenes</router-link>
+  </div>
+
+  <div v-else-if="orden && equipo" class="ts-edit-order-page">
+    <header class="ts-edit-order-header">
+      <div>
+        <router-link :to="`/ordenes/${orden.id}`" class="ts-back-link">← Volver al detalle</router-link>
+        <span class="ts-order-eyebrow">Orden {{ orden.folio }}</span>
+        <h1>Editar orden</h1>
+        <p>{{ equipo.marca }} {{ equipo.modelo }} · {{ orden.estado }}</p>
+      </div>
+      <div class="ts-edit-order-header-actions">
+        <router-link :to="`/ordenes/${orden.id}`" class="ts-action-secondary">Cancelar</router-link>
+        <button type="button" class="ts-action-primary" :disabled="cargando" @click="guardarCambios">
+          {{ cargando ? 'Guardando...' : 'Guardar cambios' }}
+        </button>
+      </div>
+    </header>
+
+    <div class="ts-edit-order-shell">
+      <aside class="ts-edit-order-nav">
+        <button :class="{ active: seccion === 'equipo' }" @click="seccion = 'equipo'"><span>01</span><div><strong>Equipo</strong><small>Datos e identificación</small></div></button>
+        <button :class="{ active: seccion === 'servicio' }" @click="seccion = 'servicio'"><span>02</span><div><strong>Servicio</strong><small>Falla y diagnóstico</small></div></button>
+        <button :class="{ active: seccion === 'estado' }" @click="seccion = 'estado'"><span>03</span><div><strong>Estado</strong><small>Flujo de reparación</small></div></button>
+        <button :class="{ active: seccion === 'finanzas' }" @click="seccion = 'finanzas'"><span>04</span><div><strong>Finanzas</strong><small>Total, pago y saldo</small></div></button>
+        <button :class="{ active: seccion === 'garantia' }" @click="seccion = 'garantia'"><span>05</span><div><strong>Garantía</strong><small>Vigencia y condiciones</small></div></button>
+
+        <div class="ts-edit-order-summary">
+          <span>Resumen de pago</span>
+          <strong>{{ moneda(orden.costo_total) }}</strong>
+          <div class="ts-detail-progress"><span :style="{ width: porcentajePagado + '%' }"></span></div>
+          <dl><div><dt>Pagado</dt><dd>{{ moneda(orden.anticipo) }}</dd></div><div><dt>Saldo</dt><dd>{{ moneda(saldo) }}</dd></div></dl>
+        </div>
+      </aside>
+
+      <main class="ts-edit-order-content">
+        <section v-if="seccion === 'equipo'" class="ts-edit-panel">
+          <div class="ts-edit-panel-heading"><span>Información del dispositivo</span><h2>Equipo recibido</h2><p>Actualiza los datos físicos y de identificación del equipo.</p></div>
+          <div class="ts-form-grid">
+            <label><span>Tipo de equipo</span><select v-model="equipo.tipo_equipo"><option>Celular</option><option>Laptop</option><option>Tablet</option><option>iPad</option><option>Apple Watch</option><option>Impresora</option><option>PC</option><option>Consola</option><option>Otro</option></select></label>
+            <label><span>Marca</span><input v-model="equipo.marca" placeholder="Ej. Apple"></label>
+            <label><span>Modelo</span><input v-model="equipo.modelo" placeholder="Ej. iPhone 14 Pro"></label>
+            <label><span>Color</span><input v-model="equipo.color" placeholder="Color del equipo"></label>
+            <label><span>IMEI o número de serie</span><input v-model="equipo.imei_serie" placeholder="Identificador del equipo"></label>
+            <label><span>Código de desbloqueo</span><input v-model="equipo.codigo_bloqueo" placeholder="Opcional"></label>
+            <label class="is-wide"><span>Observaciones físicas</span><textarea v-model="equipo.observaciones" rows="4" placeholder="Golpes, rayones, piezas faltantes o condiciones de recepción"></textarea></label>
+          </div>
+        </section>
+
+        <section v-else-if="seccion === 'servicio'" class="ts-edit-panel">
+          <div class="ts-edit-panel-heading"><span>Información técnica</span><h2>Servicio y diagnóstico</h2><p>Conserva claramente lo que reportó el cliente y lo que encontró el técnico.</p></div>
+          <div class="ts-form-stack">
+            <label><span>Falla reportada *</span><textarea v-model="orden.falla_reportada" rows="4" placeholder="Describe lo que indicó el cliente"></textarea></label>
+            <label><span>Diagnóstico técnico</span><textarea v-model="orden.diagnostico" rows="5" placeholder="Resultado de las pruebas y causa probable"></textarea></label>
+            <label><span>Trabajo realizado</span><textarea v-model="orden.trabajo_realizado" rows="5" placeholder="Refacciones instaladas y procedimiento realizado"></textarea></label>
+            <div class="ts-form-grid"><label><span>Técnico asignado</span><input v-model="orden.tecnico" placeholder="Nombre del técnico"></label><label><span>Notas internas</span><input v-model="orden.notas" placeholder="No visibles para el cliente"></label></div>
+          </div>
+        </section>
+
+        <section v-else-if="seccion === 'estado'" class="ts-edit-panel">
+          <div class="ts-edit-panel-heading"><span>Flujo operativo</span><h2>Estado de la reparación</h2><p>Selecciona el punto real en el que se encuentra la orden.</p></div>
+          <div class="ts-status-selector">
+            <label v-for="item in estados" :key="item.value" :class="{ selected: orden.estado === item.value }">
+              <input v-model="orden.estado" type="radio" :value="item.value">
+              <span class="ts-status-selector-dot"></span>
+              <div><strong>{{ item.label }}</strong><small>{{ item.help }}</small></div>
+              <b>✓</b>
+            </label>
+          </div>
+          <div v-if="orden.estado !== estadoOriginal" class="ts-status-change-notice"><strong>Cambio pendiente</strong><p>{{ estadoOriginal }} → {{ orden.estado }}</p><small>Este cambio se registrará en la línea de tiempo al guardar.</small></div>
+        </section>
+
+        <section v-else-if="seccion === 'finanzas'" class="ts-edit-panel">
+          <div class="ts-edit-panel-heading"><span>Control financiero</span><h2>Costo y pagos</h2><p>El saldo se calcula automáticamente.</p></div>
+          <div class="ts-finance-editor-grid">
+            <label><span>Total de la reparación</span><div class="ts-money-input"><b>$</b><input v-model.number="orden.costo_total" type="number" min="0" step="0.01"></div></label>
+            <label><span>Pagado / anticipo</span><div class="ts-money-input"><b>$</b><input v-model.number="orden.anticipo" type="number" min="0" step="0.01"></div></label>
+            <div class="ts-finance-editor-result"><span>Saldo pendiente</span><strong>{{ moneda(saldo) }}</strong><small>{{ porcentajePagado }}% del total cubierto</small><div class="ts-detail-progress"><span :style="{ width: porcentajePagado + '%' }"></span></div></div>
+          </div>
+          <div class="ts-edit-tip"><strong>Importante</strong><p>Este campo actualiza el acumulado pagado de la orden. Los movimientos individuales pueden seguir registrándose desde Caja.</p></div>
+        </section>
+
+        <section v-else class="ts-edit-panel">
+          <div class="ts-edit-panel-heading"><span>Protección del servicio</span><h2>Garantía</h2><p>Define la vigencia y las condiciones que se entregarán al cliente.</p></div>
+          <div class="ts-form-grid">
+            <label><span>Tipo de servicio</span><select v-model="garantia.tipo_servicio" @change="aplicarGarantia"><option v-if="!configuracionGarantias.length">Reparación</option><option v-for="g in configuracionGarantias" :key="g.id" :value="g.tipo_servicio">{{ g.tipo_servicio }}</option></select></label>
+            <label><span>Días de garantía</span><input v-model.number="garantia.dias_garantia" type="number" min="0"></label>
+            <label class="is-wide"><span>Condiciones</span><textarea v-model="garantia.condiciones" rows="6" placeholder="Describe qué cubre y qué situaciones invalidan la garantía"></textarea></label>
+            <label class="ts-toggle-row"><input v-model="garantia.activa" type="checkbox"><span><strong>Garantía activa</strong><small>Permite mostrarla como vigente dentro del sistema.</small></span></label>
+          </div>
+        </section>
+
+        <footer class="ts-edit-order-footer">
+          <button v-if="seccion !== 'equipo'" type="button" class="ts-action-secondary" @click="seccion = ['equipo','servicio','estado','finanzas','garantia'][Math.max(0, ['equipo','servicio','estado','finanzas','garantia'].indexOf(seccion)-1)]">Anterior</button>
+          <span></span>
+          <button v-if="seccion !== 'garantia'" type="button" class="ts-action-primary" @click="seccion = ['equipo','servicio','estado','finanzas','garantia'][Math.min(4, ['equipo','servicio','estado','finanzas','garantia'].indexOf(seccion)+1)]">Continuar</button>
+          <button v-else type="button" class="ts-action-primary" :disabled="cargando" @click="guardarCambios">{{ cargando ? 'Guardando...' : 'Guardar cambios' }}</button>
+        </footer>
+      </main>
+    </div>
+  </div>
+
+  <div v-else class="ts-detail-loading"><span></span><p>Cargando orden...</p></div>
+</template>

@@ -1,0 +1,29 @@
+TECHSOUL OS — SPRINT FLUJO DE ÓRDENES
+
+Esta versión continúa sobre el mismo proyecto y funciona actualmente con:
+VITE_DATA_SOURCE=local
+
+No necesitas Supabase ni ejecutar SQL todavía.
+
+FUNCIONES INCLUIDAS
+- Edición moderna de orden por secciones.
+- Estados completos del proceso de reparación.
+- Historial y línea de tiempo de la orden.
+- Registro de cambios de estado.
+- Registro de pagos y gastos en el historial.
+- Resumen de total, pagado y saldo.
+- Garantía editable.
+- Compatibilidad futura con Supabase mediante la capa de repositorios.
+
+INSTALACIÓN
+1. Guarda tu carpeta actual como respaldo.
+2. Extrae este ZIP completo.
+3. Abre PowerShell dentro de la carpeta.
+4. Ejecuta:
+   npm install
+   npm run dev
+
+IMPORTANTE
+- No ejecutes archivos SQL todavía.
+- Mantén VITE_DATA_SOURCE=local.
+- Cuando conectemos Supabase, se crearán las tablas equivalentes, incluida orden_historial.

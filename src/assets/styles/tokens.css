@@ -1,0 +1,39 @@
+:root {
+  --ts-primary: #2563eb;
+  --ts-primary-hover: #1d4ed8;
+  --ts-primary-soft: #eff6ff;
+  --ts-accent: #7c3aed;
+  --ts-success: #16a34a;
+  --ts-warning: #d97706;
+  --ts-danger: #dc2626;
+  --ts-bg: #f4f7fb;
+  --ts-surface: #ffffff;
+  --ts-surface-2: #f8fafc;
+  --ts-text: #0f172a;
+  --ts-muted: #64748b;
+  --ts-border: #e2e8f0;
+  --ts-sidebar: #0b1220;
+  --ts-sidebar-soft: #111b2e;
+  --ts-sidebar-text: #cbd5e1;
+  --ts-sidebar-muted: #64748b;
+  --ts-shadow-sm: 0 1px 2px rgba(15, 23, 42, .04), 0 1px 3px rgba(15, 23, 42, .06);
+  --ts-shadow-md: 0 12px 30px rgba(15, 23, 42, .08);
+  --ts-radius-sm: 8px;
+  --ts-radius-md: 12px;
+  --ts-radius-lg: 18px;
+  --ts-sidebar-width: 268px;
+  --ts-sidebar-collapsed: 84px;
+  --ts-topbar-height: 76px;
+}
+
+:root[data-theme='dark'] {
+  --ts-bg: #080d17;
+  --ts-surface: #101827;
+  --ts-surface-2: #151f31;
+  --ts-text: #f8fafc;
+  --ts-muted: #94a3b8;
+  --ts-border: #253147;
+  --ts-primary-soft: rgba(37, 99, 235, .14);
+  --ts-shadow-sm: 0 1px 2px rgba(0, 0, 0, .2);
+  --ts-shadow-md: 0 16px 40px rgba(0, 0, 0, .28);
+}

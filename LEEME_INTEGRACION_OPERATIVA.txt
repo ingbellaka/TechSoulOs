@@ -1,0 +1,20 @@
+TECHSOUL OS - INTEGRACION OPERATIVA
+
+Incluye el proyecto completo con:
+- Ordenes: nueva, listado, detalle y edicion.
+- Inventario: entradas, salidas, ajustes, kardex y stock minimo.
+- Compras: recepcion de orden, entrada automatica a inventario y costo promedio.
+- Caja: ingresos, egresos, anticipos y referencias.
+- Garantias: listado, estados y seguimiento.
+- Persistencia local compatible con el adaptador existente.
+- Servicio central de integracion: src/services/integracion.service.js.
+
+INSTALACION
+1. Haz respaldo de tu proyecto actual.
+2. Sustituye el proyecto o copia el contenido de src sobre tu proyecto.
+3. Ejecuta npm install.
+4. Ejecuta npm run dev.
+5. Para Supabase, revisa y ejecuta SQL_INTEGRACION_INVENTARIO_CAJA_GARANTIAS.sql.
+
+NOTA DE VALIDACION
+La estructura e imports se integraron sobre TechSoul OS v0.9. En este entorno no fue posible terminar npm install porque el registro interno no tenia disponible una dependencia transitiva (yallist 3.1.1), por lo que el build final debe correrse en tu equipo.

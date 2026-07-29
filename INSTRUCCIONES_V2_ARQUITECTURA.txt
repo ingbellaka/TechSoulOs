@@ -1,0 +1,19 @@
+TECHSOUL OS — BASE LOCAL PREPARADA PARA SUPABASE
+
+1. Extrae este ZIP en una carpeta nueva.
+2. No copies node_modules desde versiones anteriores.
+3. Abre PowerShell dentro de la carpeta.
+4. Ejecuta:
+
+   npm install
+   npm run dev
+
+5. El archivo .env incluido mantiene el proyecto en modo local.
+6. No ejecutes SQL ni conectes Supabase todavía.
+
+CUANDO LLEGUE EL MOMENTO DE PUBLICAR:
+- Cambia VITE_DATA_SOURCE a supabase.
+- Agrega VITE_SUPABASE_URL y VITE_SUPABASE_KEY.
+- Ejecuta la migración SQL que construiremos al cerrar el frontend.
+
+No será necesario rehacer las vistas: la capa de datos ya puede intercambiar local y Supabase.

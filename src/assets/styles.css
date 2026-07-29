@@ -1,0 +1,161 @@
+:root {
+  --ts-bg: #f4f7fb;
+  --ts-card: rgba(255, 255, 255, 0.92);
+  --ts-primary: #2563eb;
+  --ts-primary-dark: #1e40af;
+  --ts-dark: #101828;
+  --ts-muted: #667085;
+  --ts-border: #e5e7eb;
+  --ts-success: #16a34a;
+  --ts-warning: #f59e0b;
+  --ts-danger: #dc2626;
+}
+
+body {
+  background:
+    radial-gradient(circle at top left, rgba(37, 99, 235, .15), transparent 32%),
+    radial-gradient(circle at top right, rgba(14, 165, 233, .12), transparent 35%),
+    var(--ts-bg);
+  color: var(--ts-dark);
+}
+
+.ts-page {
+  animation: fadeIn .25s ease-in-out;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.ts-navbar {
+  background: linear-gradient(90deg, #020617, #111827, #1e3a8a);
+  box-shadow: 0 8px 24px rgba(15, 23, 42, .18);
+}
+
+.ts-brand {
+  letter-spacing: .4px;
+}
+
+.ts-card {
+  background: var(--ts-card);
+  border: 1px solid rgba(229, 231, 235, .8);
+  border-radius: 22px;
+  box-shadow: 0 14px 35px rgba(15, 23, 42, .08);
+}
+
+.ts-card-soft {
+  background: rgba(255,255,255,.76);
+  border: 1px solid rgba(229, 231, 235, .75);
+  border-radius: 18px;
+  box-shadow: 0 8px 22px rgba(15, 23, 42, .06);
+}
+
+.ts-title {
+  font-weight: 800;
+  letter-spacing: -.5px;
+}
+
+.ts-subtitle {
+  color: var(--ts-muted);
+}
+
+.ts-stat {
+  border-radius: 22px;
+  padding: 20px;
+  background: linear-gradient(135deg, rgba(255,255,255,.96), rgba(239,246,255,.86));
+  border: 1px solid rgba(191, 219, 254, .75);
+  box-shadow: 0 14px 30px rgba(37, 99, 235, .08);
+}
+
+.ts-stat small {
+  color: var(--ts-muted);
+  font-weight: 600;
+}
+
+.ts-stat h2, .ts-stat h3 {
+  font-weight: 800;
+  margin: 4px 0 0;
+}
+
+.ts-btn-primary {
+  background: linear-gradient(135deg, var(--ts-primary), var(--ts-primary-dark));
+  border: 0;
+  color: #fff;
+  border-radius: 14px;
+  box-shadow: 0 10px 20px rgba(37, 99, 235, .24);
+}
+
+.ts-btn-primary:hover {
+  color: #fff;
+  filter: brightness(.98);
+}
+
+.btn, .form-control, .form-select {
+  border-radius: 14px;
+}
+
+.form-control, .form-select {
+  border-color: #d0d5dd;
+  padding: .7rem .9rem;
+}
+
+.form-control:focus, .form-select:focus {
+  border-color: var(--ts-primary);
+  box-shadow: 0 0 0 .2rem rgba(37, 99, 235, .12);
+}
+
+.ts-badge {
+  border-radius: 999px;
+  padding: 7px 12px;
+  font-weight: 700;
+}
+
+.ts-badge-Recibido { background: #dbeafe; color: #1d4ed8; }
+.ts-badge-Diagnóstico { background: #e0f2fe; color: #0369a1; }
+.ts-badge-Esperando { background: #fef3c7; color: #92400e; }
+.ts-badge-En { background: #ede9fe; color: #6d28d9; }
+.ts-badge-Listo { background: #dcfce7; color: #166534; }
+.ts-badge-Entregado { background: #d1fae5; color: #065f46; }
+.ts-badge-Garantía { background: #fee2e2; color: #991b1b; }
+.ts-badge-Cancelado { background: #e5e7eb; color: #374151; }
+
+.ts-order-card {
+  transition: transform .15s ease, box-shadow .15s ease;
+}
+.ts-order-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 18px 42px rgba(15, 23, 42, .12);
+}
+
+.ts-photo-preview {
+  width: 100%;
+  max-height: 260px;
+  object-fit: cover;
+  border-radius: 18px;
+  border: 1px solid var(--ts-border);
+}
+
+.ts-print-area {
+  background: white;
+}
+
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  .ts-print-area, .ts-print-area * {
+    visibility: visible;
+  }
+  .ts-print-area {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    box-shadow: none !important;
+    border: none !important;
+  }
+  .no-print {
+    display: none !important;
+  }
+}

@@ -1,0 +1,10 @@
+<script setup>
+import { ref } from 'vue'
+const flows = ref([
+  { name: 'Seguimiento de cotización', trigger: '24 h sin respuesta', action: 'Enviar WhatsApp', active: true, runs: 18 },
+  { name: 'Equipo listo', trigger: 'Estado cambia a Listo', action: 'Avisar al cliente', active: true, runs: 42 },
+  { name: 'Solicitud de reseña', trigger: '7 días después de entrega', action: 'Enviar enlace de reseña', active: true, runs: 11 },
+  { name: 'Stock mínimo', trigger: 'Existencia alcanza mínimo', action: 'Crear alerta de compra', active: false, runs: 5 }
+])
+</script>
+<template><section class="ts-module-page"><header class="ts-module-header"><div><span class="ts-eyebrow">Flujos inteligentes</span><h2>Automatizaciones</h2><p>Define qué debe ocurrir cuando cambia algo en tu operación.</p></div><button class="ts-action-primary">+ Nueva automatización</button></header><div class="ts-metric-strip ts-metric-strip-four"><article class="ts-mini-metric"><span>Activas</span><strong>3</strong><small>De 4 flujos</small></article><article class="ts-mini-metric"><span>Ejecuciones</span><strong>76</strong><small>Este mes</small></article><article class="ts-mini-metric"><span>Tiempo ahorrado</span><strong>6.4h</strong><small>Estimado</small></article><article class="ts-mini-metric"><span>Errores</span><strong>0</strong><small>Todo funcionando</small></article></div><div class="ts-panel"><div class="ts-panel-toolbar"><div><span class="ts-panel-kicker">Biblioteca de flujos</span><h3>Automatizaciones del taller</h3></div><button class="ts-action-secondary">Ver plantillas</button></div><div class="ts-flow-list"><article v-for="flow in flows" :key="flow.name" class="ts-flow-card"><div class="ts-flow-icon">⚡</div><div class="ts-flow-copy"><strong>{{ flow.name }}</strong><p><span>Cuando:</span> {{ flow.trigger }} <b>→</b> <span>Entonces:</span> {{ flow.action }}</p></div><div class="ts-flow-runs"><small>Ejecuciones</small><strong>{{ flow.runs }}</strong></div><label class="ts-switch"><input v-model="flow.active" type="checkbox"><span></span></label><button class="ts-action-secondary ts-action-compact">Editar</button></article></div></div></section></template>

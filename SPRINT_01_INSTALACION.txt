@@ -1,0 +1,25 @@
+TECHSOUL MANAGER — SPRINT 01 VISUAL v1.1
+
+1. Haz una copia de seguridad de tu proyecto actual.
+2. Copia los archivos de este paquete sobre tu proyecto y acepta reemplazar.
+3. Abre PowerShell en la carpeta del proyecto.
+4. Ejecuta:
+
+   npm install
+   npm run dev
+
+Archivos principales modificados:
+- package.json
+- src/App.vue
+- src/main.js
+- src/layouts/AppLayout.vue
+- src/components/navigation/AppSidebar.vue
+- src/components/navigation/AppTopbar.vue
+- src/assets/styles/tokens.css
+- src/assets/styles/shell.css
+- src/views/DashboardView.vue
+
+Notas:
+- Se conservan Bootstrap, Supabase, Pinia, Vue Router y las vistas existentes.
+- No ejecutes npm audit fix --force durante esta instalación.
+- La barra lateral, topbar, tema oscuro y dashboard nuevo ya quedan activos.
