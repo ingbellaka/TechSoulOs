@@ -6,8 +6,6 @@ import { useAuthStore } from '../stores/auth'
 const router = useRouter()
 const auth = useAuthStore()
 
-const modo = ref('login')
-const registroPublico = false
 const cargando = ref(false)
 
 const form = ref({
@@ -21,18 +19,9 @@ async function entrar() {
   try {
     cargando.value = true
 
-    if (modo.value === 'login') {
-      await auth.login(form.value.email, form.value.password)
-    } else {
-      await auth.registro(
-        form.value.nombre,
-        form.value.email,
-        form.value.password,
-        form.value.rol
-      )
-    }
-
-    router.push('/')
+    await auth.login(form.value.email, form.value.password)
+    const redirect = String(router.currentRoute.value.query.redirect || '/')
+    router.replace(redirect)
   } catch (error) {
     alert(error.message)
   } finally {
@@ -49,40 +38,6 @@ async function entrar() {
         <p class="text-muted mb-0">Acceso seguro al sistema</p>
       </div>
 
-      <div class="btn-group w-100 mb-3">
-        <button
-          class="btn"
-          :class="modo === 'login' ? 'btn-primary' : 'btn-outline-primary'"
-          @click="modo = 'login'"
-        >
-          Entrar
-        </button>
-
-        <button
-          v-if="registroPublico"
-          class="btn"
-          :class="modo === 'registro' ? 'btn-primary' : 'btn-outline-primary'"
-          @click="modo = 'registro'"
-        >
-          Crear usuario
-        </button>
-      </div>
-
-      <input
-        v-if="modo === 'registro'"
-        v-model="form.nombre"
-        class="form-control mb-2"
-        placeholder="Nombre"
-      >
-
-      <select
-        v-if="modo === 'registro'"
-        v-model="form.rol"
-        class="form-select mb-2"
-      >
-        <option value="Tecnico">Técnico / Recepción</option>
-        <option value="Administrador">Administrador</option>
-      </select>
 
       <input
         v-model="form.email"
@@ -96,6 +51,8 @@ async function entrar() {
         type="password"
         class="form-control mb-3"
         placeholder="Contraseña"
+        autocomplete="current-password"
+        @keyup.enter="entrar"
       >
 
       <button
@@ -103,12 +60,11 @@ async function entrar() {
         :disabled="cargando"
         @click="entrar"
       >
-        {{ cargando ? 'Procesando...' : (modo === 'login' ? 'Entrar' : 'Crear usuario') }}
+        {{ cargando ? 'Entrando...' : 'Entrar' }}
       </button>
 
-      <small class="text-muted d-block mt-3 text-center">
-        Los usuarios se administran de forma segura desde TechSoul OS o Supabase Auth.
-      </small>
+      <router-link to="/recuperar-contrasena" class="btn btn-link w-100 mt-2">¿Olvidaste tu contraseña?</router-link>
+      <small class="text-muted d-block mt-2 text-center">Los usuarios se administran desde Supabase Auth.</small>
     </div>
   </div>
 </template>

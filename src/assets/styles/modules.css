@@ -818,3 +818,24 @@ button {
   .ts-history-list > div, .inv-movement-list > div { grid-template-columns: 1fr; gap: 8px; }
   .ts-history-list > div > div:last-child, .inv-movement-list > div > div:last-child { text-align: left; justify-items: start; }
 }
+
+
+/* Modal profesional de pagos */
+.ts-payment-dialog{width:min(520px,100%)}
+.ts-payment-modal-summary{margin:18px 0;display:grid;grid-template-columns:repeat(3,1fr);gap:9px}
+.ts-payment-modal-summary>div{padding:12px;border:1px solid var(--ts-border);border-radius:12px;background:var(--ts-surface-2)}
+.ts-payment-modal-summary span,.ts-payment-modal-summary strong{display:block}
+.ts-payment-modal-summary span{color:var(--ts-muted);font-size:9px}
+.ts-payment-modal-summary strong{margin-top:5px;font-size:14px}
+.ts-payment-field{margin-top:14px;display:grid;gap:7px}
+.ts-payment-field>span{color:var(--ts-text);font-size:10px;font-weight:800}
+.ts-payment-field small{color:var(--ts-muted);font-weight:600}
+.ts-payment-field>input{width:100%;height:43px;padding:0 12px;border:1px solid var(--ts-border);border-radius:11px;color:var(--ts-text);background:var(--ts-surface-2);font:inherit;outline:0}
+.ts-payment-field>input:focus{border-color:var(--ts-primary);box-shadow:0 0 0 3px var(--ts-primary-soft)}
+.ts-payment-methods{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}
+.ts-payment-methods label{min-height:39px;padding:0 11px;display:flex;align-items:center;gap:8px;border:1px solid var(--ts-border);border-radius:10px;color:var(--ts-text);background:var(--ts-surface-2);font-size:10px;font-weight:700;cursor:pointer}
+.ts-payment-methods label:has(input:checked){border-color:var(--ts-primary);color:var(--ts-primary);background:var(--ts-primary-soft)}
+.ts-payment-error,.ts-payment-success{margin-top:12px!important;padding:10px 12px;border-radius:10px;font-size:10px!important;font-weight:750}
+.ts-payment-error{border:1px solid #fecaca;color:#b91c1c!important;background:#fef2f2}
+.ts-payment-success{border:1px solid #bbf7d0;color:#166534!important;background:#f0fdf4}
+@media(max-width:520px){.ts-payment-modal-summary{grid-template-columns:1fr}.ts-payment-methods{grid-template-columns:1fr}}

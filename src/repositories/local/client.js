@@ -37,11 +37,24 @@ const seed = () => ({
   ],
   movimientos_caja: [{ id: 1, tipo: 'Entrada', concepto: 'Anticipo orden TS-0001', monto: 1000, metodo_pago: 'Efectivo', referencia_tipo: 'orden', referencia_id: 1, notas: '', created_at: now() }],
   firmas_orden: [],
+  catalogo_servicios: [
+    { id: 1, nombre: 'Cambio de pantalla', categoria: 'Pantallas', descripcion: '', marca: '', modelo: '', variante: '', costo_base: 0, precio_venta: 0, garantia_dias: 90, activo: true, producto_id: null, cantidad_producto: 1, creado_en: now(), actualizado_en: now() },
+    { id: 2, nombre: 'Cambio de batería', categoria: 'Baterías', descripcion: '', marca: '', modelo: '', variante: '', costo_base: 0, precio_venta: 0, garantia_dias: 90, activo: true, producto_id: null, cantidad_producto: 1, creado_en: now(), actualizado_en: now() }
+  ],
   productos: [
     { id: 1, nombre: 'Pantalla iPhone 14 Pro OLED', categoria: 'Pantallas', sku: 'PAN-IP14P-OLED', stock: 2, stock_minimo: 1, costo: 1800, precio_venta: 2950, proveedor: 'Proveedor local', created_at: now() }
   ],
   presupuestos: [], ventas: [], detalle_ventas: [], solicitudes_compra: [], proveedores: [], ordenes_compra: [], ordenes_compra_detalle: [],
-  configuracion_negocio: [{ id: 1, nombre: 'TechSoul', telefono: '6677487373', direccion: 'Blvd. Jardín de las Orquídeas 2584-B, Santa Fe, Culiacán', moneda: 'MXN' }],
+  configuracion_negocio: [{ id: 1, nombre_negocio: 'TechSoul', telefono: '6677487373', whatsapp: '6677487373', direccion: 'Blvd. Jardín de las Orquídeas 2584-B, Santa Fe, Culiacán', moneda: 'MXN', garantia_default_dias: 90, prefijo_folio: 'TS' }],
+  faq: [
+    { id: 1, pregunta: '¿Dónde están ubicados?', respuesta: 'Estamos en Blvd. Jardín de las Orquídeas 2584-B, Santa Fe, Culiacán.', categoria: 'Ubicación', palabras_clave: ['ubicación','dirección'], prioridad: 100, activo: true, creado_en: now() },
+    { id: 2, pregunta: '¿Qué diferencia hay entre INCELL y OLED?', respuesta: 'INCELL es una opción económica; OLED ofrece mejor contraste y negros.', categoria: 'Pantallas', palabras_clave: ['incell','oled'], prioridad: 90, activo: true, creado_en: now() }
+  ],
+  promociones: [],
+  plantillas_respuesta: [
+    { id: 1, nombre: 'Cotización pantalla', categoria: 'Cotización', contenido: 'Para cotizarte correctamente necesito el modelo exacto y saber si imagen y touch funcionan.', palabras_clave: ['pantalla','display'], activo: true, creado_en: now() }
+  ],
+  auditoria: [],
   usuarios: [
     { id: 1, nombre: 'Yuliana Arredondo', email: 'admin@techsoul.local', rol: 'Administrador', activo: true, created_at: now() },
     { id: 2, nombre: 'Jorge Ortegon', email: 'jorge@techsoul.local', rol: 'Técnico', activo: true, created_at: now() }

@@ -1,0 +1,48 @@
+TECHSOUL OS — SPRINT 01: AUTH SUPABASE + VERCEL
+
+IMPORTANTE
+Este paquete contiene SOLO los archivos nuevos o modificados.
+No reemplaces toda la carpeta del proyecto.
+
+1. Abre este paquete y copia su contenido dentro de la carpeta raíz de tu repositorio TechSoulOs.
+2. Windows preguntará si deseas combinar carpetas y reemplazar archivos existentes.
+3. Selecciona "Reemplazar los archivos en el destino".
+
+ARCHIVOS A REEMPLAZAR
+- package.json
+- src/router/index.js
+- src/stores/auth.js
+- src/views/LoginView.vue
+
+ARCHIVOS NUEVOS
+- vercel.json
+- src/views/RecuperarContrasenaView.vue
+- src/views/RestablecerContrasenaView.vue
+- src/views/SinPermisoView.vue
+
+DESPUÉS DE PEGARLOS
+1. Abre una terminal dentro de TechSoulOs.
+2. Ejecuta: npm install
+3. Ejecuta: npm run dev
+4. Prueba /login y /recuperar-contrasena.
+5. En GitHub Desktop crea el commit:
+   Configura autenticación Supabase y protección de rutas
+6. Haz Push origin.
+7. Vercel desplegará automáticamente.
+
+CONFIGURACIÓN SUPABASE
+Authentication > URL Configuration
+- Site URL: tu URL principal de Vercel
+- Redirect URL: https://TU-DOMINIO.vercel.app/restablecer-contrasena
+- Redirect local: http://localhost:5173/restablecer-contrasena
+
+USUARIO ADMINISTRADOR
+- ingyulianaarredondo@gmail.com
+- Debe existir en Authentication > Users.
+- Debe existir en public.perfiles con rol = admin y activo = true.
+
+NO PEGUES EN EL PROYECTO
+- contraseñas
+- service_role
+- sb_secret
+- OPENAI_API_KEY

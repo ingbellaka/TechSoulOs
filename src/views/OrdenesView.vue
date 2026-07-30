@@ -12,6 +12,12 @@ const menuAbierto = ref(null)
 const ordenAccion = ref(null)
 const modalAccion = ref(null)
 const procesandoAccion = ref(false)
+const ordenPago = ref(null)
+const montoPago = ref('')
+const metodoPago = ref('Efectivo')
+const referenciaPago = ref('')
+const errorPago = ref('')
+const procesandoPago = ref(false)
 
 const esAdministrador = computed(() => authStore.isAdmin)
 
@@ -66,11 +72,22 @@ function estadoSlug(estado = '') {
     .replace(/\s+/g, '-')
 }
 
+function totalOrden(orden) {
+  return Math.max(0, Number(orden?.costo_total || 0))
+}
+
+function pagadoOrden(orden) {
+  return Math.max(0, Number(orden?.anticipo || 0))
+}
+
+function saldoOrden(orden) {
+  return Math.max(0, totalOrden(orden) - pagadoOrden(orden))
+}
+
 function porcentajePago(orden) {
-  const total = Number(orden.costo_total || 0)
-  const anticipo = Number(orden.anticipo || 0)
+  const total = totalOrden(orden)
   if (!total) return 0
-  return Math.min(100, Math.round((anticipo / total) * 100))
+  return Math.min(100, Math.round((pagadoOrden(orden) / total) * 100))
 }
 
 function whatsappLink(orden) {
@@ -148,28 +165,88 @@ async function registrarGasto(orden) {
   alert('Gasto registrado')
 }
 
-async function registrarLiquidacion(orden) {
-  const monto = Number(prompt(`Saldo actual: ${moneda(orden.saldo)}. ¿Cuánto pagó el cliente?`))
-  if (!monto) return
+function abrirPago(orden) {
+  const saldo = saldoOrden(orden)
+  if (saldo <= 0) {
+    alert('Esta orden ya está liquidada.')
+    return
+  }
+  ordenPago.value = orden
+  montoPago.value = ''
+  metodoPago.value = 'Efectivo'
+  referenciaPago.value = ''
+  errorPago.value = ''
+}
 
-  const nuevoAnticipo = Number(orden.anticipo || 0) + monto
-  const { error: errorOrden } = await supabase.from('ordenes').update({ anticipo: nuevoAnticipo }).eq('id', orden.id)
-  if (errorOrden) return alert(errorOrden.message)
+function cerrarPago() {
+  if (procesandoPago.value) return
+  ordenPago.value = null
+  montoPago.value = ''
+  errorPago.value = ''
+}
+
+function validarMontoPago() {
+  const monto = Number(montoPago.value)
+  const saldo = saldoOrden(ordenPago.value)
+  if (!Number.isFinite(monto) || monto <= 0) {
+    errorPago.value = 'Ingresa un monto mayor a $0.00.'
+    return false
+  }
+  if (monto > saldo) {
+    errorPago.value = `El monto excede el saldo pendiente de ${moneda(saldo)}.`
+    return false
+  }
+  errorPago.value = ''
+  return true
+}
+
+async function registrarLiquidacion() {
+  if (!ordenPago.value || !validarMontoPago()) return
+
+  procesandoPago.value = true
+  const orden = ordenPago.value
+  const monto = Number(montoPago.value)
+  const nuevoAnticipo = pagadoOrden(orden) + monto
+  const nuevoSaldo = Math.max(0, totalOrden(orden) - nuevoAnticipo)
+
+  const { error: errorOrden } = await supabase
+    .from('ordenes')
+    .update({ anticipo: nuevoAnticipo })
+    .eq('id', orden.id)
+
+  if (errorOrden) {
+    procesandoPago.value = false
+    errorPago.value = errorOrden.message
+    return
+  }
 
   const { error: errorCaja } = await supabase.from('movimientos_caja').insert({
     tipo: 'Entrada',
     concepto: `Pago orden ${orden.folio}`,
     monto,
-    metodo_pago: 'Pendiente por definir',
+    metodo_pago: metodoPago.value,
     referencia_tipo: 'orden',
     referencia_id: orden.id,
-    notas: orden.clientes?.nombre
+    notas: [orden.clientes?.nombre, referenciaPago.value].filter(Boolean).join(' · ')
   })
 
-  if (errorCaja) return alert(errorCaja.message)
-  await registrarHistorial(orden.id, 'pago', 'Pago registrado', `Se registró un pago de ${moneda(monto)}.`)
+  if (errorCaja) {
+    await supabase.from('ordenes').update({ anticipo: pagadoOrden(orden) }).eq('id', orden.id)
+    procesandoPago.value = false
+    errorPago.value = `No se pudo registrar el movimiento en caja: ${errorCaja.message}`
+    return
+  }
+
+  await registrarHistorial(
+    orden.id,
+    'pago',
+    nuevoSaldo === 0 ? 'Orden liquidada' : 'Pago registrado',
+    `Se registró un pago de ${moneda(monto)} mediante ${metodoPago.value}. Saldo restante: ${moneda(nuevoSaldo)}.`
+  )
+
+  procesandoPago.value = false
+  cerrarPago()
   await cargarOrdenes()
-  alert('Pago registrado')
 }
 
 
@@ -333,7 +410,7 @@ onMounted(async () => {
             <div class="ts-payment-values">
               <div><span>Total</span><strong>{{ moneda(orden.costo_total) }}</strong></div>
               <div><span>Pagado</span><strong>{{ moneda(orden.anticipo) }}</strong></div>
-              <div><span>Saldo</span><strong class="ts-balance-due">{{ moneda(orden.saldo) }}</strong></div>
+              <div><span>Saldo</span><strong class="ts-balance-due">{{ moneda(saldoOrden(orden)) }}</strong></div>
             </div>
           </div>
 
@@ -346,7 +423,7 @@ onMounted(async () => {
 
           <footer class="ts-order-actions">
             <router-link class="ts-action-primary ts-action-compact" :to="`/ordenes/${orden.id}`">Ver detalle</router-link>
-            <button class="ts-action-secondary ts-action-compact" type="button" @click="registrarLiquidacion(orden)">Registrar pago</button>
+            <button class="ts-action-secondary ts-action-compact" type="button" @click="abrirPago(orden)">Registrar pago</button>
             <a
               class="ts-more-action ts-whatsapp-action"
               :href="whatsappLink(orden)"
@@ -395,6 +472,60 @@ onMounted(async () => {
       </div>
     </article>
 
+
+    <Teleport to="body">
+      <div v-if="ordenPago" class="ts-confirm-backdrop" @click.self="cerrarPago">
+        <section class="ts-confirm-dialog ts-payment-dialog" role="dialog" aria-modal="true" aria-labelledby="payment-title">
+          <span class="ts-eyebrow">Cobro de orden</span>
+          <h3 id="payment-title">Registrar pago · {{ ordenPago.folio }}</h3>
+
+          <div class="ts-payment-modal-summary">
+            <div><span>Total</span><strong>{{ moneda(totalOrden(ordenPago)) }}</strong></div>
+            <div><span>Pagado</span><strong>{{ moneda(pagadoOrden(ordenPago)) }}</strong></div>
+            <div><span>Saldo pendiente</span><strong class="ts-balance-due">{{ moneda(saldoOrden(ordenPago)) }}</strong></div>
+          </div>
+
+          <label class="ts-payment-field">
+            <span>Monto recibido</span>
+            <input
+              v-model="montoPago"
+              type="number"
+              min="0.01"
+              :max="saldoOrden(ordenPago)"
+              step="0.01"
+              inputmode="decimal"
+              placeholder="0.00"
+              @input="validarMontoPago"
+            >
+          </label>
+
+          <div class="ts-payment-field">
+            <span>Método de pago</span>
+            <div class="ts-payment-methods">
+              <label v-for="metodo in ['Efectivo', 'Transferencia', 'Tarjeta', 'Otro']" :key="metodo">
+                <input v-model="metodoPago" type="radio" :value="metodo">
+                {{ metodo }}
+              </label>
+            </div>
+          </div>
+
+          <label class="ts-payment-field">
+            <span>Referencia u observación <small>(opcional)</small></span>
+            <input v-model.trim="referenciaPago" type="text" maxlength="120" placeholder="Ej. transferencia 1234">
+          </label>
+
+          <p v-if="errorPago" class="ts-payment-error">{{ errorPago }}</p>
+          <p v-else-if="Number(montoPago) === saldoOrden(ordenPago)" class="ts-payment-success">La orden quedará liquidada.</p>
+
+          <footer class="ts-confirm-actions">
+            <button class="ts-action-secondary" type="button" :disabled="procesandoPago" @click="cerrarPago">Cancelar</button>
+            <button class="ts-action-primary" type="button" :disabled="procesandoPago || !Number(montoPago)" @click="registrarLiquidacion">
+              {{ procesandoPago ? 'Registrando…' : 'Registrar pago' }}
+            </button>
+          </footer>
+        </section>
+      </div>
+    </Teleport>
 
     <Teleport to="body">
       <div v-if="ordenAccion" class="ts-confirm-backdrop" @click.self="cerrarConfirmacion">

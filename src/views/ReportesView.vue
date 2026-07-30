@@ -1,14 +1,119 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
-import { supabase } from '../lib/supabase'
-import { mxn, getBudgets } from '../lib/business'
-const loading=ref(true), ventas=ref([]), caja=ref([]), ordenes=ref([]), productos=ref([])
-const resumen=computed(()=>{const ingresos=caja.value.filter(x=>x.tipo==='Entrada').reduce((s,x)=>s+Number(x.monto||0),0);const salidas=caja.value.filter(x=>x.tipo==='Salida').reduce((s,x)=>s+Number(x.monto||0),0);const costo=ventas.value.reduce((s,v)=>s+Number(v.costo_total||0),0);return{ingresos,salidas,flujo:ingresos-salidas,ventas:ventas.value.length,ordenes:ordenes.value.length,utilidad:ingresos-salidas-costo,presupuestos:getBudgets().length}})
-const dias=computed(()=>{const out=[];for(let i=6;i>=0;i--){const d=new Date();d.setDate(d.getDate()-i);const key=d.toISOString().slice(0,10);const monto=caja.value.filter(x=>String(x.fecha_movimiento||x.created_at||'').slice(0,10)===key&&x.tipo==='Entrada').reduce((s,x)=>s+Number(x.monto||0),0);out.push({label:d.toLocaleDateString('es-MX',{weekday:'short'}),monto})}return out}); const maxDia=computed(()=>Math.max(1,...dias.value.map(x=>x.monto)))
-const stockBajo=computed(()=>productos.value.filter(x=>Number(x.stock||0)<=Number(x.stock_minimo||0)).slice(0,8))
-async function cargar(){const [v,c,o,p]=await Promise.all([supabase.from('ventas').select('*'),supabase.from('movimientos_caja').select('*'),supabase.from('ordenes').select('*'),supabase.from('productos').select('*')]);ventas.value=v.data||[];caja.value=c.data||[];ordenes.value=o.data||[];productos.value=p.data||[];loading.value=false}
-function exportar(){const rows=[['Métrica','Valor'],['Ingresos',resumen.value.ingresos],['Salidas',resumen.value.salidas],['Flujo neto',resumen.value.flujo],['Ventas',resumen.value.ventas],['Órdenes',resumen.value.ordenes],['Presupuestos',resumen.value.presupuestos]];const csv='\uFEFF'+rows.map(r=>r.join(',')).join('\n');const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8'}));a.download=`reporte-techsoul-${new Date().toISOString().slice(0,10)}.csv`;a.click();URL.revokeObjectURL(a.href)}
+import { cargarAnalitica, descargarCsv } from '../services/reportes.service'
+
+const loading = ref(true)
+const error = ref('')
+const data = ref({ kpis: {}, estados: {}, serviciosTop: [], ultimos7: [], productos: [], ordenes: [] })
+const periodo = ref('mes')
+const mxn = value => new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }).format(Number(value || 0))
+
+const maxGrafica = computed(() => Math.max(1, ...data.value.ultimos7.flatMap(x => [x.ingresos, x.salidas])))
+const stockBajo = computed(() => data.value.productos.filter(x => Number(x.stock || 0) <= Number(x.stock_minimo || 0)).slice(0, 10))
+const estadoRows = computed(() => Object.entries(data.value.estados).sort((a, b) => b[1] - a[1]))
+
+async function cargar() {
+  loading.value = true
+  error.value = ''
+  try { data.value = await cargarAnalitica() }
+  catch (e) { error.value = e.message || 'No se pudieron cargar los reportes.' }
+  finally { loading.value = false }
+}
+
+function exportarResumen() {
+  const k = data.value.kpis
+  descargarCsv(`techsoul-resumen-${new Date().toISOString().slice(0, 10)}.csv`, [
+    ['Métrica', 'Valor'],
+    ['Ventas hoy', k.ventasHoy], ['Ventas semana', k.ventasSemana], ['Ventas mes', k.ventasMes],
+    ['Gastos mes', k.gastosMes], ['Flujo mes', k.flujoMes], ['Utilidad estimada', k.utilidadEstimada],
+    ['Saldo pendiente', k.saldoPendiente], ['Órdenes abiertas', k.ordenesAbiertas],
+    ['Órdenes listas', k.ordenesListas], ['Garantías activas', k.garantiasActivas],
+    ['Inventario crítico', k.inventarioCritico], ['Ticket promedio', k.ticketPromedio]
+  ])
+}
+
+function exportarOrdenes() {
+  descargarCsv(`techsoul-ordenes-${new Date().toISOString().slice(0, 10)}.csv`, [
+    ['Folio', 'Estado', 'Total', 'Anticipo', 'Saldo', 'Fecha'],
+    ...data.value.ordenes.map(x => [x.folio || x.id, x.estado, x.costo_total, x.anticipo, Math.max(0, Number(x.costo_total || 0) - Number(x.anticipo || 0)), x.fecha_ingreso || x.created_at])
+  ])
+}
+
 onMounted(cargar)
-</script><template><section class="ts-module-page"><header class="ts-module-header"><div><span class="ts-eyebrow">Datos reales del sistema</span><h2>Reportes</h2><p>Resumen operativo calculado a partir de ventas, caja, órdenes e inventario.</p></div><button class="ts-action-secondary" @click="exportar">Exportar CSV</button></header><div class="metrics"><article><span>Ingresos</span><strong>{{mxn(resumen.ingresos)}}</strong></article><article><span>Salidas</span><strong>{{mxn(resumen.salidas)}}</strong></article><article><span>Flujo neto</span><strong>{{mxn(resumen.flujo)}}</strong></article><article><span>Órdenes</span><strong>{{resumen.ordenes}}</strong></article><article><span>Ventas</span><strong>{{resumen.ventas}}</strong></article><article><span>Presupuestos</span><strong>{{resumen.presupuestos}}</strong></article></div><div class="report-grid"><article class="ts-panel"><h3>Ingresos de los últimos 7 días</h3><div class="bars"><div v-for="d in dias" :key="d.label"><span :style="{height:`${Math.max(4,(d.monto/maxDia)*100)}%`}" :title="mxn(d.monto)"></span><small>{{d.label}}</small></div></div></article><article class="ts-panel"><h3>Productos con stock bajo</h3><div class="stock"><div v-for="p in stockBajo" :key="p.id"><span>{{p.nombre}}</span><strong>{{p.stock||0}} / mín. {{p.stock_minimo||0}}</strong></div><p v-if="!stockBajo.length">No hay alertas de stock.</p></div></article></div><p v-if="loading">Cargando información…</p></section></template>
-<style scoped>.metrics{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:18px}.metrics article{background:white;border:1px solid #e5eaf1;border-radius:14px;padding:17px}.metrics span{display:block;color:#667085}.metrics strong{font-size:24px}.report-grid{display:grid;grid-template-columns:1.4fr .8fr;gap:18px}.bars{height:260px;display:flex;align-items:end;gap:16px;padding-top:28px}.bars div{height:100%;flex:1;display:flex;flex-direction:column;justify-content:end;text-align:center}.bars span{display:block;min-height:6px;background:#2161f5;border-radius:8px 8px 2px 2px}.bars small{margin-top:8px;color:#667085}.stock div{display:flex;justify-content:space-between;padding:13px 0;border-bottom:1px solid #edf0f4}@media(max-width:760px){.metrics{grid-template-columns:1fr 1fr}.report-grid{grid-template-columns:1fr}}
+</script>
+
+<template>
+  <section class="reports-page">
+    <header class="page-header">
+      <div>
+        <span>ANALÍTICA DEL NEGOCIO</span>
+        <h2>Reportes y rentabilidad</h2>
+        <p>Consulta ingresos, gastos, flujo, órdenes, servicios e inventario en un solo lugar.</p>
+      </div>
+      <div class="actions">
+        <button class="secondary" @click="exportarOrdenes">Exportar órdenes</button>
+        <button class="primary" @click="exportarResumen">Exportar resumen CSV</button>
+      </div>
+    </header>
+
+    <div v-if="error" class="alert">{{ error }} <button @click="cargar">Reintentar</button></div>
+    <div v-if="loading" class="loading">Cargando información…</div>
+
+    <template v-else>
+      <div class="kpi-grid">
+        <article><span>Ventas hoy</span><strong>{{ mxn(data.kpis.ventasHoy) }}</strong><small>Entradas registradas hoy</small></article>
+        <article><span>Ventas esta semana</span><strong>{{ mxn(data.kpis.ventasSemana) }}</strong><small>Desde el lunes</small></article>
+        <article><span>Ventas del mes</span><strong>{{ mxn(data.kpis.ventasMes) }}</strong><small>Entradas acumuladas</small></article>
+        <article><span>Gastos del mes</span><strong>{{ mxn(data.kpis.gastosMes) }}</strong><small>Salidas acumuladas</small></article>
+        <article><span>Flujo neto</span><strong :class="{ negative: data.kpis.flujoMes < 0 }">{{ mxn(data.kpis.flujoMes) }}</strong><small>Ingresos menos salidas</small></article>
+        <article><span>Saldo pendiente</span><strong>{{ mxn(data.kpis.saldoPendiente) }}</strong><small>Por cobrar en órdenes</small></article>
+        <article><span>Ticket promedio</span><strong>{{ mxn(data.kpis.ticketPromedio) }}</strong><small>Promedio por orden</small></article>
+        <article><span>Inventario crítico</span><strong>{{ data.kpis.inventarioCritico }}</strong><small>Productos en mínimo</small></article>
+      </div>
+
+      <div class="content-grid">
+        <article class="panel chart-panel">
+          <div class="panel-title"><div><span>ÚLTIMOS 7 DÍAS</span><h3>Ingresos contra salidas</h3></div></div>
+          <div class="chart">
+            <div v-for="day in data.ultimos7" :key="day.fecha" class="chart-day">
+              <div class="bars">
+                <span class="income" :style="{ height: `${Math.max(3, day.ingresos / maxGrafica * 100)}%` }" :title="`Ingresos ${mxn(day.ingresos)}`"></span>
+                <span class="expense" :style="{ height: `${Math.max(3, day.salidas / maxGrafica * 100)}%` }" :title="`Salidas ${mxn(day.salidas)}`"></span>
+              </div>
+              <small>{{ day.label }}</small>
+            </div>
+          </div>
+          <div class="legend"><span><i class="income-dot"></i>Ingresos</span><span><i class="expense-dot"></i>Salidas</span></div>
+        </article>
+
+        <article class="panel">
+          <div class="panel-title"><div><span>OPERACIÓN</span><h3>Órdenes por estado</h3></div></div>
+          <div class="list">
+            <div v-for="([estado, cantidad]) in estadoRows" :key="estado"><span>{{ estado }}</span><strong>{{ cantidad }}</strong></div>
+            <p v-if="!estadoRows.length">No hay órdenes registradas.</p>
+          </div>
+        </article>
+
+        <article class="panel">
+          <div class="panel-title"><div><span>DEMANDA</span><h3>Servicios más vendidos</h3></div></div>
+          <div class="list">
+            <div v-for="item in data.serviciosTop.slice(0, 8)" :key="item.nombre"><span>{{ item.nombre }}</span><strong>{{ item.cantidad }} · {{ mxn(item.importe) }}</strong></div>
+            <p v-if="!data.serviciosTop.length">Aún no hay servicios registrados.</p>
+          </div>
+        </article>
+
+        <article class="panel">
+          <div class="panel-title"><div><span>INVENTARIO</span><h3>Productos por reponer</h3></div><router-link to="/inventario">Ver inventario</router-link></div>
+          <div class="list">
+            <div v-for="item in stockBajo" :key="item.id"><span>{{ item.nombre }}</span><strong>{{ item.stock || 0 }} / mín. {{ item.stock_minimo || 0 }}</strong></div>
+            <p v-if="!stockBajo.length">No hay alertas de stock.</p>
+          </div>
+        </article>
+      </div>
+    </template>
+  </section>
+</template>
+
+<style scoped>
+.reports-page{max-width:1500px;margin:0 auto}.page-header{display:flex;justify-content:space-between;align-items:flex-end;gap:24px;margin-bottom:22px}.page-header span,.panel-title span{font-size:10px;font-weight:800;letter-spacing:.12em;color:var(--ts-primary);text-transform:uppercase}.page-header h2{margin:5px 0 7px;font-size:32px;letter-spacing:-.04em}.page-header p{margin:0;color:var(--ts-muted)}.actions{display:flex;gap:10px}.actions button,.alert button{border:0;border-radius:11px;padding:12px 15px;font-weight:700}.primary{background:var(--ts-primary);color:#fff}.secondary{background:var(--ts-surface);border:1px solid var(--ts-border)!important;color:var(--ts-text)}.kpi-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:13px}.kpi-grid article,.panel{background:var(--ts-surface);border:1px solid var(--ts-border);box-shadow:var(--ts-shadow-sm);border-radius:16px}.kpi-grid article{padding:18px;display:flex;flex-direction:column}.kpi-grid span{font-size:12px;color:var(--ts-muted)}.kpi-grid strong{margin:7px 0 8px;font-size:24px;letter-spacing:-.035em}.kpi-grid small{color:var(--ts-muted);font-size:10px}.negative{color:var(--ts-danger)}.content-grid{display:grid;grid-template-columns:1.35fr .85fr;gap:15px;margin-top:15px}.panel{padding:21px}.panel-title{display:flex;justify-content:space-between;align-items:start;margin-bottom:18px}.panel-title h3{margin:4px 0 0;font-size:17px}.panel-title a{font-size:12px;font-weight:700;color:var(--ts-primary)}.chart{height:245px;display:flex;align-items:end;gap:18px;border-bottom:1px solid var(--ts-border);padding:18px 10px 0}.chart-day{height:100%;flex:1;display:flex;flex-direction:column;justify-content:end;text-align:center}.bars{height:calc(100% - 27px);display:flex;align-items:end;justify-content:center;gap:5px}.bars span{display:block;width:15px;min-height:3px;border-radius:5px 5px 0 0}.bars .income{background:var(--ts-primary)}.bars .expense{background:#f59e0b}.chart-day small{padding:8px 0;color:var(--ts-muted);text-transform:capitalize}.legend{display:flex;gap:18px;margin-top:13px;color:var(--ts-muted);font-size:11px}.legend i{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px}.income-dot{background:var(--ts-primary)}.expense-dot{background:#f59e0b}.list{display:grid}.list div{display:flex;justify-content:space-between;gap:15px;padding:12px 0;border-top:1px solid var(--ts-border)}.list div:first-child{border-top:0}.list span{font-size:12px}.list strong{font-size:11px;text-align:right}.list p,.loading{color:var(--ts-muted);text-align:center;padding:25px}.alert{padding:14px;border-radius:12px;background:#fef2f2;color:#b91c1c;margin-bottom:15px}.alert button{float:right;padding:4px 8px}@media(max-width:1050px){.kpi-grid{grid-template-columns:repeat(2,1fr)}.content-grid{grid-template-columns:1fr}}@media(max-width:650px){.page-header{align-items:stretch;flex-direction:column}.actions{display:grid}.kpi-grid{grid-template-columns:1fr}.chart{gap:8px}.bars span{width:10px}}
 </style>

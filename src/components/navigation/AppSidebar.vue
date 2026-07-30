@@ -34,6 +34,7 @@ const groups = [
   {
     label: 'Inventario',
     items: [
+      { label: 'Catálogo de servicios', to: '/catalogo-servicios', icon: 'tag' },
       { label: 'Existencias', to: '/inventario', icon: 'box' },
       { label: 'Compras y proveedores', to: '/compras', icon: 'truck' }
     ]
@@ -54,13 +55,18 @@ const groups = [
     items: [
       { label: 'Inteligencia de precios', to: '/inteligencia-precios', icon: 'chart' },
       { label: 'TechSoul AI', to: '/ia', icon: 'spark' },
+      { label: 'Base de conocimiento', to: '/base-conocimiento', icon: 'spark' },
+      { label: 'Promociones', to: '/promociones', icon: 'tag' },
+      { label: 'Plantillas de respuesta', to: '/plantillas', icon: 'chat' },
+      { label: 'Preparación del agente', to: '/ia-configuracion', icon: 'settings' },
       { label: 'Automatizaciones', to: '/automatizaciones', icon: 'bolt' }
     ]
   },
   {
     label: 'Sistema',
     items: [
-      { label: 'Usuarios', to: '/usuarios', icon: 'users' },
+      { label: 'Usuarios y permisos', to: '/usuarios', icon: 'users' },
+      { label: 'Auditoría', to: '/auditoria', icon: 'clipboard' },
       { label: 'Configuración', to: '/configuracion', icon: 'settings' }
     ]
   }
