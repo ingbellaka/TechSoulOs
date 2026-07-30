@@ -51,6 +51,10 @@ const seed = () => ({
     { id: 2, pregunta: '¿Qué diferencia hay entre INCELL y OLED?', respuesta: 'INCELL es una opción económica; OLED ofrece mejor contraste y negros.', categoria: 'Pantallas', palabras_clave: ['incell','oled'], prioridad: 90, activo: true, creado_en: now() }
   ],
   promociones: [],
+  configuracion_agente_ia: [{ id: 1, nombre: 'Soul', tono: 'amable_profesional', saludo: '¡Hola! Soy Soul, asistente virtual de TechSoul. ¿En qué equipo te ayudo?', despedida: 'Con gusto te esperamos en TechSoul.', instrucciones: 'No inventes precios ni diagnósticos.', reglas: { no_inventar_precios: true, no_confirmar_stock_sin_consulta: true, escalar_humedad: true }, activo: true, actualizado_en: now() }],
+  conversaciones_ia: [],
+  mensajes_ia: [],
+  respuestas_aprobadas_ia: [],
   plantillas_respuesta: [
     { id: 1, nombre: 'Cotización pantalla', categoria: 'Cotización', contenido: 'Para cotizarte correctamente necesito el modelo exacto y saber si imagen y touch funcionan.', palabras_clave: ['pantalla','display'], activo: true, creado_en: now() }
   ],

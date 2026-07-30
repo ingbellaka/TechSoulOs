@@ -34,6 +34,8 @@ import PromocionesView from '../views/PromocionesView.vue'
 import PlantillasView from '../views/PlantillasView.vue'
 import AuditoriaView from '../views/AuditoriaView.vue'
 import IAConfigView from '../views/IAConfigView.vue'
+import AgenteIAView from '../views/AgenteIAView.vue'
+import ConfigAgenteIAView from '../views/ConfigAgenteIAView.vue'
 
 const OPERACION = ['admin', 'recepcion', 'tecnico']
 const FINANZAS = ['admin', 'recepcion']
@@ -65,6 +67,8 @@ const routes = [
   { path: '/garantias', name: 'garantias', component: GarantiasView, meta: { roles: OPERACION } },
   { path: '/reportes', name: 'reportes', component: ReportesView, meta: { roles: FINANZAS } },
   { path: '/ia', name: 'ia', component: AIHubView, meta: { roles: OPERACION } },
+  { path: '/agente-ia', name: 'agenteIA', component: AgenteIAView, meta: { roles: OPERACION } },
+  { path: '/agente-ia/configuracion', name: 'configAgenteIA', component: ConfigAgenteIAView, meta: { roles: SOLO_ADMIN } },
   { path: '/automatizaciones', name: 'automatizaciones', component: AutomatizacionesView, meta: { roles: SOLO_ADMIN } },
   { path: '/usuarios', name: 'usuarios', component: UsuariosView, meta: { roles: SOLO_ADMIN } },
   { path: '/base-conocimiento', name: 'baseConocimiento', component: BaseConocimientoView, meta: { roles: SOLO_ADMIN } },

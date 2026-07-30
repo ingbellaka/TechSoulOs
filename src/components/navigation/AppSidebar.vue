@@ -55,6 +55,8 @@ const groups = [
     items: [
       { label: 'Inteligencia de precios', to: '/inteligencia-precios', icon: 'chart' },
       { label: 'TechSoul AI', to: '/ia', icon: 'spark' },
+      { label: 'Simulador del agente', to: '/agente-ia', icon: 'chat' },
+      { label: 'Perfil del agente', to: '/agente-ia/configuracion', icon: 'settings' },
       { label: 'Base de conocimiento', to: '/base-conocimiento', icon: 'spark' },
       { label: 'Promociones', to: '/promociones', icon: 'tag' },
       { label: 'Plantillas de respuesta', to: '/plantillas', icon: 'chat' },
