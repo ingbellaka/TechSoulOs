@@ -3,7 +3,6 @@ import { ref, onMounted, computed, nextTick } from 'vue'
 import { useRoute } from 'vue-router'
 import { supabase } from '../lib/supabase'
 import { subirEvidencia } from '../lib/storage'
-import { getBusinessSettings } from '../lib/business'
 
 const route = useRoute()
 const orden = ref(null)
@@ -14,11 +13,12 @@ const movimientos = ref([])
 const firmas = ref([])
 const historial = ref([])
 const seccionActiva = ref('resumen')
-const negocio = getBusinessSettings()
+const negocio = ref({ nombre_negocio: 'TechSoul', cuota_almacenamiento_dia: 50, dias_gracia_almacenamiento: 30 })
 
 const canvasFirma = ref(null)
 const dibujando = ref(false)
 const nombreFirmante = ref('')
+const aceptaCondiciones = ref(false)
 const nuevaFoto = ref(null)
 const subiendoFoto = ref(false)
 
@@ -36,11 +36,22 @@ function fecha(valor, conHora = true) {
 const ingresos = computed(() => movimientos.value.filter(m => m.tipo === 'Entrada').reduce((s, m) => s + Number(m.monto || 0), 0))
 const gastos = computed(() => movimientos.value.filter(m => m.tipo === 'Salida').reduce((s, m) => s + Number(m.monto || 0), 0))
 const utilidad = computed(() => ingresos.value - gastos.value)
+const saldoOrden = computed(() => Math.max(0, Number(orden.value?.costo_total || 0) - Number(orden.value?.anticipo || 0)))
+
 const porcentajePagado = computed(() => {
   const total = Number(orden.value?.costo_total || 0)
   if (!total) return 0
   return Math.min(100, Math.round((Number(orden.value?.anticipo || 0) / total) * 100))
 })
+
+const diasEnEspera = computed(() => {
+  if (!orden.value?.fecha_listo || orden.value.estado === 'Entregado') return 0
+  const ms = Date.now() - new Date(orden.value.fecha_listo).getTime()
+  return Math.max(0, Math.floor(ms / (1000 * 60 * 60 * 24)))
+})
+const diasGraciaAlmacenamiento = computed(() => Number(negocio.value?.dias_gracia_almacenamiento ?? 30))
+const diasConCargo = computed(() => Math.max(0, diasEnEspera.value - diasGraciaAlmacenamiento.value))
+const cargoAlmacenamiento = computed(() => diasConCargo.value * Number(negocio.value?.cuota_almacenamiento_dia || 0))
 
 const checklistAgrupado = computed(() => ({
   bien: checklist.value.filter(c => normalizarEstado(c.estado) === 'bien'),
@@ -68,7 +79,7 @@ function estadoOrdenClase() {
 function whatsappLink() {
   const telefono = orden.value?.clientes?.whatsapp || orden.value?.clientes?.telefono || ''
   const limpio = telefono.replace(/\D/g, '')
-  const mensaje = `Hola ${orden.value?.clientes?.nombre || ''}, te escribimos de TechSoul. Tu equipo ${orden.value?.equipos?.marca || ''} ${orden.value?.equipos?.modelo || ''} está en estado: ${orden.value?.estado}. Folio: ${orden.value?.folio}. Saldo pendiente: ${moneda(orden.value?.saldo)}.`
+  const mensaje = `Hola ${orden.value?.clientes?.nombre || ''}, te escribimos de TechSoul. Tu equipo ${orden.value?.equipos?.marca || ''} ${orden.value?.equipos?.modelo || ''} está en estado: ${orden.value?.estado}. Folio: ${orden.value?.folio}. Saldo pendiente: ${moneda(saldoOrden.value)}.`
   return `https://wa.me/52${limpio}?text=${encodeURIComponent(mensaje)}`
 }
 
@@ -89,13 +100,14 @@ async function cargarDetalle() {
   orden.value = dataOrden
   nombreFirmante.value = dataOrden.clientes?.nombre || ''
 
-  const [{ data: fotos }, { data: checks }, { data: garantias }, { data: movs }, { data: dataFirmas }, historialResult] = await Promise.all([
+  const [{ data: fotos }, { data: checks }, { data: garantias }, { data: movs }, { data: dataFirmas }, historialResult, { data: dataNegocio }] = await Promise.all([
     supabase.from('evidencias').select('*').eq('orden_id', id).order('id', { ascending: false }),
     supabase.from('checklist_orden').select('*').eq('orden_id', id).order('id'),
     supabase.from('garantias').select('*').eq('orden_id', id).order('id', { ascending: false }),
     supabase.from('movimientos_caja').select('*').eq('referencia_tipo', 'orden').eq('referencia_id', id).order('id', { ascending: false }),
     supabase.from('firmas_orden').select('*').eq('orden_id', id).order('id', { ascending: false }),
-    supabase.from('orden_historial').select('*').eq('orden_id', id).order('created_at', { ascending: false })
+    supabase.from('orden_historial').select('*').eq('orden_id', id).order('created_at', { ascending: false }),
+    supabase.from('configuracion_negocio').select('*').order('id').limit(1).single()
   ])
 
   evidencias.value = fotos || []
@@ -104,6 +116,7 @@ async function cargarDetalle() {
   movimientos.value = movs || []
   firmas.value = dataFirmas || []
   historial.value = historialResult.data || []
+  if (dataNegocio) negocio.value = dataNegocio
 
   await nextTick()
   prepararCanvas()
@@ -160,6 +173,11 @@ function limpiarFirma() {
 async function guardarFirma() {
   if (!nombreFirmante.value.trim()) {
     alert('Escribe el nombre de quien firma')
+    return
+  }
+
+  if (!aceptaCondiciones.value) {
+    alert('El cliente debe aceptar las condiciones antes de firmar')
     return
   }
 
@@ -234,7 +252,7 @@ function generarPdfOrden() {
   const cliente = o.clientes || {}
   const equipo = o.equipos || {}
   const firma = firmas.value[0]
-  const popup = window.open('', '_blank', 'noopener,noreferrer')
+  const popup = window.open('', '_blank')
   if (!popup) {
     alert('El navegador bloqueó la ventana del PDF. Permite ventanas emergentes para TechSoul e inténtalo otra vez.')
     return
@@ -246,7 +264,7 @@ function generarPdfOrden() {
   <style>
     @page{size:A4;margin:12mm}*{box-sizing:border-box}body{font-family:Arial,Helvetica,sans-serif;color:#172033;margin:0;background:#fff;font-size:11px;line-height:1.45}.sheet{max-width:186mm;margin:0 auto}.header{display:flex;justify-content:space-between;gap:20px;border-bottom:3px solid #2563eb;padding-bottom:14px;margin-bottom:14px}.brand h1{font-size:24px;margin:0;color:#101828}.brand p{margin:3px 0;color:#667085}.folio{text-align:right}.folio span{display:block;color:#667085;text-transform:uppercase;letter-spacing:.08em;font-size:9px}.folio strong{display:block;font-size:20px;color:#2563eb;margin:2px 0}.status{display:inline-block;border-radius:999px;background:#eef4ff;color:#1849a9;padding:4px 9px;font-weight:700}.grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px}.card{border:1px solid #dfe5ee;border-radius:9px;padding:11px;break-inside:avoid}.card h2{font-size:11px;text-transform:uppercase;letter-spacing:.07em;color:#475467;margin:0 0 8px}.row{display:grid;grid-template-columns:95px 1fr;gap:8px;margin:4px 0}.row span{color:#667085}.row b{font-weight:600;overflow-wrap:anywhere}.wide{grid-column:1/-1}.text-block{min-height:42px;border-radius:7px;background:#f8fafc;padding:9px;white-space:pre-wrap}.totals{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.total{background:#f8fafc;border-radius:8px;padding:9px}.total span{display:block;color:#667085;font-size:9px;text-transform:uppercase}.total b{display:block;font-size:15px;margin-top:2px}.total.balance b{color:#b42318}.check-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px}.check-item{border-bottom:1px solid #edf0f4;padding:5px 0;display:grid;grid-template-columns:1fr auto;gap:4px}.check-item b{font-size:9px;color:#344054}.check-item small{grid-column:1/-1;color:#667085}.signature{height:72px;display:flex;align-items:flex-end;justify-content:center}.signature img{max-height:58px;max-width:220px}.signature-line{border-top:1px solid #667085;padding-top:5px;text-align:center;color:#475467}.conditions{margin-top:12px;border-top:1px solid #dfe5ee;padding-top:9px;color:#667085;font-size:9px}.muted{color:#98a2b3}.footer{margin-top:10px;text-align:center;color:#98a2b3;font-size:9px}@media print{.no-print{display:none!important}body{-webkit-print-color-adjust:exact;print-color-adjust:exact}}
   </style></head><body><main class="sheet">
-    <header class="header"><div class="brand"><h1>${escaparHtml(negocio.nombre || 'TechSoul')}</h1><p>Especialistas en celulares</p><p>${escaparHtml(negocio.direccion || '')}</p><p>${escaparHtml(negocio.telefono || '')}</p></div><div class="folio"><span>Orden de servicio</span><strong>${escaparHtml(o.folio || o.id)}</strong><span class="status">${escaparHtml(o.estado || 'Recibido')}</span><p>${escaparHtml(fecha(o.fecha_ingreso))}</p></div></header>
+    <header class="header"><div class="brand"><h1>${escaparHtml(negocio.value.nombre_negocio || 'TechSoul')}</h1><p>Especialistas en celulares</p><p>${escaparHtml(negocio.value.direccion || '')}</p><p>${escaparHtml(negocio.value.telefono || '')}</p></div><div class="folio"><span>Orden de servicio</span><strong>${escaparHtml(o.folio || o.id)}</strong><span class="status">${escaparHtml(o.estado || 'Recibido')}</span><p>${escaparHtml(fecha(o.fecha_ingreso))}</p></div></header>
     <section class="grid">
       <article class="card"><h2>Cliente</h2><div class="row"><span>Nombre</span><b>${escaparHtml(cliente.nombre || 'No registrado')}</b></div><div class="row"><span>Teléfono</span><b>${escaparHtml(cliente.telefono || cliente.whatsapp || 'No registrado')}</b></div><div class="row"><span>Correo</span><b>${escaparHtml(cliente.correo || 'No registrado')}</b></div></article>
       <article class="card"><h2>Equipo</h2><div class="row"><span>Equipo</span><b>${escaparHtml([equipo.marca,equipo.modelo].filter(Boolean).join(' ') || 'No registrado')}</b></div><div class="row"><span>Tipo / color</span><b>${escaparHtml([equipo.tipo_equipo,equipo.color].filter(Boolean).join(' · ') || 'No registrado')}</b></div><div class="row"><span>IMEI / Serie</span><b>${escaparHtml(equipo.imei_serie || 'No registrado')}</b></div><div class="row"><span>Accesorios</span><b>${escaparHtml(o.accesorios || equipo.accesorios || 'Ninguno registrado')}</b></div></article>
@@ -254,12 +272,12 @@ function generarPdfOrden() {
       <article class="card"><h2>Diagnóstico</h2><div class="text-block">${escaparHtml(o.diagnostico || 'Pendiente')}</div></article>
       <article class="card"><h2>Trabajo realizado</h2><div class="text-block">${escaparHtml(o.trabajo_realizado || 'Pendiente')}</div></article>
       <article class="card wide"><h2>Checklist de recepción</h2>${filaChecklist()}</article>
-      <article class="card wide"><h2>Resumen financiero</h2><div class="totals"><div class="total"><span>Total</span><b>${escaparHtml(moneda(o.costo_total))}</b></div><div class="total"><span>Anticipo / pagado</span><b>${escaparHtml(moneda(o.anticipo))}</b></div><div class="total balance"><span>Saldo pendiente</span><b>${escaparHtml(moneda(o.saldo))}</b></div></div></article>
-      ${garantia.value ? `<article class="card wide"><h2>Garantía</h2><div class="row"><span>Servicio</span><b>${escaparHtml(garantia.value.tipo_servicio || 'Servicio registrado')}</b></div><div class="row"><span>Vigencia</span><b>${escaparHtml(garantia.value.dias_garantia || 0)} días</b></div><div class="row"><span>Condiciones</span><b>${escaparHtml(garantia.value.condiciones || 'Sin condiciones adicionales')}</b></div></article>` : ''}
+      <article class="card wide"><h2>Resumen financiero</h2><div class="totals"><div class="total"><span>Total</span><b>${escaparHtml(moneda(o.costo_total))}</b></div><div class="total"><span>Anticipo / pagado</span><b>${escaparHtml(moneda(o.anticipo))}</b></div><div class="total balance"><span>Saldo pendiente</span><b>${escaparHtml(moneda(Math.max(0, Number(o.costo_total || 0) - Number(o.anticipo || 0))))}</b></div></div>${cargoAlmacenamiento.value > 0 ? `<p style="margin-top:8px;color:#b42318"><b>Cargo por almacenamiento:</b> ${escaparHtml(moneda(cargoAlmacenamiento.value))} (${diasConCargo.value} día${diasConCargo.value === 1 ? '' : 's'} después del periodo de gracia). No incluido en el saldo mostrado arriba; se agrega al momento de pagar y recoger el equipo.</p>` : ''}</article>
+      ${garantia.value ? `<article class="card wide"><h2>Garantía</h2><div class="row"><span>Servicio</span><b>${escaparHtml(garantia.value.tipo_servicio || 'Servicio registrado')}</b></div><div class="row"><span>Vigencia</span><b>${escaparHtml(garantia.value.dias_garantia || 0)} días, a partir de que se notifica que el equipo está listo</b></div><div class="row"><span>Condiciones</span><b>${escaparHtml(garantia.value.condiciones || 'Sin condiciones adicionales')}</b></div></article>` : ''}
       <article class="card"><h2>Firma de recepción / conformidad</h2><div class="signature">${firma?.firma_base64 ? `<img src="${firma.firma_base64}" alt="Firma">` : ''}</div><div class="signature-line">${escaparHtml(firma?.nombre_firmante || cliente.nombre || 'Nombre y firma del cliente')}</div></article>
-      <article class="card"><h2>Responsable</h2><div class="signature"></div><div class="signature-line">${escaparHtml(o.tecnico || 'Técnico / recepción')}</div></article>
+      <article class="card"><h2>Responsable</h2><div class="signature">${negocio.value?.firma_url ? `<img src="${escaparHtml(negocio.value.firma_url)}" alt="Firma del responsable">` : ''}</div><div class="signature-line">${escaparHtml(negocio.value?.responsable_nombre || o.tecnico || 'Técnico / recepción')}</div></article>
     </section>
-    <p class="conditions"><b>Condiciones:</b> La garantía no cubre golpes, humedad, mal uso, manipulación por terceros o fallas ajenas al trabajo realizado. Los datos y fotografías son opcionales según la configuración del negocio.</p>
+    <p class="conditions"><b>Condiciones del servicio:</b> (1) La garantía cubre exclusivamente el trabajo o la pieza indicada arriba y no cubre golpes, humedad, mal uso, manipulación por terceros ni fallas ajenas al trabajo realizado. (2) La vigencia de la garantía comienza a partir de la fecha en que se notifica al cliente que el equipo está listo para recoger, no desde el ingreso del equipo. (3) Equipos no recogidos después de ${escaparHtml(diasGraciaAlmacenamiento.value)} días de esa notificación generarán una cuota de almacenamiento de ${escaparHtml(moneda(Number(negocio.value?.cuota_almacenamiento_dia || 0)))} por día adicional. (4) La entrega del equipo está sujeta a que el saldo se encuentre completamente liquidado. Al firmar, el cliente declara haber leído y aceptado estas condiciones.</p>
     <p class="footer">Documento generado por TechSoul OS · ${escaparHtml(new Date().toLocaleString('es-MX'))}</p>
     <div class="no-print" style="position:fixed;right:18px;bottom:18px"><button onclick="window.print()" style="border:0;border-radius:9px;background:#2563eb;color:white;padding:11px 16px;font-weight:700;cursor:pointer">Guardar como PDF / Imprimir</button></div>
   </main><script>setTimeout(()=>window.print(),350)<\/script></body></html>`
@@ -366,7 +384,7 @@ onMounted(cargarDetalle)
           <span class="ts-detail-label">Estado de pago</span>
           <div class="ts-payment-detail-total"><span>Total</span><strong>{{ moneda(orden.costo_total) }}</strong></div>
           <div class="ts-detail-progress"><span :style="{ width: porcentajePagado + '%' }"></span></div>
-          <div class="ts-payment-detail-grid"><div><span>Pagado</span><strong>{{ moneda(orden.anticipo) }}</strong></div><div><span>Saldo</span><strong class="is-danger">{{ moneda(orden.saldo) }}</strong></div></div>
+          <div class="ts-payment-detail-grid"><div><span>Pagado</span><strong>{{ moneda(orden.anticipo) }}</strong></div><div><span>Saldo</span><strong class="is-danger">{{ moneda(saldoOrden) }}</strong></div></div>
           <small>{{ porcentajePagado }}% cubierto</small>
         </article>
 
@@ -375,9 +393,17 @@ onMounted(cargarDetalle)
           <dl>
             <div><dt>Folio</dt><dd>{{ orden.folio }}</dd></div>
             <div><dt>Ingreso</dt><dd>{{ fecha(orden.fecha_ingreso, false) }}</dd></div>
+            <div><dt>Listo / notificado</dt><dd>{{ orden.fecha_listo ? fecha(orden.fecha_listo, false) : 'Aún no' }}</dd></div>
             <div><dt>Evidencias</dt><dd>{{ evidencias.length }}</dd></div>
             <div><dt>Firmas</dt><dd>{{ firmas.length }}</dd></div>
           </dl>
+        </article>
+
+        <article class="ts-detail-card" v-if="orden.fecha_listo && orden.estado !== 'Entregado'" :style="diasConCargo > 0 ? 'border-color:#f2b8b5;background:#fff8f7' : ''">
+          <span class="ts-detail-label">Tiempo en espera</span>
+          <div class="ts-payment-detail-total"><span>Días desde que se avisó</span><strong>{{ diasEnEspera }}</strong></div>
+          <p v-if="diasConCargo > 0" style="color:#b42318;font-weight:600;margin-top:6px">⚠ Ya generó {{ moneda(cargoAlmacenamiento) }} de almacenamiento ({{ diasConCargo }} día{{ diasConCargo === 1 ? '' : 's' }} extra)</p>
+          <p v-else style="color:#667085;margin-top:6px">Dentro del periodo de gracia ({{ diasGraciaAlmacenamiento }} días)</p>
         </article>
       </aside>
     </section>
@@ -428,9 +454,22 @@ onMounted(cargarDetalle)
     <section v-else class="ts-signature-detail-layout">
       <article class="ts-detail-card">
         <div class="ts-detail-card-heading"><div><span class="ts-detail-label">Aceptación del cliente</span><h2>Firma digital</h2><p>Registra la entrega, autorización o conformidad del cliente.</p></div></div>
+        <div style="background:#f8fafc;border:1px solid #dfe5ee;border-radius:9px;padding:12px;font-size:13px;line-height:1.5;color:#344054;margin-bottom:12px">
+          <strong>Condiciones del servicio</strong>
+          <ol style="margin:8px 0 0;padding-left:18px">
+            <li>La garantía no cubre golpes, humedad, mal uso ni manipulación por terceros.</li>
+            <li>La garantía comienza a contar desde que se notifica al cliente que el equipo está listo, no desde el ingreso.</li>
+            <li>Equipos no recogidos después de {{ diasGraciaAlmacenamiento }} días de esa notificación generan una cuota de almacenamiento de {{ moneda(Number(negocio?.cuota_almacenamiento_dia || 0)) }} por día.</li>
+            <li>La entrega del equipo requiere que el saldo esté completamente liquidado.</li>
+          </ol>
+        </div>
         <label class="ts-signature-name"><span>Nombre de quien firma</span><input v-model="nombreFirmante" placeholder="Nombre completo"></label>
         <canvas ref="canvasFirma" class="ts-signature-canvas" @mousedown="iniciarFirma" @mousemove="dibujarFirma" @mouseup="terminarFirma" @mouseleave="terminarFirma" @touchstart="iniciarFirma" @touchmove="dibujarFirma" @touchend="terminarFirma"></canvas>
-        <div class="ts-signature-actions"><button class="ts-action-secondary" type="button" @click="limpiarFirma">Limpiar</button><button class="ts-action-primary" type="button" @click="guardarFirma">Guardar firma</button></div>
+        <label class="ts-toggle-row" style="display:flex;align-items:center;gap:8px;margin-top:10px">
+          <input v-model="aceptaCondiciones" type="checkbox">
+          <span>El cliente leyó y acepta las condiciones anteriores.</span>
+        </label>
+        <div class="ts-signature-actions"><button class="ts-action-secondary" type="button" @click="limpiarFirma">Limpiar</button><button class="ts-action-primary" type="button" :disabled="!aceptaCondiciones" @click="guardarFirma">Guardar firma</button></div>
       </article>
       <article class="ts-detail-card">
         <div class="ts-detail-card-heading"><div><span class="ts-detail-label">Historial</span><h2>Firmas guardadas</h2></div></div>

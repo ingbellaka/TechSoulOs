@@ -6,6 +6,7 @@ import { registrarAbonoVenta } from '../services/flujo-operativo.service'
 const productos = ref([])
 const ventas = ref([])
 const detalles = ref([])
+const negocio = ref({})
 const busqueda = ref('')
 const estadoFiltro = ref('Todos')
 const mostrarVenta = ref(false)
@@ -81,12 +82,13 @@ const ventasFiltradas = computed(() => {
 
 async function cargar() {
   cargando.value = true
-  const [{ data: prods, error: errorProductos }, { data: vtas, error: errorVentas }, { data: dets, error: errorDetalles }] = await Promise.all([
+  const [{ data: prods, error: errorProductos }, { data: vtas, error: errorVentas }, { data: dets, error: errorDetalles }, { data: config, error: errorConfig }] = await Promise.all([
     supabase.from('productos').select('*').order('nombre'),
     supabase.from('ventas').select('*').order('id', { ascending: false }),
-    supabase.from('detalle_ventas').select('*').order('id', { ascending: false })
+    supabase.from('detalle_ventas').select('*').order('id', { ascending: false }),
+    supabase.from('configuracion_negocio').select('*').order('id').limit(1).maybeSingle()
   ])
-  const error = errorProductos || errorVentas || errorDetalles
+  const error = errorProductos || errorVentas || errorDetalles || errorConfig
   if (error) alert(error.message)
   productos.value = prods || []
   ventas.value = (vtas || []).map(v => ({
@@ -96,6 +98,7 @@ async function cargar() {
     estado_entrega: v.estado_entrega || 'Entregado'
   }))
   detalles.value = dets || []
+  negocio.value = config || {}
   cargando.value = false
 }
 
@@ -263,6 +266,61 @@ function itemsVenta(ventaId) {
 }
 
 
+function escaparHtml(valor) {
+  return String(valor ?? '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#039;')
+}
+
+function generarNotaVenta(venta) {
+  const conceptos = itemsVenta(venta.id)
+  const popup = window.open('', '_blank')
+  if (!popup) {
+    alert('El navegador bloqueó la ventana del PDF. Permite ventanas emergentes para TechSoul e inténtalo otra vez.')
+    return
+  }
+
+  const pagado = Number(venta.pagado ?? venta.anticipo ?? 0)
+  const saldo = Number(venta.saldo ?? Math.max(0, Number(venta.total || 0) - pagado))
+  const estadoPago = saldo <= 0 ? 'Pagada' : (pagado > 0 ? 'Pago parcial' : 'Pendiente')
+  const filas = conceptos.length
+    ? conceptos.map((d) => `<tr><td><b>${escaparHtml(d.descripcion || 'Concepto')}</b>${d.notas ? `<small>${escaparHtml(d.notas)}</small>` : ''}</td><td>${escaparHtml(d.cantidad || 0)}</td><td>${escaparHtml(moneda(d.precio_unitario))}</td><td>${escaparHtml(moneda(d.subtotal))}</td></tr>`).join('')
+    : `<tr><td colspan="4" class="empty">Sin conceptos registrados</td></tr>`
+
+  const firmaHtml = negocio.value?.firma_url
+    ? `<img src="${escaparHtml(negocio.value.firma_url)}" alt="Firma del responsable">`
+    : ''
+  const responsable = negocio.value?.responsable_nombre || 'Técnico / recepción'
+  const condiciones = negocio.value?.condiciones_generales || 'La garantía cubre exclusivamente las piezas o servicios indicados en esta nota. No cubre golpes, humedad, mal uso, manipulación por terceros ni fallas ajenas al trabajo realizado.'
+
+  const html = `<!doctype html>
+  <html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Nota-${escaparHtml(venta.folio || venta.id)}</title>
+  <style>
+    @page{size:A4;margin:12mm}*{box-sizing:border-box}body{font-family:Arial,Helvetica,sans-serif;color:#172033;margin:0;background:#fff;font-size:11px;line-height:1.45}.sheet{max-width:186mm;margin:0 auto}.header{display:flex;justify-content:space-between;gap:20px;border-bottom:3px solid #2563eb;padding-bottom:14px;margin-bottom:14px}.brand{min-width:0}.brand h1{font-size:24px;margin:0;color:#101828}.brand p{margin:3px 0;color:#667085}.brand-logo{max-height:42px;max-width:150px;object-fit:contain;margin-bottom:6px}.folio{text-align:right;min-width:150px}.folio span{display:block;color:#667085;text-transform:uppercase;letter-spacing:.08em;font-size:9px}.folio strong{display:block;font-size:20px;color:#2563eb;margin:2px 0}.status{display:inline-block;border-radius:999px;background:#eef4ff;color:#1849a9;padding:4px 9px;font-weight:700}.grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px}.card{border:1px solid #dfe5ee;border-radius:9px;padding:11px;break-inside:avoid}.card h2{font-size:11px;text-transform:uppercase;letter-spacing:.07em;color:#475467;margin:0 0 8px}.wide{grid-column:1/-1}.row{display:grid;grid-template-columns:90px 1fr;gap:8px;margin:4px 0}.row span{color:#667085}.row b{font-weight:600;overflow-wrap:anywhere}.items{width:100%;border-collapse:collapse}.items th{text-align:left;color:#667085;text-transform:uppercase;font-size:9px;letter-spacing:.05em;padding:7px 6px;border-bottom:1px solid #dfe5ee}.items td{padding:9px 6px;border-bottom:1px solid #edf0f4;vertical-align:top}.items th:nth-child(2),.items td:nth-child(2){text-align:center;width:55px}.items th:nth-child(3),.items th:nth-child(4),.items td:nth-child(3),.items td:nth-child(4){text-align:right;width:90px}.items small{display:block;color:#667085;margin-top:2px}.empty{text-align:center!important;color:#98a2b3}.totals{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.total{background:#f8fafc;border-radius:8px;padding:9px}.total span{display:block;color:#667085;font-size:9px;text-transform:uppercase}.total b{display:block;font-size:15px;margin-top:2px}.total.balance b{color:${saldo>0?'#b42318':'#15803d'}}.note{white-space:pre-wrap;background:#f8fafc;border-radius:7px;padding:9px;color:#475467}.signature{height:72px;display:flex;align-items:flex-end;justify-content:center}.signature img{max-height:58px;max-width:220px;object-fit:contain}.signature-line{border-top:1px solid #667085;padding-top:5px;text-align:center;color:#475467}.conditions{margin-top:12px;border-top:1px solid #dfe5ee;padding-top:9px;color:#667085;font-size:9px}.footer{margin-top:10px;text-align:center;color:#98a2b3;font-size:9px}@media print{.no-print{display:none!important}body{-webkit-print-color-adjust:exact;print-color-adjust:exact}}
+  </style></head><body><main class="sheet">
+    <header class="header"><div class="brand">${negocio.value?.logo_url ? `<img class="brand-logo" src="${escaparHtml(negocio.value.logo_url)}" alt="Logo">` : ''}<h1>${escaparHtml(negocio.value?.nombre_negocio || 'TechSoul')}</h1><p>Especialistas en celulares</p><p>${escaparHtml(negocio.value?.direccion || '')}</p><p>${escaparHtml(negocio.value?.telefono || negocio.value?.whatsapp || '')}</p></div><div class="folio"><span>Nota de venta</span><strong>${escaparHtml(venta.folio || `V-${venta.id}`)}</strong><span class="status">${escaparHtml(estadoPago)}</span><p>${escaparHtml(fecha(venta.fecha_venta || venta.created_at))}</p></div></header>
+    <section class="grid">
+      <article class="card"><h2>Cliente</h2><div class="row"><span>Nombre</span><b>${escaparHtml(venta.cliente_nombre || 'Cliente de mostrador')}</b></div><div class="row"><span>Teléfono</span><b>${escaparHtml(venta.cliente_telefono || 'No registrado')}</b></div></article>
+      <article class="card"><h2>Pago</h2><div class="row"><span>Método</span><b>${escaparHtml(venta.metodo_pago || 'No registrado')}</b></div><div class="row"><span>Estado</span><b>${escaparHtml(estadoPago)}</b></div><div class="row"><span>Entrega</span><b>${escaparHtml(venta.estado_entrega || 'Entregado')}</b></div></article>
+      <article class="card wide"><h2>Detalle de venta</h2><table class="items"><thead><tr><th>Concepto</th><th>Cant.</th><th>P. unitario</th><th>Importe</th></tr></thead><tbody>${filas}</tbody></table></article>
+      <article class="card wide"><h2>Resumen financiero</h2><div class="totals"><div class="total"><span>Total</span><b>${escaparHtml(moneda(venta.total))}</b></div><div class="total"><span>Pagado</span><b>${escaparHtml(moneda(pagado))}</b></div><div class="total balance"><span>Saldo pendiente</span><b>${escaparHtml(moneda(saldo))}</b></div></div></article>
+      ${venta.notas ? `<article class="card wide"><h2>Observaciones</h2><div class="note">${escaparHtml(venta.notas)}</div></article>` : ''}
+      <article class="card wide"><h2>Responsable</h2><div class="signature">${firmaHtml}</div><div class="signature-line">${escaparHtml(responsable)}</div></article>
+    </section>
+    <p class="conditions"><b>Condiciones:</b> ${escaparHtml(condiciones)} La entrega de mercancía o equipo podrá quedar sujeta a la liquidación total del saldo pendiente.</p>
+    <p class="footer">Documento generado por TechSoul OS · ${escaparHtml(new Date().toLocaleString('es-MX'))}</p>
+    <div class="no-print" style="position:fixed;right:18px;bottom:18px"><button onclick="window.print()" style="border:0;border-radius:9px;background:#2563eb;color:white;padding:11px 16px;font-weight:700;cursor:pointer">Guardar como PDF / Imprimir</button></div>
+  </main><script>setTimeout(()=>window.print(),350)<\/script></body></html>`
+  popup.document.open()
+  popup.document.write(html)
+  popup.document.close()
+}
+
+
 function abrirAbono(venta) {
   ventaAbono.value = venta
   abono.value = { monto: Number(venta.saldo || 0), metodo_pago: venta.metodo_pago || 'Efectivo', notas: '' }
@@ -392,7 +450,7 @@ onMounted(cargar)
             <div><span>{{ venta.folio || `Venta #${venta.id}` }}</span><strong>{{ venta.cliente_nombre || 'Cliente de mostrador' }}</strong><small>{{ fecha(venta.fecha_venta || venta.created_at) }} · {{ venta.metodo_pago }}</small></div>
             <div class="sale-money"><strong>{{ moneda(venta.total) }}</strong><small v-if="venta.saldo > 0">Saldo: {{ moneda(venta.saldo) }}</small><small v-else>Pagada</small></div>
           </div>
-          <div class="sale-status-line"><span class="status-chip">{{ venta.estado_entrega }}</span><div class="sale-line-actions"><span>{{ itemsVenta(venta.id).length }} concepto(s)</span><button v-if="venta.saldo > 0" class="abono-btn" @click="abrirAbono(venta)">Registrar abono</button></div></div>
+          <div class="sale-status-line"><span class="status-chip">{{ venta.estado_entrega }}</span><div class="sale-line-actions"><span>{{ itemsVenta(venta.id).length }} concepto(s)</span><button class="pdf-btn" type="button" @click="generarNotaVenta(venta)">Nota PDF</button><button v-if="venta.saldo > 0" class="abono-btn" @click="abrirAbono(venta)">Registrar abono</button></div></div>
           <div v-if="itemsVenta(venta.id).length" class="sale-items">
             <div v-for="detalle in itemsVenta(venta.id)" :key="detalle.id" class="sale-item-line">
               <div><span class="type-pill" :class="`type-${detalle.tipo_item || 'inventario'}`">{{ nombreTipo(detalle.tipo_item || 'inventario') }}</span><strong>{{ detalle.descripcion || 'Producto' }}</strong><small>{{ detalle.cantidad }} × {{ moneda(detalle.precio_unitario) }}</small></div>
@@ -425,5 +483,5 @@ onMounted(cargar)
 </template>
 
 <style scoped>
-.venta-builder{display:grid;gap:22px}.cliente-grid,.checkout-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}.tipo-tabs{display:flex;gap:8px;flex-wrap:wrap;padding:6px;background:var(--ts-surface-soft,#f5f7fb);border-radius:14px}.tipo-tabs button{border:0;background:transparent;padding:10px 14px;border-radius:10px;font-weight:700;cursor:pointer;color:inherit}.tipo-tabs button.active{background:var(--ts-surface,#fff);box-shadow:0 4px 16px rgba(15,23,42,.08);color:var(--ts-primary,#2563eb)}.item-editor{display:grid;grid-template-columns:2fr repeat(3,minmax(130px,1fr));gap:14px;align-items:end;padding:18px;border:1px solid var(--ts-border,#e5e7eb);border-radius:16px}.item-wide{grid-column:span 2}.item-add{display:flex;align-items:center;justify-content:space-between;gap:12px;grid-column:1/-1;padding-top:4px}.cart-list{display:grid;gap:10px}.cart-row{display:grid;grid-template-columns:auto 1fr auto auto;align-items:center;gap:14px;padding:14px 16px;border:1px solid var(--ts-border,#e5e7eb);border-radius:14px}.cart-row div{display:grid;gap:3px}.cart-row small,.sale-head small,.sale-item-line small{color:var(--ts-muted,#64748b)}.cart-empty{padding:24px;text-align:center;border:1px dashed var(--ts-border,#d6dae3);border-radius:14px;color:var(--ts-muted,#64748b)}.type-pill{display:inline-flex;width:max-content;padding:5px 9px;border-radius:999px;font-size:.72rem;font-weight:800;background:#e2e8f0}.type-encargo{background:#fef3c7;color:#92400e}.type-servicio{background:#dbeafe;color:#1d4ed8}.type-libre{background:#ede9fe;color:#6d28d9}.type-inventario{background:#dcfce7;color:#166534}.remove-line{width:30px;height:30px;border:0;border-radius:50%;font-size:22px;cursor:pointer;background:#fee2e2;color:#b91c1c}.checkout-notes{grid-column:1/-1}.totals-card{grid-column:1/-1;display:grid;grid-template-columns:repeat(3,1fr);gap:12px;padding:16px;border-radius:14px;background:var(--ts-surface-soft,#f5f7fb)}.totals-card div{display:grid;gap:5px}.totals-card .balance strong{font-size:1.2rem}.smart-sales-list{display:grid;gap:14px}.smart-sale-card{border:1px solid var(--ts-border,#e5e7eb);border-radius:16px;padding:18px;display:grid;gap:14px}.sale-head{display:flex;justify-content:space-between;gap:20px}.sale-head>div:first-child{display:grid;gap:4px}.sale-money{text-align:right;display:grid;gap:4px}.sale-money>strong{font-size:1.25rem}.sale-line-actions{display:flex;align-items:center;gap:10px}.abono-btn{border:0;border-radius:9px;padding:7px 10px;background:#101828;color:#fff;font-weight:700;cursor:pointer}.payment-backdrop{position:fixed;inset:0;background:#10182899;display:grid;place-items:center;z-index:1000;padding:20px}.payment-modal{width:min(430px,100%);background:#fff;border-radius:18px;padding:22px;display:grid;gap:15px;color:#101828}.payment-modal header,.payment-modal footer{display:flex;justify-content:space-between;align-items:center;gap:12px}.payment-modal header h3{margin:3px 0}.payment-modal header button{border:0;background:none;font-size:28px}.payment-modal label{display:grid;gap:6px}.payment-modal input,.payment-modal select,.payment-modal textarea{padding:11px;border:1px solid #d0d5dd;border-radius:9px}.sale-status-line{display:flex;justify-content:space-between;align-items:center;padding-top:10px;border-top:1px solid var(--ts-border,#e5e7eb);font-size:.86rem;color:var(--ts-muted,#64748b)}.status-chip{padding:6px 10px;border-radius:999px;background:#eef2ff;color:#3730a3;font-weight:800}.sale-items{display:grid;gap:8px}.sale-item-line{display:flex;justify-content:space-between;gap:16px;align-items:center;padding:10px 12px;background:var(--ts-surface-soft,#f8fafc);border-radius:12px}.sale-item-line>div{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.line-status{min-width:180px;border:1px solid var(--ts-border,#d7dce5);border-radius:9px;padding:8px;background:var(--ts-surface,#fff);color:inherit}.delivered-label{font-size:.8rem;font-weight:800;color:#15803d}.sale-notes{margin:0;color:var(--ts-muted,#64748b);font-size:.88rem}@media(max-width:900px){.item-editor{grid-template-columns:1fr 1fr}.item-wide{grid-column:1/-1}}@media(max-width:640px){.cliente-grid,.checkout-grid,.item-editor{grid-template-columns:1fr}.item-wide,.checkout-notes{grid-column:auto}.cart-row{grid-template-columns:1fr auto}.cart-row>.type-pill{grid-column:1}.cart-row>div{grid-column:1/-1}.totals-card{grid-template-columns:1fr}.sale-head,.sale-item-line{align-items:flex-start;flex-direction:column}.sale-money{text-align:left}.line-status{width:100%}}
+.venta-builder{display:grid;gap:22px}.cliente-grid,.checkout-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}.tipo-tabs{display:flex;gap:8px;flex-wrap:wrap;padding:6px;background:var(--ts-surface-soft,#f5f7fb);border-radius:14px}.tipo-tabs button{border:0;background:transparent;padding:10px 14px;border-radius:10px;font-weight:700;cursor:pointer;color:inherit}.tipo-tabs button.active{background:var(--ts-surface,#fff);box-shadow:0 4px 16px rgba(15,23,42,.08);color:var(--ts-primary,#2563eb)}.item-editor{display:grid;grid-template-columns:2fr repeat(3,minmax(130px,1fr));gap:14px;align-items:end;padding:18px;border:1px solid var(--ts-border,#e5e7eb);border-radius:16px}.item-wide{grid-column:span 2}.item-add{display:flex;align-items:center;justify-content:space-between;gap:12px;grid-column:1/-1;padding-top:4px}.cart-list{display:grid;gap:10px}.cart-row{display:grid;grid-template-columns:auto 1fr auto auto;align-items:center;gap:14px;padding:14px 16px;border:1px solid var(--ts-border,#e5e7eb);border-radius:14px}.cart-row div{display:grid;gap:3px}.cart-row small,.sale-head small,.sale-item-line small{color:var(--ts-muted,#64748b)}.cart-empty{padding:24px;text-align:center;border:1px dashed var(--ts-border,#d6dae3);border-radius:14px;color:var(--ts-muted,#64748b)}.type-pill{display:inline-flex;width:max-content;padding:5px 9px;border-radius:999px;font-size:.72rem;font-weight:800;background:#e2e8f0}.type-encargo{background:#fef3c7;color:#92400e}.type-servicio{background:#dbeafe;color:#1d4ed8}.type-libre{background:#ede9fe;color:#6d28d9}.type-inventario{background:#dcfce7;color:#166534}.remove-line{width:30px;height:30px;border:0;border-radius:50%;font-size:22px;cursor:pointer;background:#fee2e2;color:#b91c1c}.checkout-notes{grid-column:1/-1}.totals-card{grid-column:1/-1;display:grid;grid-template-columns:repeat(3,1fr);gap:12px;padding:16px;border-radius:14px;background:var(--ts-surface-soft,#f5f7fb)}.totals-card div{display:grid;gap:5px}.totals-card .balance strong{font-size:1.2rem}.smart-sales-list{display:grid;gap:14px}.smart-sale-card{border:1px solid var(--ts-border,#e5e7eb);border-radius:16px;padding:18px;display:grid;gap:14px}.sale-head{display:flex;justify-content:space-between;gap:20px}.sale-head>div:first-child{display:grid;gap:4px}.sale-money{text-align:right;display:grid;gap:4px}.sale-money>strong{font-size:1.25rem}.sale-line-actions{display:flex;align-items:center;gap:10px}.pdf-btn{border:1px solid var(--ts-border,#d0d5dd);border-radius:9px;padding:7px 10px;background:var(--ts-surface,#fff);color:inherit;font-weight:700;cursor:pointer}.abono-btn{border:0;border-radius:9px;padding:7px 10px;background:#101828;color:#fff;font-weight:700;cursor:pointer}.payment-backdrop{position:fixed;inset:0;background:#10182899;display:grid;place-items:center;z-index:1000;padding:20px}.payment-modal{width:min(430px,100%);background:#fff;border-radius:18px;padding:22px;display:grid;gap:15px;color:#101828}.payment-modal header,.payment-modal footer{display:flex;justify-content:space-between;align-items:center;gap:12px}.payment-modal header h3{margin:3px 0}.payment-modal header button{border:0;background:none;font-size:28px}.payment-modal label{display:grid;gap:6px}.payment-modal input,.payment-modal select,.payment-modal textarea{padding:11px;border:1px solid #d0d5dd;border-radius:9px}.sale-status-line{display:flex;justify-content:space-between;align-items:center;padding-top:10px;border-top:1px solid var(--ts-border,#e5e7eb);font-size:.86rem;color:var(--ts-muted,#64748b)}.status-chip{padding:6px 10px;border-radius:999px;background:#eef2ff;color:#3730a3;font-weight:800}.sale-items{display:grid;gap:8px}.sale-item-line{display:flex;justify-content:space-between;gap:16px;align-items:center;padding:10px 12px;background:var(--ts-surface-soft,#f8fafc);border-radius:12px}.sale-item-line>div{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.line-status{min-width:180px;border:1px solid var(--ts-border,#d7dce5);border-radius:9px;padding:8px;background:var(--ts-surface,#fff);color:inherit}.delivered-label{font-size:.8rem;font-weight:800;color:#15803d}.sale-notes{margin:0;color:var(--ts-muted,#64748b);font-size:.88rem}@media(max-width:900px){.item-editor{grid-template-columns:1fr 1fr}.item-wide{grid-column:1/-1}}@media(max-width:640px){.cliente-grid,.checkout-grid,.item-editor{grid-template-columns:1fr}.item-wide,.checkout-notes{grid-column:auto}.cart-row{grid-template-columns:1fr auto}.cart-row>.type-pill{grid-column:1}.cart-row>div{grid-column:1/-1}.totals-card{grid-template-columns:1fr}.sale-head,.sale-item-line{align-items:flex-start;flex-direction:column}.sale-money{text-align:left}.line-status{width:100%}}
 </style>

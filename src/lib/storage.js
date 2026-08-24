@@ -33,3 +33,7 @@ export async function subirEvidencia(file, carpeta = 'ordenes') {
 export async function subirLogo(file) {
   return subirArchivo('logos', file, 'logos')
 }
+
+export async function subirFirma(file) {
+  return subirArchivo('logos', file, 'firmas')
+}

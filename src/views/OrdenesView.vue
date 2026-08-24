@@ -57,7 +57,7 @@ const resumen = computed(() => ({
   activas: ordenes.value.filter((orden) => !['Entregado', 'Cancelado'].includes(orden.estado)).length,
   listas: ordenes.value.filter((orden) => orden.estado === 'Listo').length,
   esperando: ordenes.value.filter((orden) => ['Esperando autorización', 'Esperando pieza'].includes(orden.estado)).length,
-  porCobrar: ordenes.value.reduce((total, orden) => total + Number(orden.saldo || 0), 0)
+  porCobrar: ordenes.value.reduce((total, orden) => total + saldoOrden(orden), 0)
 }))
 
 function moneda(valor) {
@@ -94,7 +94,7 @@ function whatsappLink(orden) {
   const telefono = orden.clientes?.whatsapp || orden.clientes?.telefono || ''
   const limpio = String(telefono).replace(/\D/g, '')
   const numero = limpio.startsWith('52') ? limpio : `52${limpio}`
-  const mensaje = `Hola ${orden.clientes?.nombre || ''}, te escribimos de TechSoul. Tu equipo ${orden.equipos?.marca || ''} ${orden.equipos?.modelo || ''} está en estado: ${orden.estado}. Folio: ${orden.folio}. Saldo pendiente: ${moneda(orden.saldo)}.`
+  const mensaje = `Hola ${orden.clientes?.nombre || ''}, te escribimos de TechSoul. Tu equipo ${orden.equipos?.marca || ''} ${orden.equipos?.modelo || ''} está en estado: ${orden.estado}. Folio: ${orden.folio}. Saldo pendiente: ${moneda(saldoOrden(orden))}.`
   return `https://wa.me/${numero}?text=${encodeURIComponent(mensaje)}`
 }
 

@@ -18,12 +18,14 @@ const initials = computed(() => {
   return name.split(/\s+/).map(p => p[0]).join('').slice(0, 2).toUpperCase()
 })
 
+/* Grupos "Inteligencia" y las vistas de Auditoría/Conversaciones/Promociones/
+   Plantillas/Presupuestos fueron desconectados del menú al simplificar
+   (siguen en src/views y en el router está la nota de cómo reactivarlos). */
 const groups = [
   {
     label: 'Operación',
     items: [
       { label: 'Inicio', to: '/', icon: 'home' },
-      { label: 'Conversaciones', to: '/conversaciones', icon: 'chat' },
       { label: 'Clientes', to: '/clientes', icon: 'users' },
       { label: 'Equipos', to: '/equipos', icon: 'phone' },
       { label: 'Nueva orden', to: '/nueva-orden', icon: 'plus', accent: true },
@@ -43,32 +45,16 @@ const groups = [
     label: 'Finanzas',
     items: [
       { label: 'Tarifario', to: '/tarifario', icon: 'tag' },
-      { label: 'Cotizador inteligente', to: '/cotizador', icon: 'calculator' },
-      { label: 'Presupuestos', to: '/presupuestos', icon: 'clipboard' },
+      { label: 'Cotizador', to: '/cotizador', icon: 'calculator' },
       { label: 'Ventas', to: '/ventas', icon: 'cart' },
       { label: 'Caja', to: '/caja', icon: 'wallet' },
       { label: 'Reportes', to: '/reportes', icon: 'chart' }
     ]
   },
   {
-    label: 'Inteligencia',
-    items: [
-      { label: 'Inteligencia de precios', to: '/inteligencia-precios', icon: 'chart' },
-      { label: 'TechSoul AI', to: '/ia', icon: 'spark' },
-      { label: 'Simulador del agente', to: '/agente-ia', icon: 'chat' },
-      { label: 'Perfil del agente', to: '/agente-ia/configuracion', icon: 'settings' },
-      { label: 'Base de conocimiento', to: '/base-conocimiento', icon: 'spark' },
-      { label: 'Promociones', to: '/promociones', icon: 'tag' },
-      { label: 'Plantillas de respuesta', to: '/plantillas', icon: 'chat' },
-      { label: 'Preparación del agente', to: '/ia-configuracion', icon: 'settings' },
-      { label: 'Automatizaciones', to: '/automatizaciones', icon: 'bolt' }
-    ]
-  },
-  {
     label: 'Sistema',
     items: [
       { label: 'Usuarios y permisos', to: '/usuarios', icon: 'users' },
-      { label: 'Auditoría', to: '/auditoria', icon: 'clipboard' },
       { label: 'Configuración', to: '/configuracion', icon: 'settings' }
     ]
   }

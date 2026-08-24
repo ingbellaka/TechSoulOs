@@ -1,12 +1,14 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { supabase } from '../lib/supabase'
-import { subirLogo } from '../lib/storage'
+import { subirLogo, subirFirma } from '../lib/storage'
 
 const garantias = ref([])
 const negocio = ref(null)
 const logoArchivo = ref(null)
 const subiendoLogo = ref(false)
+const firmaArchivo = ref(null)
+const subiendoFirma = ref(false)
 
 const formGarantia = ref({
   tipo_servicio: '',
@@ -48,7 +50,11 @@ async function guardarNegocio() {
       correo: negocio.value.correo,
       sitio_web: negocio.value.sitio_web,
       logo_url: negocio.value.logo_url,
+      firma_url: negocio.value.firma_url || null,
+      responsable_nombre: negocio.value.responsable_nombre || '',
       condiciones_generales: negocio.value.condiciones_generales,
+      cuota_almacenamiento_dia: Number(negocio.value.cuota_almacenamiento_dia || 0),
+      dias_gracia_almacenamiento: Number(negocio.value.dias_gracia_almacenamiento || 30),
       fecha_actualizacion: new Date().toISOString()
     })
     .eq('id', negocio.value.id)
@@ -81,6 +87,29 @@ async function subirLogoNegocio() {
     alert(error.message)
   } finally {
     subiendoLogo.value = false
+  }
+}
+
+
+function seleccionarFirma(event) {
+  firmaArchivo.value = event.target.files[0] || null
+}
+
+async function subirFirmaNegocio() {
+  if (!firmaArchivo.value) {
+    alert('Selecciona una imagen de firma')
+    return
+  }
+
+  subiendoFirma.value = true
+  try {
+    const url = await subirFirma(firmaArchivo.value)
+    negocio.value.firma_url = url
+    await guardarNegocio()
+  } catch (error) {
+    alert(error.message)
+  } finally {
+    subiendoFirma.value = false
   }
 }
 
@@ -184,6 +213,19 @@ onMounted(async () => {
           <textarea v-model="negocio.condiciones_generales" class="form-control" placeholder="Condiciones generales"></textarea>
         </div>
 
+        <div class="col-md-6">
+          <label class="form-label small text-muted mb-1">Cuota de almacenamiento (por día, después del periodo de gracia)</label>
+          <div class="input-group">
+            <span class="input-group-text">$</span>
+            <input v-model.number="negocio.cuota_almacenamiento_dia" type="number" min="0" step="0.01" class="form-control" placeholder="Ej. 20">
+          </div>
+        </div>
+
+        <div class="col-md-6">
+          <label class="form-label small text-muted mb-1">Días de gracia antes de cobrar almacenamiento</label>
+          <input v-model.number="negocio.dias_gracia_almacenamiento" type="number" min="0" class="form-control" placeholder="30">
+        </div>
+
         <div class="col-md-8">
           <input type="file" accept="image/*" class="form-control" @change="seleccionarLogo">
         </div>
@@ -196,6 +238,31 @@ onMounted(async () => {
 
         <div class="col-12" v-if="negocio.logo_url">
           <img :src="negocio.logo_url" style="max-height: 90px" class="border rounded bg-white p-2">
+        </div>
+      </div>
+
+
+      <div class="row g-2 mt-2">
+        <div class="col-12"><hr class="my-2"></div>
+        <div class="col-12">
+          <h5 class="mb-1">Firma del responsable</h5>
+          <p class="small text-muted mb-2">Esta firma se colocará automáticamente en las notas de venta y órdenes de servicio.</p>
+        </div>
+        <div class="col-md-6">
+          <input v-model="negocio.responsable_nombre" class="form-control" placeholder="Nombre del responsable / técnico">
+        </div>
+        <div class="col-md-6">
+          <input type="file" accept="image/png,image/jpeg,image/webp" class="form-control" @change="seleccionarFirma">
+        </div>
+        <div class="col-md-4">
+          <button class="btn btn-outline-primary w-100" :disabled="subiendoFirma" @click="subirFirmaNegocio">
+            {{ subiendoFirma ? 'Subiendo...' : 'Subir firma' }}
+          </button>
+        </div>
+        <div class="col-md-8 d-flex align-items-center" v-if="negocio.firma_url">
+          <div class="border rounded bg-white px-3 py-2 w-100">
+            <img :src="negocio.firma_url" alt="Firma configurada" style="max-height: 72px; max-width: 260px; object-fit: contain">
+          </div>
         </div>
       </div>
 

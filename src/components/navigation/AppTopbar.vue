@@ -14,9 +14,9 @@ const pageTitle = computed(() => ({
   dashboard: 'Inicio', clientes: 'Clientes', equipos: 'Equipos', nuevaOrden: 'Nueva orden',
   ordenes: 'Órdenes', detalleOrden: 'Detalle de orden', editarOrden: 'Editar orden',
   inventario: 'Inventario', ventas: 'Ventas', compras: 'Compras', ordenCompraDetalle: 'Detalle de compra',
-  caja: 'Caja', configuracion: 'Configuración', garantias: 'Garantías', conversaciones: 'Conversaciones',
-  reportes: 'Reportes', usuarios: 'Usuarios', ia: 'TechSoul AI', automatizaciones: 'Automatizaciones',
-  tarifario: 'Tarifario', cotizador: 'Cotizador inteligente', inteligenciaPrecios: 'Inteligencia de precios'
+  caja: 'Caja', configuracion: 'Configuración', garantias: 'Garantías',
+  reportes: 'Reportes', usuarios: 'Usuarios',
+  tarifario: 'Tarifario', cotizador: 'Cotizador'
 }[route.name] || 'TechSoul'))
 
 function toggleTheme() {

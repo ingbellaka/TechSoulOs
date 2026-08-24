@@ -112,10 +112,21 @@ async function guardarCambios() {
     if (!continuar) return
   }
 
+  if (orden.value.estado === 'Entregado' && saldo.value > 0) {
+    const continuar = window.confirm(
+      `Este equipo tiene un saldo pendiente de ${moneda(saldo.value)}. La política del taller es entregar solo equipos liquidados. ¿Deseas marcarlo como entregado de todas formas?`
+    )
+    if (!continuar) return
+  }
+
   cargando.value = true
 
   try {
     const cambioEstado = estadoOriginal.value !== orden.value.estado
+    // "Listo" es el momento en que se notifica al cliente: desde aquí cuentan
+    // tanto la garantía como los días de gracia antes de cobrar almacenamiento.
+    const pasaAListoPorPrimeraVez = orden.value.estado === 'Listo' && !orden.value.fecha_listo
+    const fechaListoNueva = pasaAListoPorPrimeraVez ? new Date().toISOString() : orden.value.fecha_listo
 
     const { error: errorOrden } = await supabase
       .from('ordenes')
@@ -125,8 +136,8 @@ async function guardarCambios() {
         trabajo_realizado: orden.value.trabajo_realizado,
         costo_total: Number(orden.value.costo_total || 0),
         anticipo: Number(orden.value.anticipo || 0),
-        saldo: saldo.value,
         estado: orden.value.estado,
+        fecha_listo: fechaListoNueva,
         garantia_dias: Number(garantia.value.dias_garantia || 0),
         garantia_condiciones: garantia.value.condiciones,
         tecnico: orden.value.tecnico,
@@ -135,6 +146,8 @@ async function guardarCambios() {
       .eq('id', orden.value.id)
 
     if (errorOrden) throw errorOrden
+
+    if (pasaAListoPorPrimeraVez) orden.value.fecha_listo = fechaListoNueva
 
     const { error: errorEquipo } = await supabase
       .from('equipos')
@@ -152,18 +165,25 @@ async function guardarCambios() {
     if (errorEquipo) throw errorEquipo
 
     if (garantia.value.id) {
+      const payloadGarantia = {
+        tipo_servicio: garantia.value.tipo_servicio,
+        dias_garantia: Number(garantia.value.dias_garantia || 0),
+        condiciones: garantia.value.condiciones,
+        activa: garantia.value.activa
+      }
+      // La vigencia real empieza cuando se notifica al cliente (fecha_listo),
+      // no cuando se guardó por primera vez el registro de garantía.
+      if (pasaAListoPorPrimeraVez) payloadGarantia.fecha_inicio = fechaListoNueva
+
       const { error: errorGarantia } = await supabase
         .from('garantias')
-        .update({
-          tipo_servicio: garantia.value.tipo_servicio,
-          dias_garantia: Number(garantia.value.dias_garantia || 0),
-          condiciones: garantia.value.condiciones,
-          activa: garantia.value.activa
-        })
+        .update(payloadGarantia)
         .eq('id', garantia.value.id)
       if (errorGarantia) throw errorGarantia
     } else if (Number(garantia.value.dias_garantia || 0) > 0) {
-      const { error: errorGarantia } = await supabase.from('garantias').insert({ ...garantia.value })
+      const payloadGarantia = { ...garantia.value }
+      if (pasaAListoPorPrimeraVez) payloadGarantia.fecha_inicio = fechaListoNueva
+      const { error: errorGarantia } = await supabase.from('garantias').insert(payloadGarantia)
       if (errorGarantia) throw errorGarantia
     }
 
@@ -265,6 +285,8 @@ onMounted(cargar)
             </label>
           </div>
           <div v-if="orden.estado !== estadoOriginal" class="ts-status-change-notice"><strong>Cambio pendiente</strong><p>{{ estadoOriginal }} → {{ orden.estado }}</p><small>Este cambio se registrará en la línea de tiempo al guardar.</small></div>
+          <div v-if="orden.estado === 'Listo' && !orden.fecha_listo" class="ts-status-change-notice"><strong>Se notificará al cliente</strong><p>Al guardar, quedará marcada la fecha de hoy como el momento en que el equipo quedó listo y se avisó al cliente.</p><small>Desde esa fecha empiezan a contar la garantía y, si aplica, los días de gracia antes del cobro por almacenamiento.</small></div>
+          <div v-if="orden.estado === 'Entregado' && saldo > 0" class="ts-status-change-notice" style="border-color:#f2b8b5;background:#fff5f5"><strong>⚠ Saldo pendiente</strong><p>Este equipo tiene {{ moneda(saldo) }} sin pagar. La política del taller es entregar solo equipos liquidados.</p><small>Se te pedirá confirmación al guardar si continúas con esta entrega.</small></div>
         </section>
 
         <section v-else-if="seccion === 'finanzas'" class="ts-edit-panel">

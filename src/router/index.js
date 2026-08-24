@@ -19,23 +19,20 @@ import ComprasView from '../views/ComprasView.vue'
 import OrdenCompraDetalleView from '../views/OrdenCompraDetalleView.vue'
 import CajaView from '../views/CajaView.vue'
 import ConfiguracionView from '../views/ConfiguracionView.vue'
-import ConversacionesView from '../views/ConversacionesView.vue'
-import AIHubView from '../views/AIHubView.vue'
-import AutomatizacionesView from '../views/AutomatizacionesView.vue'
 import GarantiasView from '../views/GarantiasView.vue'
 import ReportesView from '../views/ReportesView.vue'
 import UsuariosView from '../views/UsuariosView.vue'
 import TarifarioView from '../views/TarifarioView.vue'
 import CotizadorView from '../views/CotizadorView.vue'
-import PresupuestosView from '../views/PresupuestosView.vue'
-import InteligenciaPreciosView from '../views/InteligenciaPreciosView.vue'
-import BaseConocimientoView from '../views/BaseConocimientoView.vue'
-import PromocionesView from '../views/PromocionesView.vue'
-import PlantillasView from '../views/PlantillasView.vue'
-import AuditoriaView from '../views/AuditoriaView.vue'
-import IAConfigView from '../views/IAConfigView.vue'
-import AgenteIAView from '../views/AgenteIAView.vue'
-import ConfigAgenteIAView from '../views/ConfigAgenteIAView.vue'
+
+/* Módulos desactivados por simplificación (código intacto en src/views, solo
+   desconectados del router y del menú). Para reactivar alguno: descomenta su
+   import aquí arriba, agrega su ruta abajo, y agrégalo de vuelta en
+   AppSidebar.vue.
+   - ConversacionesView, AIHubView, AutomatizacionesView, InteligenciaPreciosView,
+     BaseConocimientoView, PromocionesView, PlantillasView, AuditoriaView,
+     IAConfigView, AgenteIAView, ConfigAgenteIAView, PresupuestosView
+*/
 
 const OPERACION = ['admin', 'recepcion', 'tecnico']
 const FINANZAS = ['admin', 'recepcion']
@@ -58,24 +55,12 @@ const routes = [
   { path: '/ventas', name: 'ventas', component: VentasView, meta: { roles: FINANZAS } },
   { path: '/tarifario', name: 'tarifario', component: TarifarioView, meta: { roles: OPERACION } },
   { path: '/cotizador', name: 'cotizador', component: CotizadorView, meta: { roles: OPERACION } },
-  { path: '/presupuestos', name: 'presupuestos', component: PresupuestosView, meta: { roles: OPERACION } },
-  { path: '/inteligencia-precios', name: 'inteligenciaPrecios', component: InteligenciaPreciosView, meta: { roles: FINANZAS } },
   { path: '/compras', name: 'compras', component: ComprasView, meta: { roles: FINANZAS } },
   { path: '/compras/:id', name: 'ordenCompraDetalle', component: OrdenCompraDetalleView, meta: { roles: FINANZAS } },
   { path: '/caja', name: 'caja', component: CajaView, meta: { roles: FINANZAS } },
-  { path: '/conversaciones', name: 'conversaciones', component: ConversacionesView, meta: { roles: OPERACION } },
   { path: '/garantias', name: 'garantias', component: GarantiasView, meta: { roles: OPERACION } },
   { path: '/reportes', name: 'reportes', component: ReportesView, meta: { roles: FINANZAS } },
-  { path: '/ia', name: 'ia', component: AIHubView, meta: { roles: OPERACION } },
-  { path: '/agente-ia', name: 'agenteIA', component: AgenteIAView, meta: { roles: OPERACION } },
-  { path: '/agente-ia/configuracion', name: 'configAgenteIA', component: ConfigAgenteIAView, meta: { roles: SOLO_ADMIN } },
-  { path: '/automatizaciones', name: 'automatizaciones', component: AutomatizacionesView, meta: { roles: SOLO_ADMIN } },
   { path: '/usuarios', name: 'usuarios', component: UsuariosView, meta: { roles: SOLO_ADMIN } },
-  { path: '/base-conocimiento', name: 'baseConocimiento', component: BaseConocimientoView, meta: { roles: SOLO_ADMIN } },
-  { path: '/promociones', name: 'promociones', component: PromocionesView, meta: { roles: SOLO_ADMIN } },
-  { path: '/plantillas', name: 'plantillas', component: PlantillasView, meta: { roles: SOLO_ADMIN } },
-  { path: '/auditoria', name: 'auditoria', component: AuditoriaView, meta: { roles: SOLO_ADMIN } },
-  { path: '/ia-configuracion', name: 'iaConfiguracion', component: IAConfigView, meta: { roles: SOLO_ADMIN } },
   { path: '/configuracion', name: 'configuracion', component: ConfiguracionView, meta: { roles: SOLO_ADMIN } },
   { path: '/:pathMatch(.*)*', redirect: '/' }
 ]
