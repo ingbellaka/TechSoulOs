@@ -1,0 +1,13 @@
+TechSoul OS - Buscador de tarifario en Nueva Orden
+
+Cambio realizado:
+- En Paso 5 > Servicios se agregó "Buscar en tarifario".
+- Lee directamente public.catalogo_servicios en Supabase.
+- Busca por modelo, servicio, categoría, marca y variante.
+- Botón "Usar equipo" toma el modelo capturado en la orden.
+- Al seleccionar una tarifa carga servicio, descripción/variante, precio y días de garantía.
+- El precio sigue siendo editable para descuentos o casos especiales.
+- Se pueden agregar varios servicios y cada uno puede buscarse por separado.
+- El total de la orden continúa calculándose automáticamente.
+
+No requiere migración SQL adicional.

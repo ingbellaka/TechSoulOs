@@ -50,7 +50,6 @@ async function guardarNegocio() {
       correo: negocio.value.correo,
       sitio_web: negocio.value.sitio_web,
       logo_url: negocio.value.logo_url,
-      firma_url: negocio.value.firma_url || null,
       responsable_nombre: negocio.value.responsable_nombre || '',
       condiciones_generales: negocio.value.condiciones_generales,
       cuota_almacenamiento_dia: Number(negocio.value.cuota_almacenamiento_dia || 0),
@@ -104,13 +103,50 @@ async function subirFirmaNegocio() {
   subiendoFirma.value = true
   try {
     const url = await subirFirma(firmaArchivo.value)
+
+    const { error } = await supabase
+      .from('configuracion_negocio')
+      .update({
+        firma_url: url,
+        responsable_nombre: negocio.value.responsable_nombre || '',
+        fecha_actualizacion: new Date().toISOString()
+      })
+      .eq('id', negocio.value.id)
+
+    if (error) throw error
+
     negocio.value.firma_url = url
-    await guardarNegocio()
+    firmaArchivo.value = null
+    alert('Firma actualizada correctamente')
   } catch (error) {
     alert(error.message)
   } finally {
     subiendoFirma.value = false
   }
+}
+
+async function eliminarFirmaNegocio() {
+  if (!negocio.value?.firma_url) return
+
+  const confirmar = window.confirm('¿Seguro que quieres eliminar la firma configurada?')
+  if (!confirmar) return
+
+  const { error } = await supabase
+    .from('configuracion_negocio')
+    .update({
+      firma_url: null,
+      fecha_actualizacion: new Date().toISOString()
+    })
+    .eq('id', negocio.value.id)
+
+  if (error) {
+    alert(error.message)
+    return
+  }
+
+  negocio.value.firma_url = null
+  firmaArchivo.value = null
+  alert('Firma eliminada')
 }
 
 async function cargarGarantias() {
@@ -256,12 +292,18 @@ onMounted(async () => {
         </div>
         <div class="col-md-4">
           <button class="btn btn-outline-primary w-100" :disabled="subiendoFirma" @click="subirFirmaNegocio">
-            {{ subiendoFirma ? 'Subiendo...' : 'Subir firma' }}
+            {{ subiendoFirma ? 'Subiendo...' : (negocio.firma_url ? 'Cambiar firma' : 'Subir firma') }}
           </button>
         </div>
         <div class="col-md-8 d-flex align-items-center" v-if="negocio.firma_url">
-          <div class="border rounded bg-white px-3 py-2 w-100">
-            <img :src="negocio.firma_url" alt="Firma configurada" style="max-height: 72px; max-width: 260px; object-fit: contain">
+          <div class="border rounded bg-white px-3 py-2 w-100 d-flex align-items-center justify-content-between gap-3">
+            <div>
+              <div class="small text-muted mb-1">Firma actual</div>
+              <img :src="negocio.firma_url" alt="Firma configurada" style="max-height: 72px; max-width: 260px; object-fit: contain">
+            </div>
+            <button type="button" class="btn btn-sm btn-outline-danger" @click="eliminarFirmaNegocio">
+              Eliminar firma
+            </button>
           </div>
         </div>
       </div>
