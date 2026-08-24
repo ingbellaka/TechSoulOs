@@ -57,6 +57,7 @@ const orden = ref({
   trabajo_realizado: '',
   costo_total: 0,
   anticipo: 0,
+  metodo_pago: 'Efectivo',
   estado: 'Recibido',
   garantia_dias: 90,
   garantia_condiciones: 'Garantía de 90 días sobre la reparación realizada. No cubre golpes, humedad, manipulación de terceros ni daños ocasionados por el usuario.',
@@ -471,7 +472,7 @@ async function crearOrden() {
         tipo: 'Entrada',
         concepto: `Anticipo orden ${folio}`,
         monto: Number(orden.value.anticipo),
-        metodo_pago: 'Pendiente por definir',
+        metodo_pago: orden.value.metodo_pago || 'Efectivo',
         referencia_tipo: 'orden',
         referencia_id: nuevaOrden.id,
         notas: cliente.value.nombre
@@ -731,6 +732,12 @@ onMounted(() => {
             <div class="money-grid mt-4">
               <div class="money-field"><span>Total de servicios</span><div><b>$</b><input :value="subtotalServicios" type="number" readonly></div></div>
               <label class="money-field"><span>Anticipo recibido</span><div><b>$</b><input v-model.number="orden.anticipo" type="number" min="0" :max="subtotalServicios" placeholder="0"></div></label>
+              <div v-if="Number(orden.anticipo || 0) > 0" class="payment-method-block">
+                <span>Método del anticipo</span>
+                <div class="payment-method-options">
+                  <button v-for="metodo in ['Efectivo','Transferencia','Tarjeta']" :key="metodo" type="button" :class="{ active: orden.metodo_pago === metodo }" @click="orden.metodo_pago = metodo">{{ metodo }}</button>
+                </div>
+              </div>
               <div class="balance-card"><span>Saldo pendiente</span><strong>{{ moneda(saldo) }}</strong><small>{{ saldo > 0 ? 'Pendiente por cobrar' : 'Orden cubierta' }}</small></div>
             </div>
 

@@ -136,6 +136,7 @@ async function guardarCambios() {
         trabajo_realizado: orden.value.trabajo_realizado,
         costo_total: Number(orden.value.costo_total || 0),
         anticipo: Number(orden.value.anticipo || 0),
+        metodo_pago: orden.value.metodo_pago || 'No especificado',
         estado: orden.value.estado,
         fecha_listo: fechaListoNueva,
         garantia_dias: Number(garantia.value.dias_garantia || 0),
@@ -289,14 +290,50 @@ onMounted(cargar)
           <div v-if="orden.estado === 'Entregado' && saldo > 0" class="ts-status-change-notice" style="border-color:#f2b8b5;background:#fff5f5"><strong>⚠ Saldo pendiente</strong><p>Este equipo tiene {{ moneda(saldo) }} sin pagar. La política del taller es entregar solo equipos liquidados.</p><small>Se te pedirá confirmación al guardar si continúas con esta entrega.</small></div>
         </section>
 
-        <section v-else-if="seccion === 'finanzas'" class="ts-edit-panel">
-          <div class="ts-edit-panel-heading"><span>Control financiero</span><h2>Costo y pagos</h2><p>El saldo se calcula automáticamente.</p></div>
-          <div class="ts-finance-editor-grid">
-            <label><span>Total de la reparación</span><div class="ts-money-input"><b>$</b><input v-model.number="orden.costo_total" type="number" min="0" step="0.01"></div></label>
-            <label><span>Pagado / anticipo</span><div class="ts-money-input"><b>$</b><input v-model.number="orden.anticipo" type="number" min="0" step="0.01"></div></label>
-            <div class="ts-finance-editor-result"><span>Saldo pendiente</span><strong>{{ moneda(saldo) }}</strong><small>{{ porcentajePagado }}% del total cubierto</small><div class="ts-detail-progress"><span :style="{ width: porcentajePagado + '%' }"></span></div></div>
+        <section v-else-if="seccion === 'finanzas'" class="ts-edit-panel ts-finance-panel">
+          <div class="ts-edit-panel-heading ts-finance-heading">
+            <span>Control financiero</span>
+            <h2>Costo y pagos</h2>
+            <p>Consulta el total, lo pagado y el saldo pendiente de la orden.</p>
           </div>
-          <div class="ts-edit-tip"><strong>Importante</strong><p>Este campo actualiza el acumulado pagado de la orden. Los movimientos individuales pueden seguir registrándose desde Caja.</p></div>
+
+          <div class="ts-finance-editor-grid ts-finance-clean-grid">
+            <label class="ts-finance-field">
+              <span>Total de la reparación</span>
+              <div class="ts-money-input"><b>$</b><input v-model.number="orden.costo_total" type="number" min="0" step="0.01"></div>
+            </label>
+            <label class="ts-finance-field">
+              <span>Pagado / anticipo</span>
+              <div class="ts-money-input"><b>$</b><input v-model.number="orden.anticipo" type="number" min="0" step="0.01"></div>
+            </label>
+
+            <div class="ts-payment-method-card ts-payment-clean">
+              <div class="ts-payment-title">
+                <div>
+                  <strong>Método de pago</strong>
+                  <small>Selecciona cómo se recibió el pago.</small>
+                </div>
+                <span v-if="orden.metodo_pago && orden.metodo_pago !== 'No especificado'" class="ts-payment-current">{{ orden.metodo_pago }}</span>
+              </div>
+              <div class="ts-payment-method-options">
+                <button v-for="metodo in ['Efectivo','Transferencia','Tarjeta']" :key="metodo" type="button" :class="{ active: orden.metodo_pago === metodo }" @click="orden.metodo_pago = metodo">
+                  <span class="ts-payment-icon">{{ metodo === 'Efectivo' ? '$' : metodo === 'Transferencia' ? '↗' : '▣' }}</span>
+                  <span>{{ metodo }}</span>
+                </button>
+              </div>
+            </div>
+
+            <div class="ts-finance-editor-result ts-finance-balance-card">
+              <div>
+                <span>Saldo pendiente</span>
+                <strong>{{ moneda(saldo) }}</strong>
+                <small>{{ porcentajePagado }}% del total cubierto</small>
+              </div>
+              <div class="ts-detail-progress"><span :style="{ width: porcentajePagado + '%' }"></span></div>
+            </div>
+          </div>
+
+          <p class="ts-finance-note">Para registrar abonos posteriores y conservar el historial de cada pago, utiliza el módulo de Caja.</p>
         </section>
 
         <section v-else class="ts-edit-panel">
@@ -321,3 +358,44 @@ onMounted(cargar)
 
   <div v-else class="ts-detail-loading"><span></span><p>Cargando orden...</p></div>
 </template>
+
+<style scoped>
+.ts-finance-panel { min-height: auto; }
+.ts-finance-heading { margin-bottom: 22px; }
+.ts-finance-clean-grid { gap: 16px; }
+.ts-finance-field > span { margin-bottom: 1px; }
+.ts-payment-clean { padding: 16px; border-radius: 16px; background: #fff; }
+.ts-payment-title { display:flex; align-items:center; justify-content:space-between; gap:14px; }
+.ts-payment-title > div { display:grid; gap:3px; }
+.ts-payment-title strong { font-size:.86rem; color:var(--ts-text,#101828); }
+.ts-payment-title small { color:#667085; font-size:.76rem; }
+.ts-payment-current { flex:0 0 auto; padding:6px 10px; border-radius:999px; background:#eff6ff; color:#2563eb; font-size:.72rem; font-weight:800; }
+.ts-payment-method-options { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px; margin-top:14px; }
+.ts-payment-method-options button { min-height:50px; display:flex; align-items:center; justify-content:center; gap:8px; border:1px solid #d0d5dd; border-radius:13px; background:#fff; color:#344054; font:inherit; font-size:.82rem; font-weight:750; cursor:pointer; transition:.18s ease; }
+.ts-payment-method-options button:hover { border-color:#98a2b3; background:#f9fafb; }
+.ts-payment-method-options button.active { border-color:#2563eb; background:#eff6ff; color:#1d4ed8; box-shadow:0 0 0 3px rgba(37,99,235,.08); }
+.ts-payment-icon { width:24px; height:24px; display:grid; place-items:center; border-radius:8px; background:#f2f4f7; font-size:.78rem; font-weight:900; }
+.ts-payment-method-options button.active .ts-payment-icon { background:#dbeafe; }
+.ts-finance-balance-card { padding:18px 20px; border:1px solid #eaecf0; background:#f8fafc; }
+.ts-finance-balance-card > div:first-child { display:grid; gap:3px; }
+.ts-finance-balance-card > div:first-child > span { color:#667085; font-size:.78rem; font-weight:750; }
+.ts-finance-balance-card > div:first-child > strong { margin:0; font-size:1.75rem; letter-spacing:-.03em; }
+.ts-finance-balance-card > div:first-child > small { color:#667085; }
+.ts-finance-note { margin:14px 2px 0; color:#667085; font-size:.78rem; line-height:1.5; }
+@media (max-width: 680px) {
+  .ts-finance-panel { padding:18px 16px; }
+  .ts-finance-heading { margin-bottom:16px; }
+  .ts-finance-heading h2 { font-size:1.35rem; }
+  .ts-finance-heading p { font-size:.82rem; line-height:1.45; }
+  .ts-finance-clean-grid { gap:14px; }
+  .ts-payment-clean { padding:14px; }
+  .ts-payment-title { align-items:flex-start; }
+  .ts-payment-current { display:none; }
+  .ts-payment-method-options { grid-template-columns:repeat(3,minmax(0,1fr)); gap:7px; }
+  .ts-payment-method-options button { min-height:62px; padding:8px 5px; flex-direction:column; gap:4px; font-size:.72rem; text-align:center; }
+  .ts-payment-icon { width:26px; height:26px; }
+  .ts-finance-balance-card { padding:16px; }
+  .ts-finance-balance-card > div:first-child > strong { font-size:1.65rem; }
+  .ts-finance-note { margin-top:12px; font-size:.73rem; }
+}
+</style>
