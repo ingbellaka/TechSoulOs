@@ -1,14 +1,25 @@
 <script setup>
 import { ref, onMounted, computed } from 'vue'
 import { supabase } from '../lib/supabase'
+import { useAuthStore } from '../stores/auth'
 
+const authStore = useAuthStore()
 const movimientos = ref([])
 const busqueda = ref('')
 const tipoFiltro = ref('Todos')
 const mostrarFormulario = ref(false)
 const guardando = ref(false)
 const cargando = ref(true)
-const form = ref({ tipo: 'Entrada', concepto: '', monto: 0, metodo_pago: 'Efectivo', notas: '' })
+const editandoId = ref(null)
+const eliminandoId = ref(null)
+const form = ref(nuevoFormulario())
+
+const esAdministrador = computed(() => authStore.isAdmin)
+const estaEditando = computed(() => Boolean(editandoId.value))
+
+function nuevoFormulario() {
+  return { tipo: 'Entrada', concepto: '', monto: 0, metodo_pago: 'Efectivo', notas: '' }
+}
 
 const ingresos = computed(() => movimientos.value.filter(m => m.tipo === 'Entrada').reduce((s, m) => s + Number(m.monto || 0), 0))
 const salidas = computed(() => movimientos.value.filter(m => m.tipo === 'Salida').reduce((s, m) => s + Number(m.monto || 0), 0))
@@ -38,17 +49,87 @@ async function cargarMovimientos() {
   cargando.value = false
 }
 
+function abrirNuevoMovimiento() {
+  editandoId.value = null
+  form.value = nuevoFormulario()
+  mostrarFormulario.value = true
+  window.scrollTo({ top: 0, behavior: 'smooth' })
+}
+
+function cancelarFormulario() {
+  mostrarFormulario.value = false
+  editandoId.value = null
+  form.value = nuevoFormulario()
+}
+
+function editarMovimiento(movimiento) {
+  if (!esAdministrador.value) return alert('Solo un administrador puede editar movimientos de caja.')
+
+  editandoId.value = movimiento.id
+  form.value = {
+    tipo: movimiento.tipo || 'Entrada',
+    concepto: movimiento.concepto || '',
+    monto: Number(movimiento.monto || 0),
+    metodo_pago: movimiento.metodo_pago || 'Efectivo',
+    notas: movimiento.notas || ''
+  }
+  mostrarFormulario.value = true
+  window.scrollTo({ top: 0, behavior: 'smooth' })
+}
+
 async function guardarMovimiento() {
   const concepto = form.value.concepto.trim()
   const monto = Number(form.value.monto || 0)
   if (!concepto || monto <= 0) return alert('Concepto y monto mayor a cero son obligatorios')
 
   guardando.value = true
-  const { error } = await supabase.from('movimientos_caja').insert({ ...form.value, concepto, monto, notas: form.value.notas.trim() })
+  const payload = {
+    tipo: form.value.tipo,
+    concepto,
+    monto,
+    metodo_pago: form.value.metodo_pago,
+    notas: form.value.notas.trim()
+  }
+
+  let error = null
+  if (estaEditando.value) {
+    if (!esAdministrador.value) {
+      guardando.value = false
+      return alert('Solo un administrador puede editar movimientos de caja.')
+    }
+    const respuesta = await supabase.from('movimientos_caja').update(payload).eq('id', editandoId.value)
+    error = respuesta.error
+  } else {
+    const respuesta = await supabase.from('movimientos_caja').insert(payload)
+    error = respuesta.error
+  }
+
   guardando.value = false
   if (error) return alert(error.message)
-  form.value = { tipo: 'Entrada', concepto: '', monto: 0, metodo_pago: 'Efectivo', notas: '' }
-  mostrarFormulario.value = false
+
+  cancelarFormulario()
+  await cargarMovimientos()
+}
+
+async function eliminarMovimiento(movimiento) {
+  if (!esAdministrador.value) return alert('Solo un administrador puede eliminar movimientos de caja.')
+
+  const referencia = movimiento.referencia_tipo
+    ? `\n\nEste movimiento está relacionado con ${movimiento.referencia_tipo} #${movimiento.referencia_id || ''}. Eliminarlo de Caja NO elimina ni modifica el registro de origen.`
+    : ''
+
+  const confirmar = window.confirm(
+    `¿Eliminar este movimiento?\n\n${movimiento.tipo}: ${movimiento.concepto}\nMonto: ${moneda(movimiento.monto)}${referencia}\n\nEsta acción no se puede deshacer.`
+  )
+  if (!confirmar) return
+
+  eliminandoId.value = movimiento.id
+  const { error } = await supabase.from('movimientos_caja').delete().eq('id', movimiento.id)
+  eliminandoId.value = null
+
+  if (error) return alert(error.message)
+
+  if (editandoId.value === movimiento.id) cancelarFormulario()
   await cargarMovimientos()
 }
 
@@ -59,7 +140,7 @@ onMounted(cargarMovimientos)
   <div class="ts-module-page">
     <header class="ts-module-header">
       <div><span class="ts-eyebrow">Finanzas</span><h2>Caja</h2><p>Control centralizado de entradas, salidas y flujo de efectivo.</p></div>
-      <button class="ts-action-primary" type="button" @click="mostrarFormulario = !mostrarFormulario"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>{{ mostrarFormulario ? 'Cerrar movimiento' : 'Nuevo movimiento' }}</button>
+      <button class="ts-action-primary" type="button" @click="mostrarFormulario ? cancelarFormulario() : abrirNuevoMovimiento()"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>{{ mostrarFormulario ? 'Cerrar movimiento' : 'Nuevo movimiento' }}</button>
     </header>
 
     <section class="ts-metric-strip ts-metric-strip-four">
@@ -70,14 +151,17 @@ onMounted(cargarMovimientos)
     </section>
 
     <section v-if="mostrarFormulario" class="ts-panel ts-form-panel">
-      <div class="ts-panel-heading"><div><span class="ts-panel-kicker">Registro manual</span><h3>Nuevo movimiento de caja</h3></div><span class="ts-required-note">Se refleja inmediatamente en el saldo</span></div>
+      <div class="ts-panel-heading">
+        <div><span class="ts-panel-kicker">{{ estaEditando ? 'Edición' : 'Registro manual' }}</span><h3>{{ estaEditando ? 'Editar movimiento de caja' : 'Nuevo movimiento de caja' }}</h3></div>
+        <span class="ts-required-note">{{ estaEditando ? 'Los cambios se reflejan inmediatamente' : 'Se refleja inmediatamente en el saldo' }}</span>
+      </div>
       <div class="ts-smart-form">
         <label class="ts-field"><span>Tipo</span><select v-model="form.tipo" class="ts-filter-select ts-select-full"><option>Entrada</option><option>Salida</option></select></label>
         <label class="ts-field ts-field-wide"><span>Concepto *</span><input v-model="form.concepto" placeholder="Ej. Pago de renta, venta, anticipo…"></label>
         <label class="ts-field"><span>Monto *</span><input v-model.number="form.monto" min="0" step="0.01" type="number" placeholder="0.00"></label>
         <label class="ts-field"><span>Método de pago</span><select v-model="form.metodo_pago" class="ts-filter-select ts-select-full"><option>Efectivo</option><option>Transferencia</option><option>Tarjeta</option><option>Mercado Pago</option></select></label>
         <label class="ts-field ts-field-full"><span>Notas</span><textarea v-model="form.notas" rows="2" placeholder="Detalles opcionales"></textarea></label>
-        <div class="ts-form-actions ts-field-full"><button class="ts-action-secondary" type="button" @click="mostrarFormulario = false">Cancelar</button><button class="ts-action-primary" type="button" :disabled="guardando" @click="guardarMovimiento">{{ guardando ? 'Guardando…' : 'Guardar movimiento' }}</button></div>
+        <div class="ts-form-actions ts-field-full"><button class="ts-action-secondary" type="button" @click="cancelarFormulario">Cancelar</button><button class="ts-action-primary" type="button" :disabled="guardando" @click="guardarMovimiento">{{ guardando ? 'Guardando…' : (estaEditando ? 'Guardar cambios' : 'Guardar movimiento') }}</button></div>
       </div>
     </section>
 
@@ -95,8 +179,23 @@ onMounted(cargarMovimientos)
           <div class="ts-cash-main"><span>{{ movimiento.tipo }}</span><strong>{{ movimiento.concepto }}</strong><small>{{ fecha(movimiento.fecha_movimiento) }} · {{ movimiento.metodo_pago || 'Sin método' }}</small></div>
           <span v-if="movimiento.referencia_tipo" class="ts-reference-pill">{{ movimiento.referencia_tipo }} #{{ movimiento.referencia_id }}</span>
           <strong class="ts-cash-amount" :class="movimiento.tipo === 'Entrada' ? 'is-entry' : 'is-exit'">{{ movimiento.tipo === 'Entrada' ? '+' : '−' }}{{ moneda(movimiento.monto) }}</strong>
+
+          <div v-if="esAdministrador" class="ts-cash-actions">
+            <button class="ts-cash-action" type="button" title="Editar movimiento" @click="editarMovimiento(movimiento)">Editar</button>
+            <button class="ts-cash-action is-danger" type="button" title="Eliminar movimiento" :disabled="eliminandoId === movimiento.id" @click="eliminarMovimiento(movimiento)">{{ eliminandoId === movimiento.id ? 'Eliminando…' : 'Eliminar' }}</button>
+          </div>
         </article>
       </div>
     </section>
   </div>
 </template>
+
+<style scoped>
+.ts-cash-actions{display:flex;align-items:center;gap:6px;margin-left:4px}
+.ts-cash-action{border:1px solid var(--ts-border,#dbe3ee);background:var(--ts-surface,#fff);color:var(--ts-text,#334155);border-radius:9px;padding:7px 10px;font-size:.72rem;font-weight:750;cursor:pointer;transition:.15s ease}
+.ts-cash-action:hover{background:var(--ts-soft,#f8fafc);border-color:#94a3b8}
+.ts-cash-action.is-danger{color:#b91c1c;border-color:#fecaca;background:#fff}
+.ts-cash-action.is-danger:hover{background:#fef2f2;border-color:#fca5a5}
+.ts-cash-action:disabled{opacity:.55;cursor:not-allowed}
+@media (max-width:900px){.ts-cash-row{flex-wrap:wrap}.ts-cash-actions{width:100%;justify-content:flex-end;margin-left:0;padding-top:8px}}
+</style>

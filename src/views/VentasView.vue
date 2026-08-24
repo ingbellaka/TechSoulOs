@@ -2,6 +2,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { supabase } from '../lib/supabase'
 import { registrarAbonoVenta } from '../services/flujo-operativo.service'
+import { useAuthStore } from '../stores/auth'
 
 const productos = ref([])
 const ventas = ref([])
@@ -14,6 +15,11 @@ const procesando = ref(false)
 const cargando = ref(true)
 const ventaAbono = ref(null)
 const abono = ref({ monto: 0, metodo_pago: 'Efectivo', notas: '' })
+const authStore = useAuthStore()
+const ventaEditar = ref(null)
+const editForm = ref(null)
+const procesandoEdicion = ref(false)
+const esAdministrador = computed(() => authStore.isAdmin)
 
 const form = ref(nuevaVenta())
 const item = ref(nuevoItem())
@@ -61,6 +67,8 @@ const totalVenta = computed(() => form.value.items.reduce((s, renglon) => s + Nu
 const anticipoAplicado = computed(() => Math.min(Math.max(Number(form.value.anticipo || 0), 0), totalVenta.value))
 const saldoVenta = computed(() => Math.max(0, totalVenta.value - anticipoAplicado.value))
 const productosDisponibles = computed(() => productos.value.filter(p => Number(p.stock || 0) > 0))
+const totalEdicion = computed(() => (editForm.value?.items || []).reduce((s, renglon) => s + Number(renglon.cantidad || 0) * Number(renglon.precio_unitario || 0), 0))
+const saldoEdicion = computed(() => Math.max(0, totalEdicion.value - Number(ventaEditar.value?.pagado || 0)))
 
 const ventasHoy = computed(() => {
   const hoy = new Date().toDateString()
@@ -321,6 +329,167 @@ function generarNotaVenta(venta) {
 }
 
 
+function abrirEditarVenta(venta) {
+  ventaEditar.value = venta
+  editForm.value = {
+    cliente_nombre: venta.cliente_nombre || '',
+    cliente_telefono: venta.cliente_telefono || '',
+    metodo_pago: venta.metodo_pago || 'Efectivo',
+    estado_entrega: venta.estado_entrega || 'Entregado',
+    notas: venta.notas || '',
+    items: itemsVenta(venta.id).map(d => ({
+      ...d,
+      cantidad_original: Number(d.cantidad || 0),
+      cantidad: Number(d.cantidad || 0),
+      precio_unitario: Number(d.precio_unitario || 0)
+    }))
+  }
+}
+
+function cerrarEditarVenta() {
+  ventaEditar.value = null
+  editForm.value = null
+}
+
+async function guardarEdicionVenta() {
+  if (!ventaEditar.value || !editForm.value) return
+  if (!editForm.value.items.length) return alert('La venta debe conservar al menos un concepto.')
+  if (editForm.value.items.some(i => Number(i.cantidad || 0) <= 0 || Number(i.precio_unitario || 0) < 0)) {
+    return alert('Revisa cantidades y precios de los conceptos.')
+  }
+  const pagado = Number(ventaEditar.value.pagado || 0)
+  if (totalEdicion.value < pagado) {
+    return alert(`El nuevo total no puede ser menor a lo ya cobrado (${moneda(pagado)}).`)
+  }
+
+  procesandoEdicion.value = true
+  const errores = []
+  try {
+    for (const renglon of editForm.value.items) {
+      const cantidadNueva = Number(renglon.cantidad || 0)
+      const cantidadAnterior = Number(renglon.cantidad_original || 0)
+      const diferencia = cantidadNueva - cantidadAnterior
+
+      if (renglon.tipo_item === 'inventario' && renglon.producto_id && diferencia !== 0) {
+        const producto = productos.value.find(p => String(p.id) === String(renglon.producto_id))
+        if (!producto) throw new Error(`No se encontró el producto ${renglon.descripcion}.`)
+        const stockActual = Number(producto.stock || 0)
+        if (diferencia > 0 && diferencia > stockActual) {
+          throw new Error(`No hay existencias suficientes de ${producto.nombre}. Disponibles: ${stockActual}.`)
+        }
+        const stockNuevo = stockActual - diferencia
+        const { error: errorStock } = await supabase.from('productos').update({ stock: stockNuevo }).eq('id', producto.id)
+        if (errorStock) throw new Error(errorStock.message)
+        producto.stock = stockNuevo
+
+        const { error: errorMov } = await supabase.from('movimientos_inventario').insert({
+          producto_id: producto.id,
+          producto: producto.nombre,
+          tipo: diferencia > 0 ? 'Salida' : 'Entrada',
+          cantidad: Math.abs(diferencia),
+          stock_anterior: stockActual,
+          stock_nuevo: stockNuevo,
+          referencia_tipo: 'venta_ajuste',
+          referencia_id: `${ventaEditar.value.id}-${renglon.id}-${Date.now()}`,
+          motivo: `Ajuste de venta ${ventaEditar.value.folio}`,
+          nota: 'Ajuste generado al editar la cantidad de una venta.'
+        })
+        if (errorMov) errores.push(errorMov.message)
+      }
+
+      const subtotal = cantidadNueva * Number(renglon.precio_unitario || 0)
+      const { error: errorDetalle } = await supabase.from('detalle_ventas').update({
+        descripcion: String(renglon.descripcion || '').trim(),
+        cantidad: cantidadNueva,
+        precio_unitario: Number(renglon.precio_unitario || 0),
+        subtotal,
+        notas: String(renglon.notas || '').trim()
+      }).eq('id', renglon.id)
+      if (errorDetalle) throw new Error(errorDetalle.message)
+    }
+
+    const total = totalEdicion.value
+    const saldo = Math.max(0, total - pagado)
+    const estadoPago = saldo <= 0 ? 'Pagado' : (pagado > 0 ? 'Parcial' : 'Pendiente')
+    const { error: errorVenta } = await supabase.from('ventas').update({
+      cliente_nombre: editForm.value.cliente_nombre.trim() || 'Cliente de mostrador',
+      cliente_telefono: editForm.value.cliente_telefono.trim(),
+      metodo_pago: editForm.value.metodo_pago,
+      estado_entrega: editForm.value.estado_entrega,
+      notas: editForm.value.notas.trim(),
+      total,
+      saldo,
+      estado_pago: estadoPago
+    }).eq('id', ventaEditar.value.id)
+    if (errorVenta) throw new Error(errorVenta.message)
+
+    // Si existe el movimiento inicial de caja de esta venta, corrige su método de pago.
+    await supabase.from('movimientos_caja')
+      .update({ metodo_pago: editForm.value.metodo_pago })
+      .eq('referencia_tipo', 'venta')
+      .eq('referencia_id', String(ventaEditar.value.id))
+
+    cerrarEditarVenta()
+    await cargar()
+    if (errores.length) alert(`Venta actualizada, con avisos: ${[...new Set(errores)].join(' · ')}`)
+  } catch (error) {
+    alert(error.message)
+  } finally {
+    procesandoEdicion.value = false
+  }
+}
+
+async function eliminarVenta(venta) {
+  if (!esAdministrador.value) return alert('Solo un administrador puede eliminar ventas.')
+  const confirmar = window.confirm(`¿Eliminar definitivamente ${venta.folio}?\n\nSe revertirán existencias y se eliminarán sus movimientos de caja relacionados. Esta acción no se puede deshacer.`)
+  if (!confirmar) return
+
+  procesandoEdicion.value = true
+  try {
+    const items = itemsVenta(venta.id)
+    for (const renglon of items.filter(i => i.tipo_item === 'inventario' && i.producto_id)) {
+      const { data: producto, error: errorProducto } = await supabase.from('productos').select('*').eq('id', renglon.producto_id).single()
+      if (errorProducto) throw new Error(errorProducto.message)
+      const stockActual = Number(producto.stock || 0)
+      const stockNuevo = stockActual + Number(renglon.cantidad || 0)
+      const { error: errorStock } = await supabase.from('productos').update({ stock: stockNuevo }).eq('id', producto.id)
+      if (errorStock) throw new Error(errorStock.message)
+      const { error: errorMov } = await supabase.from('movimientos_inventario').insert({
+        producto_id: producto.id,
+        producto: producto.nombre,
+        tipo: 'Entrada',
+        cantidad: Number(renglon.cantidad || 0),
+        stock_anterior: stockActual,
+        stock_nuevo: stockNuevo,
+        referencia_tipo: 'venta_eliminada',
+        referencia_id: `${venta.id}-${renglon.id}-${Date.now()}`,
+        motivo: `Reverso por eliminación ${venta.folio}`,
+        nota: 'Existencia devuelta automáticamente al eliminar la venta.'
+      })
+      if (errorMov) throw new Error(errorMov.message)
+    }
+
+    let r = await supabase.from('movimientos_caja').delete().eq('referencia_tipo', 'venta').eq('referencia_id', String(venta.id))
+    if (r.error) throw new Error(r.error.message)
+    r = await supabase.from('movimientos_caja').delete().eq('referencia_tipo', 'venta_abono').like('referencia_id', `${venta.id}-%`)
+    if (r.error) throw new Error(r.error.message)
+    r = await supabase.from('solicitudes_compra').delete().eq('venta_id', venta.id)
+    if (r.error) throw new Error(r.error.message)
+    r = await supabase.from('presupuestos').update({ venta_id: null }).eq('venta_id', venta.id)
+    if (r.error) throw new Error(r.error.message)
+    r = await supabase.from('detalle_ventas').delete().eq('venta_id', venta.id)
+    if (r.error) throw new Error(r.error.message)
+    r = await supabase.from('ventas').delete().eq('id', venta.id)
+    if (r.error) throw new Error(r.error.message)
+
+    await cargar()
+  } catch (error) {
+    alert(`No se pudo eliminar la venta: ${error.message}`)
+  } finally {
+    procesandoEdicion.value = false
+  }
+}
+
 function abrirAbono(venta) {
   ventaAbono.value = venta
   abono.value = { monto: Number(venta.saldo || 0), metodo_pago: venta.metodo_pago || 'Efectivo', notas: '' }
@@ -450,7 +619,7 @@ onMounted(cargar)
             <div><span>{{ venta.folio || `Venta #${venta.id}` }}</span><strong>{{ venta.cliente_nombre || 'Cliente de mostrador' }}</strong><small>{{ fecha(venta.fecha_venta || venta.created_at) }} · {{ venta.metodo_pago }}</small></div>
             <div class="sale-money"><strong>{{ moneda(venta.total) }}</strong><small v-if="venta.saldo > 0">Saldo: {{ moneda(venta.saldo) }}</small><small v-else>Pagada</small></div>
           </div>
-          <div class="sale-status-line"><span class="status-chip">{{ venta.estado_entrega }}</span><div class="sale-line-actions"><span>{{ itemsVenta(venta.id).length }} concepto(s)</span><button class="pdf-btn" type="button" @click="generarNotaVenta(venta)">Nota PDF</button><button v-if="venta.saldo > 0" class="abono-btn" @click="abrirAbono(venta)">Registrar abono</button></div></div>
+          <div class="sale-status-line"><span class="status-chip">{{ venta.estado_entrega }}</span><div class="sale-line-actions"><span>{{ itemsVenta(venta.id).length }} concepto(s)</span><button class="edit-btn" type="button" @click="abrirEditarVenta(venta)">Editar</button><button class="pdf-btn" type="button" @click="generarNotaVenta(venta)">Nota PDF</button><button v-if="venta.saldo > 0" class="abono-btn" @click="abrirAbono(venta)">Registrar abono</button><button v-if="esAdministrador" class="delete-btn" type="button" @click="eliminarVenta(venta)">Eliminar</button></div></div>
           <div v-if="itemsVenta(venta.id).length" class="sale-items">
             <div v-for="detalle in itemsVenta(venta.id)" :key="detalle.id" class="sale-item-line">
               <div><span class="type-pill" :class="`type-${detalle.tipo_item || 'inventario'}`">{{ nombreTipo(detalle.tipo_item || 'inventario') }}</span><strong>{{ detalle.descripcion || 'Producto' }}</strong><small>{{ detalle.cantidad }} × {{ moneda(detalle.precio_unitario) }}</small></div>
@@ -469,6 +638,31 @@ onMounted(cargar)
       </div>
     </section>
 
+    <div v-if="ventaEditar && editForm" class="payment-backdrop" @click.self="cerrarEditarVenta">
+      <form class="payment-modal edit-sale-modal" @submit.prevent="guardarEdicionVenta">
+        <header><div><small>{{ ventaEditar.folio }}</small><h3>Editar venta</h3></div><button type="button" @click="cerrarEditarVenta">×</button></header>
+        <div class="edit-grid">
+          <label><span>Cliente</span><input v-model="editForm.cliente_nombre" required></label>
+          <label><span>Teléfono</span><input v-model="editForm.cliente_telefono"></label>
+          <label><span>Método de pago</span><select v-model="editForm.metodo_pago"><option>Efectivo</option><option>Transferencia</option><option>Tarjeta</option><option>Mercado Pago</option><option>Otro</option></select></label>
+          <label><span>Estado de entrega</span><select v-model="editForm.estado_entrega"><option>Entregado</option><option>Entrega parcial</option><option>Pendiente de surtir</option></select></label>
+        </div>
+        <div class="edit-items">
+          <strong>Conceptos</strong>
+          <div v-for="renglon in editForm.items" :key="renglon.id" class="edit-item-row">
+            <input v-model="renglon.descripcion" aria-label="Descripción">
+            <input v-model.number="renglon.cantidad" type="number" min="0.01" step="0.01" aria-label="Cantidad">
+            <input v-model.number="renglon.precio_unitario" type="number" min="0" step="0.01" aria-label="Precio unitario">
+            <strong>{{ moneda(Number(renglon.cantidad || 0) * Number(renglon.precio_unitario || 0)) }}</strong>
+          </div>
+        </div>
+        <label><span>Notas</span><textarea v-model="editForm.notas" rows="2"></textarea></label>
+        <div class="edit-summary"><div><span>Total nuevo</span><strong>{{ moneda(totalEdicion) }}</strong></div><div><span>Ya cobrado</span><strong>{{ moneda(ventaEditar.pagado) }}</strong></div><div><span>Saldo</span><strong>{{ moneda(saldoEdicion) }}</strong></div></div>
+        <small class="edit-warning">Los pagos ya registrados no se modifican desde aquí. Para cobrar más usa “Registrar abono”. Si cambias cantidades de artículos de inventario, las existencias se ajustan automáticamente.</small>
+        <footer><button type="button" class="ts-action-secondary" @click="cerrarEditarVenta">Cancelar</button><button class="ts-action-primary" :disabled="procesandoEdicion">{{ procesandoEdicion ? 'Guardando…' : 'Guardar cambios' }}</button></footer>
+      </form>
+    </div>
+
     <div v-if="ventaAbono" class="payment-backdrop" @click.self="ventaAbono=null">
       <form class="payment-modal" @submit.prevent="guardarAbono">
         <header><div><small>{{ ventaAbono.folio }}</small><h3>Registrar abono</h3></div><button type="button" @click="ventaAbono=null">×</button></header>
@@ -483,5 +677,5 @@ onMounted(cargar)
 </template>
 
 <style scoped>
-.venta-builder{display:grid;gap:22px}.cliente-grid,.checkout-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}.tipo-tabs{display:flex;gap:8px;flex-wrap:wrap;padding:6px;background:var(--ts-surface-soft,#f5f7fb);border-radius:14px}.tipo-tabs button{border:0;background:transparent;padding:10px 14px;border-radius:10px;font-weight:700;cursor:pointer;color:inherit}.tipo-tabs button.active{background:var(--ts-surface,#fff);box-shadow:0 4px 16px rgba(15,23,42,.08);color:var(--ts-primary,#2563eb)}.item-editor{display:grid;grid-template-columns:2fr repeat(3,minmax(130px,1fr));gap:14px;align-items:end;padding:18px;border:1px solid var(--ts-border,#e5e7eb);border-radius:16px}.item-wide{grid-column:span 2}.item-add{display:flex;align-items:center;justify-content:space-between;gap:12px;grid-column:1/-1;padding-top:4px}.cart-list{display:grid;gap:10px}.cart-row{display:grid;grid-template-columns:auto 1fr auto auto;align-items:center;gap:14px;padding:14px 16px;border:1px solid var(--ts-border,#e5e7eb);border-radius:14px}.cart-row div{display:grid;gap:3px}.cart-row small,.sale-head small,.sale-item-line small{color:var(--ts-muted,#64748b)}.cart-empty{padding:24px;text-align:center;border:1px dashed var(--ts-border,#d6dae3);border-radius:14px;color:var(--ts-muted,#64748b)}.type-pill{display:inline-flex;width:max-content;padding:5px 9px;border-radius:999px;font-size:.72rem;font-weight:800;background:#e2e8f0}.type-encargo{background:#fef3c7;color:#92400e}.type-servicio{background:#dbeafe;color:#1d4ed8}.type-libre{background:#ede9fe;color:#6d28d9}.type-inventario{background:#dcfce7;color:#166534}.remove-line{width:30px;height:30px;border:0;border-radius:50%;font-size:22px;cursor:pointer;background:#fee2e2;color:#b91c1c}.checkout-notes{grid-column:1/-1}.totals-card{grid-column:1/-1;display:grid;grid-template-columns:repeat(3,1fr);gap:12px;padding:16px;border-radius:14px;background:var(--ts-surface-soft,#f5f7fb)}.totals-card div{display:grid;gap:5px}.totals-card .balance strong{font-size:1.2rem}.smart-sales-list{display:grid;gap:14px}.smart-sale-card{border:1px solid var(--ts-border,#e5e7eb);border-radius:16px;padding:18px;display:grid;gap:14px}.sale-head{display:flex;justify-content:space-between;gap:20px}.sale-head>div:first-child{display:grid;gap:4px}.sale-money{text-align:right;display:grid;gap:4px}.sale-money>strong{font-size:1.25rem}.sale-line-actions{display:flex;align-items:center;gap:10px}.pdf-btn{border:1px solid var(--ts-border,#d0d5dd);border-radius:9px;padding:7px 10px;background:var(--ts-surface,#fff);color:inherit;font-weight:700;cursor:pointer}.abono-btn{border:0;border-radius:9px;padding:7px 10px;background:#101828;color:#fff;font-weight:700;cursor:pointer}.payment-backdrop{position:fixed;inset:0;background:#10182899;display:grid;place-items:center;z-index:1000;padding:20px}.payment-modal{width:min(430px,100%);background:#fff;border-radius:18px;padding:22px;display:grid;gap:15px;color:#101828}.payment-modal header,.payment-modal footer{display:flex;justify-content:space-between;align-items:center;gap:12px}.payment-modal header h3{margin:3px 0}.payment-modal header button{border:0;background:none;font-size:28px}.payment-modal label{display:grid;gap:6px}.payment-modal input,.payment-modal select,.payment-modal textarea{padding:11px;border:1px solid #d0d5dd;border-radius:9px}.sale-status-line{display:flex;justify-content:space-between;align-items:center;padding-top:10px;border-top:1px solid var(--ts-border,#e5e7eb);font-size:.86rem;color:var(--ts-muted,#64748b)}.status-chip{padding:6px 10px;border-radius:999px;background:#eef2ff;color:#3730a3;font-weight:800}.sale-items{display:grid;gap:8px}.sale-item-line{display:flex;justify-content:space-between;gap:16px;align-items:center;padding:10px 12px;background:var(--ts-surface-soft,#f8fafc);border-radius:12px}.sale-item-line>div{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.line-status{min-width:180px;border:1px solid var(--ts-border,#d7dce5);border-radius:9px;padding:8px;background:var(--ts-surface,#fff);color:inherit}.delivered-label{font-size:.8rem;font-weight:800;color:#15803d}.sale-notes{margin:0;color:var(--ts-muted,#64748b);font-size:.88rem}@media(max-width:900px){.item-editor{grid-template-columns:1fr 1fr}.item-wide{grid-column:1/-1}}@media(max-width:640px){.cliente-grid,.checkout-grid,.item-editor{grid-template-columns:1fr}.item-wide,.checkout-notes{grid-column:auto}.cart-row{grid-template-columns:1fr auto}.cart-row>.type-pill{grid-column:1}.cart-row>div{grid-column:1/-1}.totals-card{grid-template-columns:1fr}.sale-head,.sale-item-line{align-items:flex-start;flex-direction:column}.sale-money{text-align:left}.line-status{width:100%}}
+.venta-builder{display:grid;gap:22px}.cliente-grid,.checkout-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}.tipo-tabs{display:flex;gap:8px;flex-wrap:wrap;padding:6px;background:var(--ts-surface-soft,#f5f7fb);border-radius:14px}.tipo-tabs button{border:0;background:transparent;padding:10px 14px;border-radius:10px;font-weight:700;cursor:pointer;color:inherit}.tipo-tabs button.active{background:var(--ts-surface,#fff);box-shadow:0 4px 16px rgba(15,23,42,.08);color:var(--ts-primary,#2563eb)}.item-editor{display:grid;grid-template-columns:2fr repeat(3,minmax(130px,1fr));gap:14px;align-items:end;padding:18px;border:1px solid var(--ts-border,#e5e7eb);border-radius:16px}.item-wide{grid-column:span 2}.item-add{display:flex;align-items:center;justify-content:space-between;gap:12px;grid-column:1/-1;padding-top:4px}.cart-list{display:grid;gap:10px}.cart-row{display:grid;grid-template-columns:auto 1fr auto auto;align-items:center;gap:14px;padding:14px 16px;border:1px solid var(--ts-border,#e5e7eb);border-radius:14px}.cart-row div{display:grid;gap:3px}.cart-row small,.sale-head small,.sale-item-line small{color:var(--ts-muted,#64748b)}.cart-empty{padding:24px;text-align:center;border:1px dashed var(--ts-border,#d6dae3);border-radius:14px;color:var(--ts-muted,#64748b)}.type-pill{display:inline-flex;width:max-content;padding:5px 9px;border-radius:999px;font-size:.72rem;font-weight:800;background:#e2e8f0}.type-encargo{background:#fef3c7;color:#92400e}.type-servicio{background:#dbeafe;color:#1d4ed8}.type-libre{background:#ede9fe;color:#6d28d9}.type-inventario{background:#dcfce7;color:#166534}.remove-line{width:30px;height:30px;border:0;border-radius:50%;font-size:22px;cursor:pointer;background:#fee2e2;color:#b91c1c}.checkout-notes{grid-column:1/-1}.totals-card{grid-column:1/-1;display:grid;grid-template-columns:repeat(3,1fr);gap:12px;padding:16px;border-radius:14px;background:var(--ts-surface-soft,#f5f7fb)}.totals-card div{display:grid;gap:5px}.totals-card .balance strong{font-size:1.2rem}.smart-sales-list{display:grid;gap:14px}.smart-sale-card{border:1px solid var(--ts-border,#e5e7eb);border-radius:16px;padding:18px;display:grid;gap:14px}.sale-head{display:flex;justify-content:space-between;gap:20px}.sale-head>div:first-child{display:grid;gap:4px}.sale-money{text-align:right;display:grid;gap:4px}.sale-money>strong{font-size:1.25rem}.sale-line-actions{display:flex;align-items:center;gap:10px}.pdf-btn{border:1px solid var(--ts-border,#d0d5dd);border-radius:9px;padding:7px 10px;background:var(--ts-surface,#fff);color:inherit;font-weight:700;cursor:pointer}.edit-btn{border:1px solid #bfdbfe;border-radius:9px;padding:7px 10px;background:#eff6ff;color:#1d4ed8;font-weight:800;cursor:pointer}.delete-btn{border:1px solid #fecaca;border-radius:9px;padding:7px 10px;background:#fff1f2;color:#be123c;font-weight:800;cursor:pointer}.edit-sale-modal{width:min(760px,100%)}.edit-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.edit-items{display:grid;gap:8px}.edit-item-row{display:grid;grid-template-columns:minmax(220px,1fr) 90px 130px 110px;gap:8px;align-items:center}.edit-item-row input{min-width:0}.edit-summary{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;background:#f8fafc;border-radius:12px;padding:12px}.edit-summary div{display:grid;gap:3px}.edit-summary span{font-size:.75rem;color:#64748b}.edit-warning{display:block;color:#64748b;line-height:1.45}.abono-btn{border:0;border-radius:9px;padding:7px 10px;background:#101828;color:#fff;font-weight:700;cursor:pointer}.payment-backdrop{position:fixed;inset:0;background:#10182899;display:grid;place-items:center;z-index:1000;padding:20px}.payment-modal{width:min(430px,100%);background:#fff;border-radius:18px;padding:22px;display:grid;gap:15px;color:#101828}.payment-modal header,.payment-modal footer{display:flex;justify-content:space-between;align-items:center;gap:12px}.payment-modal header h3{margin:3px 0}.payment-modal header button{border:0;background:none;font-size:28px}.payment-modal label{display:grid;gap:6px}.payment-modal input,.payment-modal select,.payment-modal textarea{padding:11px;border:1px solid #d0d5dd;border-radius:9px}.sale-status-line{display:flex;justify-content:space-between;align-items:center;padding-top:10px;border-top:1px solid var(--ts-border,#e5e7eb);font-size:.86rem;color:var(--ts-muted,#64748b)}.status-chip{padding:6px 10px;border-radius:999px;background:#eef2ff;color:#3730a3;font-weight:800}.sale-items{display:grid;gap:8px}.sale-item-line{display:flex;justify-content:space-between;gap:16px;align-items:center;padding:10px 12px;background:var(--ts-surface-soft,#f8fafc);border-radius:12px}.sale-item-line>div{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.line-status{min-width:180px;border:1px solid var(--ts-border,#d7dce5);border-radius:9px;padding:8px;background:var(--ts-surface,#fff);color:inherit}.delivered-label{font-size:.8rem;font-weight:800;color:#15803d}.sale-notes{margin:0;color:var(--ts-muted,#64748b);font-size:.88rem}@media(max-width:900px){.item-editor{grid-template-columns:1fr 1fr}.item-wide{grid-column:1/-1}}@media(max-width:640px){.edit-grid,.edit-summary{grid-template-columns:1fr}.edit-item-row{grid-template-columns:1fr 80px 110px}.edit-item-row strong{grid-column:1/-1}.cliente-grid,.checkout-grid,.item-editor{grid-template-columns:1fr}.item-wide,.checkout-notes{grid-column:auto}.cart-row{grid-template-columns:1fr auto}.cart-row>.type-pill{grid-column:1}.cart-row>div{grid-column:1/-1}.totals-card{grid-template-columns:1fr}.sale-head,.sale-item-line{align-items:flex-start;flex-direction:column}.sale-money{text-align:left}.line-status{width:100%}}
 </style>
