@@ -30,6 +30,7 @@ const groups = [
       { label: 'Equipos', to: '/equipos', icon: 'phone' },
       { label: 'Nueva orden', to: '/nueva-orden', icon: 'plus', accent: true },
       { label: 'Órdenes', to: '/ordenes', icon: 'clipboard' },
+      { label: 'Agenda', to: '/agenda', icon: 'calendar' },
       { label: 'Garantías', to: '/garantias', icon: 'shield' }
     ]
   },
@@ -48,6 +49,7 @@ const groups = [
       { label: 'Cotizador', to: '/cotizador', icon: 'calculator' },
       { label: 'Ventas', to: '/ventas', icon: 'cart' },
       { label: 'Caja', to: '/caja', icon: 'wallet' },
+      { label: 'Corte de Caja', to: '/corte-caja', icon: 'cashcheck' },
       { label: 'Reportes', to: '/reportes', icon: 'chart' }
     ]
   },
@@ -117,6 +119,8 @@ async function logout() {
             <svg v-else-if="item.icon === 'spark'" viewBox="0 0 24 24"><path d="m12 3-1.5 4.5L6 9l4.5 1.5L12 15l1.5-4.5L18 9l-4.5-1.5zM19 15l-.8 2.2L16 18l2.2.8L19 21l.8-2.2L22 18l-2.2-.8z"/></svg>
             <svg v-else-if="item.icon === 'bolt'" viewBox="0 0 24 24"><path d="M13 2 3 14h8l-1 8 10-12h-8z"/></svg>
             <svg v-else-if="item.icon === 'tag'" viewBox="0 0 24 24"><path d="M20 13 11 22l-9-9V4a2 2 0 0 1 2-2h9z"/><circle cx="8" cy="8" r="2"/></svg>
+            <svg v-else-if="item.icon === 'calendar'" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 10h18M8 14h.01M12 14h.01M16 14h.01M8 18h.01M12 18h.01"/></svg>
+            <svg v-else-if="item.icon === 'cashcheck'" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M7 10h4M7 14h2m6-3 2 2 4-4"/></svg>
             <svg v-else-if="item.icon === 'calculator'" viewBox="0 0 24 24"><rect x="4" y="2" width="16" height="20" rx="2"/><path d="M8 6h8M8 11h.01M12 11h.01M16 11h.01M8 15h.01M12 15h.01M16 15h.01M8 19h.01M12 19h.01M16 19h.01"/></svg>
             <svg v-else viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.83 2.83-.06-.06A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 .6 1.7 1.7 0 0 0-.4 1v.1h-4v-.1a1.7 1.7 0 0 0-1.1-1.6 1.7 1.7 0 0 0-1.88.34l-.06.06-2.83-2.83.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-.6-1 1.7 1.7 0 0 0-1-.4H3v-4h.1A1.7 1.7 0 0 0 4.6 8.5a1.7 1.7 0 0 0-.34-1.88l-.06-.06 2.83-2.83.06.06A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-.6 1.7 1.7 0 0 0 .4-1V3h4v.1A1.7 1.7 0 0 0 15.5 4.6a1.7 1.7 0 0 0 1.88-.34l.06-.06 2.83 2.83-.06.06A1.7 1.7 0 0 0 19.4 9c.14.36.35.7.6 1 .27.27.63.4 1 .4h.1v4H21a1.7 1.7 0 0 0-1.6.6z"/></svg>
           </span>

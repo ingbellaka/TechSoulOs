@@ -38,6 +38,13 @@ function moneda(valor) {
   return Number(valor || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN' })
 }
 
+function aInputLocal(valor) {
+  if (!valor) return ''
+  const d = new Date(valor)
+  const pad = n => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+
 async function cargar() {
   errorCarga.value = ''
   const id = route.params.id
@@ -54,6 +61,8 @@ async function cargar() {
   }
 
   orden.value = data
+  orden.value.fecha_programada = aInputLocal(data.fecha_programada)
+  orden.value.duracion_estimada_min = Number(data.duracion_estimada_min || 30)
   equipo.value = data.equipos
   estadoOriginal.value = data.estado || 'Recibido'
 
@@ -142,7 +151,9 @@ async function guardarCambios() {
         garantia_dias: Number(garantia.value.dias_garantia || 0),
         garantia_condiciones: garantia.value.condiciones,
         tecnico: orden.value.tecnico,
-        notas: orden.value.notas
+        notas: orden.value.notas,
+        fecha_programada: orden.value.fecha_programada ? new Date(orden.value.fecha_programada).toISOString() : null,
+        duracion_estimada_min: orden.value.fecha_programada ? Number(orden.value.duracion_estimada_min || 30) : null
       })
       .eq('id', orden.value.id)
 
@@ -272,6 +283,13 @@ onMounted(cargar)
             <label><span>Diagnóstico técnico</span><textarea v-model="orden.diagnostico" rows="5" placeholder="Resultado de las pruebas y causa probable"></textarea></label>
             <label><span>Trabajo realizado</span><textarea v-model="orden.trabajo_realizado" rows="5" placeholder="Refacciones instaladas y procedimiento realizado"></textarea></label>
             <div class="ts-form-grid"><label><span>Técnico asignado</span><input v-model="orden.tecnico" placeholder="Nombre del técnico"></label><label><span>Notas internas</span><input v-model="orden.notas" placeholder="No visibles para el cliente"></label></div>
+            <div class="ts-schedule-editor">
+              <div><span>Agenda</span><strong>Programación de la reparación</strong><small>Al definir una fecha, esta orden aparecerá automáticamente en Agenda.</small></div>
+              <div class="ts-form-grid">
+                <label><span>Fecha y hora</span><input v-model="orden.fecha_programada" type="datetime-local"></label>
+                <label><span>Duración estimada</span><select v-model.number="orden.duracion_estimada_min"><option :value="15">15 min</option><option :value="30">30 min</option><option :value="45">45 min</option><option :value="60">1 hora</option><option :value="90">1 h 30 min</option><option :value="120">2 horas</option><option :value="240">4 horas</option><option :value="480">1 día</option></select></label>
+              </div>
+            </div>
           </div>
         </section>
 
@@ -360,6 +378,8 @@ onMounted(cargar)
 </template>
 
 <style scoped>
+.ts-schedule-editor{margin-top:4px;padding:16px;border:1px solid var(--ts-border,#e2e8f0);border-radius:15px;background:var(--ts-soft,#f8fafc)}.ts-schedule-editor>div:first-child{display:flex;flex-direction:column;margin-bottom:12px}.ts-schedule-editor>div:first-child>span{font-size:.68rem;font-weight:850;text-transform:uppercase;color:#2563eb}.ts-schedule-editor>div:first-child>strong{font-size:.9rem;margin:3px 0}.ts-schedule-editor>div:first-child>small{font-size:.75rem;color:#667085}
+
 .ts-finance-panel { min-height: auto; }
 .ts-finance-heading { margin-bottom: 22px; }
 .ts-finance-clean-grid { gap: 16px; }

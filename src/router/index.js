@@ -18,6 +18,8 @@ import VentasView from '../views/VentasView.vue'
 import ComprasView from '../views/ComprasView.vue'
 import OrdenCompraDetalleView from '../views/OrdenCompraDetalleView.vue'
 import CajaView from '../views/CajaView.vue'
+import AgendaView from '../views/AgendaView.vue'
+import CorteCajaView from '../views/CorteCajaView.vue'
 import ConfiguracionView from '../views/ConfiguracionView.vue'
 import GarantiasView from '../views/GarantiasView.vue'
 import ReportesView from '../views/ReportesView.vue'
@@ -48,6 +50,7 @@ const routes = [
   { path: '/equipos', name: 'equipos', component: EquiposView, meta: { roles: OPERACION } },
   { path: '/nueva-orden', name: 'nuevaOrden', component: NuevaOrdenView, meta: { roles: OPERACION } },
   { path: '/ordenes', name: 'ordenes', component: OrdenesView, meta: { roles: OPERACION } },
+  { path: '/agenda', name: 'agenda', component: AgendaView, meta: { roles: OPERACION } },
   { path: '/ordenes/:id', name: 'detalleOrden', component: DetalleOrdenView, meta: { roles: OPERACION } },
   { path: '/ordenes/:id/editar', name: 'editarOrden', component: EditarOrdenView, meta: { roles: OPERACION } },
   { path: '/catalogo-servicios', name: 'catalogoServicios', component: CatalogoServiciosView, meta: { roles: OPERACION } },
@@ -58,6 +61,7 @@ const routes = [
   { path: '/compras', name: 'compras', component: ComprasView, meta: { roles: FINANZAS } },
   { path: '/compras/:id', name: 'ordenCompraDetalle', component: OrdenCompraDetalleView, meta: { roles: FINANZAS } },
   { path: '/caja', name: 'caja', component: CajaView, meta: { roles: FINANZAS } },
+  { path: '/corte-caja', name: 'corteCaja', component: CorteCajaView, meta: { roles: FINANZAS } },
   { path: '/garantias', name: 'garantias', component: GarantiasView, meta: { roles: OPERACION } },
   { path: '/reportes', name: 'reportes', component: ReportesView, meta: { roles: FINANZAS } },
   { path: '/usuarios', name: 'usuarios', component: UsuariosView, meta: { roles: SOLO_ADMIN } },
