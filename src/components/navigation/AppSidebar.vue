@@ -26,40 +26,54 @@ const groups = [
     label: 'Operación',
     items: [
       { label: 'Inicio', to: '/', icon: 'home' },
-      { label: 'Clientes', to: '/clientes', icon: 'users' },
-      { label: 'Equipos', to: '/equipos', icon: 'phone' },
-      { label: 'Nueva orden', to: '/nueva-orden', icon: 'plus', accent: true },
+      { label: 'Taller', to: '/taller', icon: 'settings' },
       { label: 'Órdenes', to: '/ordenes', icon: 'clipboard' },
-      { label: 'Panel de taller', to: '/taller', icon: 'settings' },
       { label: 'Agenda', to: '/agenda', icon: 'calendar' },
       { label: 'Garantías', to: '/garantias', icon: 'shield' }
     ]
   },
   {
-    label: 'Inventario',
+    label: 'Ventas y caja',
     items: [
-      { label: 'Catálogo de servicios', to: '/catalogo-servicios', icon: 'tag' },
-      { label: 'Existencias', to: '/inventario', icon: 'box' },
-      { label: 'Compras y proveedores', to: '/compras', icon: 'truck' }
+      { label: 'Caja', to: '/caja', icon: 'wallet' },
+      { label: 'Ventas', to: '/ventas', icon: 'cart' },
+      { label: 'Corte de caja', to: '/corte-caja', icon: 'cashcheck' }
     ]
   },
   {
     label: 'Finanzas',
     items: [
-      { label: 'Tarifario', to: '/tarifario', icon: 'tag' },
+      { label: 'Rentabilidad', to: '/rentabilidad', icon: 'profit', roles: ['admin'] }
+    ]
+  },
+  {
+    label: 'Gestión',
+    items: [
+      { label: 'Clientes', to: '/clientes', icon: 'users' },
+      { label: 'Equipos', to: '/equipos', icon: 'phone' }
+    ]
+  },
+  {
+    label: 'Inventario',
+    items: [
+      { label: 'Existencias', to: '/inventario', icon: 'box' },
+      { label: 'Compras y proveedores', to: '/compras', icon: 'truck' }
+    ]
+  },
+  {
+    label: 'Herramientas',
+    items: [
+      { label: 'Catálogo de servicios', to: '/catalogo-servicios', icon: 'tag' },
       { label: 'Cotizador', to: '/cotizador', icon: 'calculator' },
-      { label: 'Ventas', to: '/ventas', icon: 'cart' },
-      { label: 'Caja', to: '/caja', icon: 'wallet' },
-      { label: 'Corte de Caja', to: '/corte-caja', icon: 'cashcheck' },
-      { label: 'Rentabilidad', to: '/rentabilidad', icon: 'profit', roles: ['admin'] },
+      { label: 'Tarifario', to: '/tarifario', icon: 'tag' },
       { label: 'Reportes', to: '/reportes', icon: 'chart' }
     ]
   },
   {
     label: 'Sistema',
     items: [
-      { label: 'Usuarios y permisos', to: '/usuarios', icon: 'users' },
-      { label: 'Configuración', to: '/configuracion', icon: 'settings' }
+      { label: 'Usuarios y permisos', to: '/usuarios', icon: 'users', roles: ['admin'] },
+      { label: 'Configuración', to: '/configuracion', icon: 'settings', roles: ['admin'] }
     ]
   }
 ]
@@ -85,12 +99,16 @@ async function logout() {
   <div v-if="open" class="sidebar-backdrop" @click="emit('close')" />
 
   <aside class="app-sidebar" :class="{ open, collapsed }" aria-label="Navegación principal">
-    <div class="sidebar-brand">
-      <router-link to="/" class="brand-link" @click="emit('close')">
-        <span class="brand-mark">TS</span>
-        <span v-if="!collapsed" class="brand-copy">
-          <strong>TechSoul</strong>
-          <small>OS</small>
+    <div class="sidebar-brand techsoul-brand">
+      <router-link to="/" class="brand-link techsoul-brand-link" aria-label="Ir al inicio de TechSoul" @click="emit('close')">
+        <img
+          v-if="!collapsed"
+          class="techsoul-brand-logo"
+          src="/brand/techsoul-logo-white.png"
+          alt="TechSoul Servicio Técnico Especializado"
+        >
+        <span v-else class="techsoul-brand-symbol-wrap" aria-hidden="true">
+          <img class="techsoul-brand-symbol" src="/brand/techsoul-symbol-white.png" alt="">
         </span>
       </router-link>
       <button class="sidebar-collapse-btn desktop-only" type="button" @click="emit('toggle-collapse')" :aria-label="collapsed ? 'Expandir menú' : 'Contraer menú'">
@@ -149,3 +167,71 @@ async function logout() {
     </div>
   </aside>
 </template>
+
+
+<style scoped>
+/* Identidad oficial TechSoul en el sidebar.
+   Los PNG viven en /public/brand y no usan Supabase ni consumen base de datos. */
+.techsoul-brand {
+  min-height: 82px;
+  padding: 13px 12px 13px 16px;
+  gap: 8px;
+}
+
+.techsoul-brand-link {
+  flex: 1;
+  min-width: 0;
+  height: 52px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  overflow: hidden;
+}
+
+.techsoul-brand-logo {
+  display: block;
+  width: 138px;
+  max-width: 100%;
+  height: auto;
+  object-fit: contain;
+  object-position: left center;
+}
+
+.techsoul-brand-symbol-wrap {
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  margin: 0 auto;
+  border-radius: 12px;
+  background: rgba(37, 99, 235, .18);
+  box-shadow: inset 0 0 0 1px rgba(96, 165, 250, .14);
+}
+
+.techsoul-brand-symbol {
+  width: 27px;
+  height: 27px;
+  object-fit: contain;
+}
+
+.app-sidebar.collapsed .techsoul-brand {
+  padding-left: 8px;
+  padding-right: 8px;
+  justify-content: center;
+}
+
+.app-sidebar.collapsed .techsoul-brand-link {
+  flex: 0 0 40px;
+  width: 40px;
+}
+
+@media (max-width: 991.98px) {
+  .techsoul-brand {
+    min-height: 76px;
+  }
+
+  .techsoul-brand-logo {
+    width: 132px;
+  }
+}
+</style>

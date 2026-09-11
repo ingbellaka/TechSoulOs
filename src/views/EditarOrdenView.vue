@@ -418,4 +418,82 @@ onMounted(cargar)
   .ts-finance-balance-card > div:first-child > strong { font-size:1.65rem; }
   .ts-finance-note { margin-top:12px; font-size:.73rem; }
 }
+
+/* V1 responsive: edición de órdenes pensada para escritorio, tablet y teléfono. */
+@media (max-width: 980px) {
+  .ts-edit-order-page { padding: 18px 14px 34px; max-width: 100%; overflow-x: hidden; }
+  .ts-edit-order-header { display: grid; grid-template-columns: 1fr; align-items: start; gap: 16px; }
+  .ts-edit-order-header h1 { font-size: clamp(1.8rem, 7vw, 2.4rem); }
+  .ts-edit-order-header-actions { width: 100%; display: grid; grid-template-columns: 1fr 1fr; }
+  .ts-edit-order-header-actions > * { width: 100%; justify-content: center; text-align: center; }
+  .ts-edit-order-shell { display: block; min-width: 0; }
+  .ts-edit-order-nav {
+    position: static;
+    display: flex;
+    gap: 8px;
+    overflow-x: auto;
+    overscroll-behavior-inline: contain;
+    scrollbar-width: none;
+    padding: 2px 1px 10px;
+    margin: 0 0 10px;
+  }
+  .ts-edit-order-nav::-webkit-scrollbar { display: none; }
+  .ts-edit-order-nav > button { min-width: 132px; flex: 0 0 auto; padding: 11px 12px; border-radius: 14px; }
+  .ts-edit-order-nav > button > span { width: 30px; height: 30px; }
+  .ts-edit-order-nav button small { display: none; }
+  .ts-edit-order-summary { display: none; }
+  .ts-edit-order-content { width: 100%; min-width: 0; }
+  .ts-edit-panel { min-height: 0; }
+}
+
+@media (max-width: 680px) {
+  .ts-edit-order-page { padding: 14px 10px 28px; }
+  .ts-back-link { display: inline-flex; margin-bottom: 8px; }
+  .ts-order-eyebrow { display: block; margin-top: 4px; }
+  .ts-edit-order-header p { font-size: .86rem; line-height: 1.45; }
+  .ts-edit-order-header-actions { grid-template-columns: 1fr; gap: 8px; }
+  .ts-edit-order-header-actions > * { min-height: 46px; }
+  .ts-edit-order-nav > button { min-width: 112px; gap: 8px; padding: 10px; }
+  .ts-edit-order-nav > button > span { width: 28px; height: 28px; border-radius: 9px; }
+  .ts-edit-order-nav button strong { font-size: .82rem; }
+  .ts-edit-panel { padding: 18px 14px; border-radius: 18px; overflow: hidden; }
+  .ts-edit-panel-heading { margin-bottom: 18px; }
+  .ts-edit-panel-heading h2 { font-size: 1.35rem; }
+  .ts-edit-panel-heading p { font-size: .84rem; line-height: 1.5; }
+  .ts-form-grid, .ts-finance-editor-grid { display: grid; grid-template-columns: minmax(0, 1fr) !important; gap: 14px; padding: 0 !important; }
+  .ts-form-grid .is-wide, .ts-form-grid .ts-toggle-row, .ts-finance-editor-result { grid-column: 1 !important; }
+  .ts-form-stack { gap: 14px; }
+  .ts-form-stack > label, .ts-form-grid label, .ts-finance-editor-grid label { min-width: 0; }
+  .ts-edit-panel input, .ts-edit-panel select, .ts-edit-panel textarea { min-width: 0; max-width: 100%; font-size: 16px; }
+  .ts-edit-panel textarea { min-height: 110px; }
+  .ts-schedule-editor { padding: 14px; border-radius: 14px; }
+  .ts-schedule-editor .ts-form-grid { margin-top: 4px; }
+  .ts-status-selector { grid-template-columns: 1fr !important; }
+  .ts-status-selector label { padding: 14px; }
+  .ts-payment-method-options { grid-template-columns: 1fr !important; }
+  .ts-payment-method-options button { min-height: 48px; flex-direction: row; justify-content: flex-start; padding: 10px 12px; font-size: .82rem; }
+  .ts-finance-balance-card { grid-column: 1 !important; }
+  .ts-edit-order-footer {
+    position: sticky;
+    z-index: 5;
+    bottom: 8px;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    margin-top: 14px;
+    padding: 8px;
+    background: rgba(255,255,255,.96);
+    backdrop-filter: blur(12px);
+  }
+  .ts-edit-order-footer > span { display: none; }
+  .ts-edit-order-footer > button:only-of-type { grid-column: 1 / -1; }
+  .ts-edit-order-footer button { width: 100%; min-height: 46px; }
+}
+
+@media (max-width: 390px) {
+  .ts-edit-order-page { padding-inline: 8px; }
+  .ts-edit-panel { padding-inline: 12px; }
+  .ts-edit-order-nav > button { min-width: 102px; }
+}
+
 </style>
