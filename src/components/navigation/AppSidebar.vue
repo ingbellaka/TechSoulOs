@@ -30,6 +30,7 @@ const groups = [
       { label: 'Equipos', to: '/equipos', icon: 'phone' },
       { label: 'Nueva orden', to: '/nueva-orden', icon: 'plus', accent: true },
       { label: 'Órdenes', to: '/ordenes', icon: 'clipboard' },
+      { label: 'Panel de taller', to: '/taller', icon: 'settings' },
       { label: 'Agenda', to: '/agenda', icon: 'calendar' },
       { label: 'Garantías', to: '/garantias', icon: 'shield' }
     ]

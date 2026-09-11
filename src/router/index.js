@@ -19,6 +19,7 @@ import ComprasView from '../views/ComprasView.vue'
 import OrdenCompraDetalleView from '../views/OrdenCompraDetalleView.vue'
 import CajaView from '../views/CajaView.vue'
 import AgendaView from '../views/AgendaView.vue'
+import TallerView from '../views/TallerView.vue'
 import CorteCajaView from '../views/CorteCajaView.vue'
 import ConfiguracionView from '../views/ConfiguracionView.vue'
 import GarantiasView from '../views/GarantiasView.vue'
@@ -51,6 +52,7 @@ const routes = [
   { path: '/nueva-orden', name: 'nuevaOrden', component: NuevaOrdenView, meta: { roles: OPERACION } },
   { path: '/ordenes', name: 'ordenes', component: OrdenesView, meta: { roles: OPERACION } },
   { path: '/agenda', name: 'agenda', component: AgendaView, meta: { roles: OPERACION } },
+  { path: '/taller', name: 'taller', component: TallerView, meta: { roles: OPERACION } },
   { path: '/ordenes/:id', name: 'detalleOrden', component: DetalleOrdenView, meta: { roles: OPERACION } },
   { path: '/ordenes/:id/editar', name: 'editarOrden', component: EditarOrdenView, meta: { roles: OPERACION } },
   { path: '/catalogo-servicios', name: 'catalogoServicios', component: CatalogoServiciosView, meta: { roles: OPERACION } },
