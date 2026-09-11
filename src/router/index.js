@@ -27,6 +27,7 @@ import ReportesView from '../views/ReportesView.vue'
 import UsuariosView from '../views/UsuariosView.vue'
 import TarifarioView from '../views/TarifarioView.vue'
 import CotizadorView from '../views/CotizadorView.vue'
+import RentabilidadView from '../views/RentabilidadView.vue'
 
 /* Módulos desactivados por simplificación (código intacto en src/views, solo
    desconectados del router y del menú). Para reactivar alguno: descomenta su
@@ -66,6 +67,7 @@ const routes = [
   { path: '/corte-caja', name: 'corteCaja', component: CorteCajaView, meta: { roles: FINANZAS } },
   { path: '/garantias', name: 'garantias', component: GarantiasView, meta: { roles: OPERACION } },
   { path: '/reportes', name: 'reportes', component: ReportesView, meta: { roles: FINANZAS } },
+  { path: '/rentabilidad', name: 'rentabilidad', component: RentabilidadView, meta: { roles: SOLO_ADMIN } },
   { path: '/usuarios', name: 'usuarios', component: UsuariosView, meta: { roles: SOLO_ADMIN } },
   { path: '/configuracion', name: 'configuracion', component: ConfiguracionView, meta: { roles: SOLO_ADMIN } },
   { path: '/:pathMatch(.*)*', redirect: '/' }

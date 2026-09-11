@@ -51,6 +51,7 @@ const groups = [
       { label: 'Ventas', to: '/ventas', icon: 'cart' },
       { label: 'Caja', to: '/caja', icon: 'wallet' },
       { label: 'Corte de Caja', to: '/corte-caja', icon: 'cashcheck' },
+      { label: 'Rentabilidad', to: '/rentabilidad', icon: 'profit', roles: ['admin'] },
       { label: 'Reportes', to: '/reportes', icon: 'chart' }
     ]
   },
@@ -62,6 +63,11 @@ const groups = [
     ]
   }
 ]
+
+const visibleGroups = computed(() => groups.map(group => ({
+  ...group,
+  items: group.items.filter(item => !item.roles || auth.can(item.roles))
+})).filter(group => group.items.length))
 
 function isActive(to) {
   if (to === '/') return route.path === '/'
@@ -93,7 +99,7 @@ async function logout() {
     </div>
 
     <nav class="sidebar-nav">
-      <section v-for="group in groups" :key="group.label" class="nav-section">
+      <section v-for="group in visibleGroups" :key="group.label" class="nav-section">
         <p v-if="!collapsed" class="nav-section-label">{{ group.label }}</p>
         <router-link
           v-for="item in group.items"
@@ -123,6 +129,7 @@ async function logout() {
             <svg v-else-if="item.icon === 'calendar'" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 10h18M8 14h.01M12 14h.01M16 14h.01M8 18h.01M12 18h.01"/></svg>
             <svg v-else-if="item.icon === 'cashcheck'" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M7 10h4M7 14h2m6-3 2 2 4-4"/></svg>
             <svg v-else-if="item.icon === 'calculator'" viewBox="0 0 24 24"><rect x="4" y="2" width="16" height="20" rx="2"/><path d="M8 6h8M8 11h.01M12 11h.01M16 11h.01M8 15h.01M12 15h.01M16 15h.01M8 19h.01M12 19h.01M16 19h.01"/></svg>
+            <svg v-else-if="item.icon === 'profit'" viewBox="0 0 24 24"><path d="M4 19V9M10 19V5M16 19v-7M22 19H2"/><path d="m4 7 5-4 5 3 6-4"/></svg>
             <svg v-else viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.83 2.83-.06-.06A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 .6 1.7 1.7 0 0 0-.4 1v.1h-4v-.1a1.7 1.7 0 0 0-1.1-1.6 1.7 1.7 0 0 0-1.88.34l-.06.06-2.83-2.83.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-.6-1 1.7 1.7 0 0 0-1-.4H3v-4h.1A1.7 1.7 0 0 0 4.6 8.5a1.7 1.7 0 0 0-.34-1.88l-.06-.06 2.83-2.83.06.06A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-.6 1.7 1.7 0 0 0 .4-1V3h4v.1A1.7 1.7 0 0 0 15.5 4.6a1.7 1.7 0 0 0 1.88-.34l.06-.06 2.83 2.83-.06.06A1.7 1.7 0 0 0 19.4 9c.14.36.35.7.6 1 .27.27.63.4 1 .4h.1v4H21a1.7 1.7 0 0 0-1.6.6z"/></svg>
           </span>
           <span v-if="!collapsed" class="nav-label">{{ item.label }}</span>

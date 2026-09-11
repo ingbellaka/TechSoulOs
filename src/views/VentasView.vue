@@ -1,5 +1,6 @@
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, nextTick, onMounted, ref } from 'vue'
+import { useRoute } from 'vue-router'
 import { supabase } from '../lib/supabase'
 import { registrarAbonoVenta } from '../services/flujo-operativo.service'
 import { useAuthStore } from '../stores/auth'
@@ -16,6 +17,7 @@ const cargando = ref(true)
 const ventaAbono = ref(null)
 const abono = ref({ monto: 0, metodo_pago: 'Efectivo', notas: '' })
 const authStore = useAuthStore()
+const route = useRoute()
 const ventaEditar = ref(null)
 const editForm = ref(null)
 const procesandoEdicion = ref(false)
@@ -513,7 +515,14 @@ async function actualizarEstadoItem(detalle, nuevoEstado) {
   await cargar()
 }
 
-onMounted(cargar)
+onMounted(async () => {
+  await cargar()
+  if (route.query.nueva === '1') {
+    mostrarVenta.value = true
+    await nextTick()
+    document.querySelector('.venta-builder')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }
+})
 </script>
 
 <template>

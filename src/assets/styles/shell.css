@@ -85,3 +85,17 @@ svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width:
   .app-workspace { margin: 0 !important; }
   .app-content { padding: 0 !important; }
 }
+
+/* TechSoul sidebar operativo v3 */
+.brand-link { flex-direction: column; align-items: flex-start; gap: 1px; }
+.brand-wordmark { color:#fff; font-size:20px; line-height:1; font-weight:850; letter-spacing:-.055em; }
+.brand-subtitle { color:#64748b; font-size:8px; font-weight:800; letter-spacing:.18em; text-transform:uppercase; }
+.app-sidebar.collapsed .brand-link { display:none; }
+.sidebar-primary-action { padding:14px 12px 2px; }
+.new-order-button { min-height:44px; padding:0 14px; border-radius:11px; display:flex; align-items:center; justify-content:center; gap:8px; color:#fff; background:var(--ts-primary); box-shadow:0 10px 24px rgba(37,99,235,.22); font-size:13px; }
+.new-order-button:hover { color:#fff; background:var(--ts-primary-hover); }
+.sidebar-primary-action.collapsed { padding:12px 8px 0; }
+.sidebar-primary-action.collapsed .new-order-button { width:42px; height:42px; padding:0; margin:auto; }
+.sidebar-nav { padding-top:12px; }
+.nav-section + .nav-section { margin-top:16px; }
+.nav-section-label { color:#4f7bb8; font-size:9px; }
