@@ -27,12 +27,12 @@
 }
 
 :root[data-theme='dark'] {
-  --ts-bg: #080d17;
-  --ts-surface: #101827;
-  --ts-surface-2: #151f31;
+  --ts-bg: #08111f;
+  --ts-surface: #0f1a2c;
+  --ts-surface-2: #142138;
   --ts-text: #f8fafc;
-  --ts-muted: #94a3b8;
-  --ts-border: #253147;
+  --ts-muted: #a5b4c8;
+  --ts-border: #2a3a55;
   --ts-primary-soft: rgba(37, 99, 235, .14);
   --ts-shadow-sm: 0 1px 2px rgba(0, 0, 0, .2);
   --ts-shadow-md: 0 16px 40px rgba(0, 0, 0, .28);

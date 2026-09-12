@@ -166,8 +166,8 @@ onMounted(cargarDatos)
             <div><span class="ts-device-type">{{ equipo.tipo_equipo }}</span><h3>{{ descripcionEquipo(equipo) }}</h3><small>{{ equipo.clientes?.nombre || 'Cliente sin nombre' }}</small></div>
           </div>
           <dl class="ts-device-details">
-            <div><dt>Teléfono</dt><dd>{{ equipo.clientes?.telefono || 'No registrado' }}</dd></div>
-            <div><dt>IMEI / Serie</dt><dd>{{ equipo.imei_serie || 'No registrado' }}</dd></div>
+            <div v-if="equipo.clientes?.telefono"><dt>Teléfono</dt><dd>{{ equipo.clientes.telefono }}</dd></div>
+            <div v-if="equipo.imei_serie"><dt>IMEI / Serie</dt><dd>{{ equipo.imei_serie }}</dd></div>
             <div><dt>ID interno</dt><dd>#{{ equipo.id }}</dd></div>
           </dl>
           <p v-if="equipo.observaciones" class="ts-device-note">{{ equipo.observaciones }}</p>
@@ -176,3 +176,7 @@ onMounted(cargarDatos)
     </section>
   </div>
 </template>
+
+<style scoped>
+@media(max-width:600px){.ts-device-grid{padding:12px!important;gap:10px!important}.ts-device-card-v2{padding:15px!important;border-radius:15px}.ts-device-card-head{align-items:flex-start}.ts-device-card-head h3{white-space:normal!important;overflow-wrap:anywhere;line-height:1.25;font-size:1rem!important}.ts-device-card-head small{font-size:.82rem!important}.ts-device-details{margin-top:12px!important;gap:7px!important}.ts-device-details div{align-items:flex-start}.ts-device-details dt{font-size:.76rem!important}.ts-device-details dd{max-width:62%!important;white-space:normal!important;overflow-wrap:anywhere;font-size:.78rem!important}.ts-device-note{font-size:.8rem!important}.ts-metric-strip-four{grid-template-columns:repeat(2,minmax(0,1fr))!important}}
+</style>
