@@ -9,6 +9,7 @@ import './assets/styles/tokens.css'
 import './assets/styles/shell.css'
 import './assets/styles/modules.css'
 import './assets/styles.css'
+import './assets/styles/responsive.css'
 
 const app = createApp(App)
 

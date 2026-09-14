@@ -1,0 +1,309 @@
+/* TechSoul OS — Responsive hardening
+   Loaded last. Intentionally avoids business logic and only normalizes layout. */
+
+html, body, #app { width: 100%; max-width: 100%; overflow-x: hidden; }
+body { min-width: 0; }
+img, svg, canvas, video { max-width: 100%; }
+input, select, textarea, button { max-width: 100%; }
+.app-workspace, .app-content, .ts-module-page, .ts-panel, .ts-form-panel { min-width: 0; max-width: 100%; }
+.ts-module-page, .ts-order-detail-page, .ts-edit-order-page, .workshop-page, .agenda-page, .rent-page, .corte-page { width: 100%; }
+
+/* Flex/grid children are allowed to shrink instead of forcing horizontal scroll */
+.ts-module-header > *, .ts-panel-heading > *, .ts-panel-toolbar > *, .ts-orders-toolbar > *,
+.ts-customer-main > *, .ts-order-card-header > *, .ts-card-actions > *, .ts-header-actions > *,
+.header-actions > *, .ts-order-detail-header > *, .ts-order-detail-actions > *, .ts-edit-order-header > *,
+.ts-edit-order-header-actions > *, .agenda-header > *, .workshop-header > *, .rent-header > * { min-width: 0; }
+
+/* Long content should never break the viewport */
+.ts-panel, .ts-mini-metric, .ts-customer-card, .ts-order-card-v2, .ts-device-card-v2,
+.ts-product-card, .ts-purchase-card, .ts-sale-row, .ts-cash-row, .catalog-card,
+.agenda-card, .order-card, .detail-card, .ts-detail-card, .kpi, .overview-card,
+.ts-flow-card, .record-card, .modal-card, .ts-confirm-dialog { overflow-wrap: anywhere; word-break: normal; }
+
+.ts-module-header h1, .ts-module-header h2, .ts-panel h1, .ts-panel h2, .ts-panel h3,
+.ts-customer-copy strong, .ts-device-copy strong, .ts-product-copy strong,
+.ts-purchase-main h3, .catalog-card h3, .agenda-title, .equipment-link,
+.ts-order-device-meta strong { overflow-wrap: anywhere; }
+
+/* Tables: always usable even when a specific view still has a desktop table */
+.table-responsive, .users-table-wrap, .permissions-table-wrap { width: 100%; max-width: 100%; overflow-x: auto !important; -webkit-overflow-scrolling: touch; }
+.table-responsive table, .users-table, .permissions-table { min-width: 720px; margin-bottom: 0; }
+.table-responsive code { white-space: pre-wrap; overflow-wrap: anywhere; }
+
+/* Dialogs/modals */
+.modal-backdrop, .ts-confirm-backdrop { padding: 16px; }
+.modal-card, .ts-confirm-dialog { max-width: min(94vw, 720px); max-height: min(90dvh, 900px); overflow-y: auto; }
+
+/* Caja: 5 logical areas. Prevent actions falling onto an unrelated grid row on desktop. */
+.ts-cash-row { grid-template-columns: 40px minmax(220px, 1fr) minmax(100px, 130px) minmax(110px, 140px) auto !important; }
+.ts-cash-actions { min-width: max-content; justify-self: end; }
+.ts-cash-main strong { white-space: normal !important; line-height: 1.3; }
+
+/* Reusable form safety */
+.ts-smart-form > *, .ts-form-grid > *, .ts-finance-editor-grid > *, .agenda-grid > *,
+.form-grid > *, .cliente-grid > *, .checkout-grid > *, .edit-grid > *, .item-editor > *,
+.ts-purchase-meta > *, .ts-purchase-row > * { min-width: 0; }
+
+@media (max-width: 1280px) {
+  .app-content { padding: 24px 24px 40px; }
+  .ts-metric-strip-four { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .ts-customer-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .ts-order-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .ts-price-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .ts-smart-form { grid-template-columns: repeat(2, minmax(0,1fr)); }
+  .ts-field-wide { grid-column: span 1; }
+  .ts-field-full { grid-column: 1 / -1; }
+  .ts-cash-row { grid-template-columns: 40px minmax(180px,1fr) minmax(95px,120px) minmax(105px,130px) auto !important; gap: 10px; }
+  .ts-cash-actions { gap: 5px; }
+}
+
+@media (max-width: 980px) {
+  /* Shell */
+  .app-content { padding: 20px 16px 36px !important; }
+  .app-topbar { padding-inline: 16px !important; gap: 10px; }
+  .topbar-actions { gap: 8px; }
+  .global-search { display: none !important; }
+
+  /* Headers */
+  .ts-module-header, .ts-panel-heading, .ts-panel-toolbar, .ts-orders-toolbar,
+  .ts-header-actions, .workshop-header, .agenda-header, .rent-header,
+  .ts-order-detail-header, .ts-edit-order-header {
+    align-items: stretch !important;
+  }
+  .ts-module-header { flex-direction: column; gap: 14px; }
+  .ts-module-header > .ts-action-primary, .ts-module-header > .ts-action-secondary { align-self: flex-start; }
+  .ts-module-header h2 { font-size: clamp(25px, 6vw, 32px); }
+
+  /* Common grids */
+  .ts-metric-strip, .ts-metric-strip-four { grid-template-columns: repeat(2, minmax(0,1fr)) !important; gap: 10px !important; }
+  .ts-mini-metric { padding: 15px 16px !important; }
+  .ts-customer-grid, .ts-order-grid, .ts-device-grid, .ts-inventory-grid, .ts-provider-grid,
+  .catalog-grid, .role-grid, .permissions-grid, .kpi-grid, .overview-grid, .metrics {
+    grid-template-columns: repeat(2, minmax(0,1fr)) !important;
+  }
+  .ts-smart-form, .ts-form-grid, .ts-finance-editor-grid, .agenda-grid, .form-grid,
+  .cliente-grid, .checkout-grid, .edit-grid, .item-editor, .ts-purchase-meta {
+    grid-template-columns: repeat(2, minmax(0,1fr)) !important;
+  }
+
+  /* Toolbars */
+  .ts-orders-toolbar, .ts-panel-toolbar, .catalog-toolbar { flex-wrap: wrap !important; }
+  .ts-search-control, .ts-search-grow { flex: 1 1 100% !important; width: 100% !important; max-width: none !important; }
+  .ts-filter-select { width: auto !important; flex: 1 1 180px !important; }
+
+  /* Caja */
+  .ts-cash-row {
+    grid-template-columns: 40px minmax(0,1fr) auto !important;
+    align-items: start !important;
+  }
+  .ts-cash-icon { grid-column: 1; grid-row: 1 / span 2; }
+  .ts-cash-main { grid-column: 2; }
+  .ts-reference-pill { grid-column: 2; justify-self: start; }
+  .ts-cash-amount { grid-column: 3; grid-row: 1; justify-self: end !important; }
+  .ts-cash-actions { grid-column: 3; grid-row: 2; justify-self: end; align-self: end; }
+
+  /* Detail/edit order */
+  .ts-order-detail-layout { grid-template-columns: 1fr !important; }
+  .ts-order-detail-aside { position: static !important; width: 100%; }
+  .ts-order-detail-actions, .ts-edit-order-header-actions { flex-wrap: wrap !important; }
+  .ts-order-tabs, .ts-edit-order-nav { overflow-x: auto !important; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
+  .ts-order-tabs > *, .ts-edit-order-nav > * { flex: 0 0 auto; white-space: nowrap; }
+
+  /* Taller */
+  .orders-grid { grid-template-columns: repeat(2,minmax(0,1fr)) !important; }
+  .toolbar, .header-actions { flex-wrap: wrap !important; }
+  .toolbar .search-box { flex: 1 1 100%; max-width: none !important; }
+
+  /* Agenda */
+  .agenda-event { grid-template-columns: 80px 18px minmax(0,1fr) !important; }
+  .agenda-row-actions { flex-wrap: wrap; }
+
+  /* Sales */
+  .sale-card, .sale-row, .ts-sale-row { min-width: 0; }
+  .sale-actions, .sale-line-actions { flex-wrap: wrap !important; }
+
+  /* Rentabilidad */
+  .top-grid, .bottom-grid { grid-template-columns: 1fr !important; }
+}
+
+@media (max-width: 720px) {
+  html { -webkit-text-size-adjust: 100%; }
+  body { font-size: 15px; }
+  .app-content { padding: 16px 12px 30px !important; }
+  .app-topbar { min-height: 68px !important; padding-inline: 12px !important; }
+  .page-heading h1 { font-size: 18px !important; }
+
+  /* Prevent iOS zoom and provide touch-sized controls */
+  input, select, textarea, .form-control, .form-select,
+  .ts-field input, .ts-field select, .ts-field textarea,
+  .ts-filter-select, .ts-search-control input { font-size: 16px !important; }
+  button, .btn, .ts-action-primary, .ts-action-secondary { min-height: 44px; }
+
+  /* Cards and panel spacing */
+  .ts-module-page { gap: 14px !important; }
+  .ts-panel, .ts-form-panel, .ts-edit-panel, .ts-detail-card, .panel { border-radius: 16px !important; }
+  .ts-form-panel, .ts-edit-panel { padding: 16px !important; }
+  .ts-panel-heading, .ts-panel-toolbar, .ts-orders-toolbar { padding: 14px !important; gap: 10px !important; }
+  .ts-panel-heading, .ts-panel-toolbar { flex-direction: column; align-items: stretch !important; }
+  .ts-required-note { align-self: flex-start; }
+
+  /* One-column forms by default */
+  .ts-smart-form, .ts-form-grid, .ts-finance-editor-grid, .agenda-grid, .form-grid,
+  .cliente-grid, .checkout-grid, .edit-grid, .item-editor, .ts-purchase-meta,
+  .ts-purchase-row, .ts-status-selector { grid-template-columns: 1fr !important; }
+  .ts-field, .ts-field-wide, .ts-field-full, .is-wide, .full, .item-wide,
+  .ts-finance-editor-result, .ts-toggle-row { grid-column: 1 !important; }
+  .ts-form-actions, .modal-actions, .ts-confirm-actions { display: grid !important; grid-template-columns: 1fr !important; gap: 8px !important; }
+  .ts-form-actions > *, .modal-actions > *, .ts-confirm-actions > * { width: 100% !important; }
+
+  /* Metrics */
+  .ts-metric-strip, .ts-metric-strip-four, .kpi-grid, .overview-grid, .metrics,
+  .ts-customer-grid, .ts-order-grid, .ts-device-grid, .ts-inventory-grid, .ts-provider-grid,
+  .ts-price-grid, .catalog-grid, .role-grid, .permissions-grid {
+    grid-template-columns: 1fr !important;
+  }
+  .ts-mini-metric { min-height: 0 !important; padding: 14px !important; }
+  .ts-mini-metric strong { font-size: 23px !important; }
+
+  /* Toolbars */
+  .ts-orders-toolbar, .catalog-toolbar { display: grid !important; grid-template-columns: 1fr !important; }
+  .ts-filter-select { width: 100% !important; flex-basis: auto !important; }
+
+  /* Customer/device cards */
+  .ts-customer-card, .ts-order-card-v2, .ts-device-card-v2, .ts-product-card,
+  .ts-purchase-card, .catalog-card { padding: 14px !important; }
+  .ts-customer-main, .ts-device-card-head, .ts-product-card-head, .catalog-card-top { align-items: flex-start !important; }
+  .ts-contact-list > div, .ts-device-details > div, .ts-product-data > div { align-items: flex-start !important; }
+  .ts-contact-list dd { max-width: 62%; white-space: normal !important; overflow-wrap: anywhere; }
+
+  /* Caja mobile card layout */
+  .ts-cash-list { padding: 10px !important; gap: 10px !important; }
+  .ts-cash-row {
+    display: grid !important;
+    grid-template-columns: 46px minmax(0,1fr) !important;
+    gap: 10px 12px !important;
+    padding: 14px !important;
+    align-items: start !important;
+  }
+  .ts-cash-icon { grid-column: 1 !important; grid-row: 1 / span 2 !important; width: 46px !important; height: 46px !important; }
+  .ts-cash-main { grid-column: 2 !important; grid-row: 1 !important; }
+  .ts-cash-main strong { font-size: 15px !important; white-space: normal !important; overflow-wrap: anywhere; }
+  .ts-cash-main small { font-size: 12px !important; line-height: 1.35; }
+  .ts-reference-pill { grid-column: 2 !important; grid-row: 2 !important; justify-self: start !important; }
+  .ts-cash-amount { grid-column: 2 !important; grid-row: 3 !important; justify-self: start !important; font-size: 20px !important; }
+  .ts-cash-actions {
+    grid-column: 1 / -1 !important; grid-row: 4 !important; width: 100% !important;
+    display: grid !important; grid-template-columns: repeat(2,minmax(0,1fr)) !important;
+    gap: 8px !important; margin: 2px 0 0 !important; padding-top: 10px !important;
+    border-top: 1px solid var(--ts-border) !important;
+  }
+  .ts-cash-action { width: 100% !important; min-height: 44px !important; }
+
+  /* Sales */
+  .sale-card, .ts-sale-row, .sale-row { display: block !important; padding: 14px !important; }
+  .sale-actions, .sale-line-actions { display: grid !important; grid-template-columns: repeat(2,minmax(0,1fr)) !important; gap: 8px !important; }
+  .sale-actions > *, .sale-line-actions > * { width: 100% !important; min-width: 0 !important; white-space: normal !important; }
+  .sale-item-line, .cart-row, .edit-item-row { grid-template-columns: 1fr !important; }
+  .sale-item-line > *, .cart-row > *, .edit-item-row > * { grid-column: 1 !important; min-width: 0 !important; }
+
+  /* Taller */
+  .orders-grid { grid-template-columns: 1fr !important; }
+  .workshop-header, .header-actions, .toolbar { flex-direction: column !important; align-items: stretch !important; }
+  .day-control, .calendar-action, .primary-action, .refresh-btn { width: 100%; }
+  .priority-banner { grid-template-columns: 1fr !important; }
+  .date-block { border-left: 0 !important; border-top: 1px solid rgba(0,0,0,.08); }
+  .main-controls, .card-footer { grid-template-columns: 1fr !important; }
+
+  /* Agenda */
+  .agenda-overview { grid-template-columns: repeat(2,minmax(0,1fr)) !important; }
+  .agenda-toolbar { display: grid !important; grid-template-columns: auto 1fr auto !important; gap: 8px; }
+  .agenda-event { display: grid !important; grid-template-columns: 62px 14px minmax(0,1fr) !important; gap: 8px !important; }
+  .agenda-card { padding: 12px !important; }
+  .agenda-title-row, .event-footer { align-items: flex-start !important; flex-direction: column !important; gap: 8px !important; }
+  .agenda-row-actions { width: 100%; display: grid !important; grid-template-columns: 1fr 1fr; }
+
+  /* Order detail/edit */
+  .ts-order-detail-page, .ts-edit-order-page { padding: 0 !important; }
+  .ts-order-detail-header, .ts-edit-order-header { display: grid !important; gap: 12px !important; }
+  .ts-order-detail-actions, .ts-edit-order-header-actions { display: grid !important; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 8px !important; width: 100%; }
+  .ts-order-detail-actions > *, .ts-edit-order-header-actions > * { width: 100%; min-width: 0; }
+  .ts-order-tabs, .ts-edit-order-nav { margin-inline: -12px; padding-inline: 12px; }
+  .ts-edit-order-nav { display: flex !important; }
+  .ts-edit-order-nav > button { min-width: 150px !important; }
+  .ts-edit-panel { min-height: 0 !important; }
+  .ts-edit-order-footer { position: static !important; display: grid !important; grid-template-columns: 1fr !important; }
+  .ts-edit-order-footer > * { width: 100%; }
+  .ts-diagnosis-grid, .ts-checklist-detail-grid, .ts-detail-grid, .ts-detail-summary-grid { grid-template-columns: 1fr !important; }
+
+  /* Purchases */
+  .ts-purchase-tabs { overflow-x: auto !important; scrollbar-width: none; }
+  .ts-purchase-tabs > * { white-space: nowrap; }
+  .ts-purchase-main { align-items: flex-start !important; }
+  .ts-purchase-actions { display: grid !important; grid-template-columns: 1fr !important; }
+  .ts-purchase-actions > * { width: 100%; }
+
+  /* Catalog */
+  .catalog-toolbar { padding: 12px !important; }
+  .catalog-prices { grid-template-columns: repeat(3,minmax(0,1fr)) !important; }
+  .catalog-card-actions { display: grid !important; grid-template-columns: 1fr 1fr !important; }
+
+  /* Reports/Rentabilidad and generic analytics */
+  .chart-wrap, .chart-card { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .bar-track { min-height: 120px; }
+  .expense-row, .movement-row { grid-template-columns: 1fr !important; gap: 8px !important; }
+  .expense-amount { text-align: left !important; }
+
+  /* Users and configuration tables keep semantic table but scroll safely */
+  .users-panel, .permissions-table-wrap, .users-table-wrap { overflow: hidden; }
+  .users-table-wrap, .permissions-table-wrap { margin-inline: -8px; padding-inline: 8px; }
+  .users-table, .permissions-table { min-width: 760px !important; }
+
+  /* Small legacy/Bootstrap views */
+  .container, .container-fluid { max-width: 100%; }
+  .ts-card.p-4 { padding: 16px !important; }
+  .row > [class*="col-"] { min-width: 0; }
+
+  /* Auth */
+  .login-card, .auth-card { width: min(100%, 460px) !important; margin-inline: auto; }
+}
+
+@media (max-width: 480px) {
+  .app-content { padding-inline: 10px !important; }
+  .ts-module-header h2 { font-size: 26px !important; }
+  .ts-metric-strip, .ts-metric-strip-four, .agenda-overview { grid-template-columns: 1fr !important; }
+  .topbar-primary-btn, .icon-btn { width: 42px; flex: 0 0 42px; }
+  .ts-order-detail-actions, .ts-edit-order-header-actions, .sale-actions, .sale-line-actions,
+  .catalog-card-actions, .agenda-row-actions, .ts-cash-actions { grid-template-columns: 1fr !important; }
+  .catalog-prices { grid-template-columns: 1fr !important; }
+  .ts-cash-row { grid-template-columns: 42px minmax(0,1fr) !important; padding: 12px !important; }
+  .ts-cash-icon { width: 42px !important; height: 42px !important; }
+  .modal-backdrop, .ts-confirm-backdrop { padding: 8px !important; }
+  .modal-card, .ts-confirm-dialog { max-width: 100% !important; border-radius: 16px !important; }
+}
+
+/* Dark mode contrast hardening */
+:root[data-theme='dark'] body { background: var(--ts-bg) !important; }
+:root[data-theme='dark'] .ts-panel,
+:root[data-theme='dark'] .ts-form-panel,
+:root[data-theme='dark'] .ts-mini-metric,
+:root[data-theme='dark'] .ts-customer-card,
+:root[data-theme='dark'] .ts-order-card-v2,
+:root[data-theme='dark'] .ts-device-card-v2,
+:root[data-theme='dark'] .ts-product-card,
+:root[data-theme='dark'] .ts-purchase-card,
+:root[data-theme='dark'] .ts-sale-row,
+:root[data-theme='dark'] .ts-cash-row,
+:root[data-theme='dark'] .catalog-card,
+:root[data-theme='dark'] .panel,
+:root[data-theme='dark'] .kpi,
+:root[data-theme='dark'] .overview-card,
+:root[data-theme='dark'] .record-card { background: var(--ts-surface) !important; color: var(--ts-text) !important; border-color: var(--ts-border) !important; }
+:root[data-theme='dark'] h1,
+:root[data-theme='dark'] h2,
+:root[data-theme='dark'] h3,
+:root[data-theme='dark'] h4,
+:root[data-theme='dark'] strong,
+:root[data-theme='dark'] label { color: var(--ts-text); }
+:root[data-theme='dark'] .text-muted,
+:root[data-theme='dark'] small,
+:root[data-theme='dark'] .muted { color: var(--ts-muted) !important; }

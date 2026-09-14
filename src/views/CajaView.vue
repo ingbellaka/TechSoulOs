@@ -2,9 +2,13 @@
 import { ref, onMounted, computed } from 'vue'
 import { supabase } from '../lib/supabase'
 import { useAuthStore } from '../stores/auth'
+import TicketPreviewModal from '../components/tickets/TicketPreviewModal.vue'
+import { buildReciboOrden, buildTicketVenta } from '../utils/tickets'
 
 const authStore = useAuthStore()
 const movimientos = ref([])
+const negocio = ref({})
+const ticketActual = ref(null)
 const busqueda = ref('')
 const tipoFiltro = ref('Todos')
 const mostrarFormulario = ref(false)
@@ -43,10 +47,41 @@ function fecha(valor) { return valor ? new Date(valor).toLocaleString('es-MX', {
 
 async function cargarMovimientos() {
   cargando.value = true
-  const { data, error } = await supabase.from('movimientos_caja').select('*').order('id', { ascending: false })
-  if (error) alert(error.message)
+  const [{ data, error }, { data: config, error: errorConfig }] = await Promise.all([
+    supabase.from('movimientos_caja').select('*').order('id', { ascending: false }),
+    supabase.from('configuracion_negocio').select('*').order('id').limit(1).maybeSingle()
+  ])
+  if (error || errorConfig) alert((error || errorConfig).message)
   movimientos.value = data || []
+  negocio.value = config || {}
   cargando.value = false
+}
+
+function puedeDocumento(movimiento) {
+  return movimiento?.tipo === 'Entrada' && ['orden', 'venta'].includes(String(movimiento?.referencia_tipo || '').toLowerCase()) && movimiento?.referencia_id
+}
+
+async function abrirDocumentoMovimiento(movimiento) {
+  if (!puedeDocumento(movimiento)) return
+  const tipo = String(movimiento.referencia_tipo).toLowerCase()
+
+  if (tipo === 'orden') {
+    const [{ data: orden, error: errorOrden }, { data: pagos, error: errorPagos }] = await Promise.all([
+      supabase.from('ordenes').select('*, clientes(*), equipos(*)').eq('id', movimiento.referencia_id).single(),
+      supabase.from('movimientos_caja').select('*').eq('referencia_tipo', 'orden').eq('referencia_id', movimiento.referencia_id).eq('tipo', 'Entrada').order('id')
+    ])
+    if (errorOrden || errorPagos) return alert((errorOrden || errorPagos).message)
+    const pagadoAnterior = (pagos || []).filter(p => Number(p.id) < Number(movimiento.id)).reduce((sum, p) => sum + Number(p.monto || 0), 0)
+    ticketActual.value = buildReciboOrden({ movimiento, orden, negocio: negocio.value, pagadoAnterior })
+    return
+  }
+
+  const [{ data: venta, error: errorVenta }, { data: items, error: errorItems }] = await Promise.all([
+    supabase.from('ventas').select('*').eq('id', movimiento.referencia_id).single(),
+    supabase.from('detalle_ventas').select('*').eq('venta_id', movimiento.referencia_id).order('id')
+  ])
+  if (errorVenta || errorItems) return alert((errorVenta || errorItems).message)
+  ticketActual.value = buildTicketVenta({ venta, items: items || [], negocio: negocio.value })
 }
 
 function abrirNuevoMovimiento() {
@@ -180,13 +215,17 @@ onMounted(cargarMovimientos)
           <span v-if="movimiento.referencia_tipo" class="ts-reference-pill">{{ movimiento.referencia_tipo }} #{{ movimiento.referencia_id }}</span>
           <strong class="ts-cash-amount" :class="movimiento.tipo === 'Entrada' ? 'is-entry' : 'is-exit'">{{ movimiento.tipo === 'Entrada' ? '+' : '−' }}{{ moneda(movimiento.monto) }}</strong>
 
-          <div v-if="esAdministrador" class="ts-cash-actions">
-            <button class="ts-cash-action" type="button" title="Editar movimiento" @click="editarMovimiento(movimiento)">Editar</button>
-            <button class="ts-cash-action is-danger" type="button" title="Eliminar movimiento" :disabled="eliminandoId === movimiento.id" @click="eliminarMovimiento(movimiento)">{{ eliminandoId === movimiento.id ? 'Eliminando…' : 'Eliminar' }}</button>
+          <div class="ts-cash-actions">
+            <button v-if="puedeDocumento(movimiento)" class="ts-cash-action is-document" type="button" @click="abrirDocumentoMovimiento(movimiento)">
+              {{ String(movimiento.referencia_tipo).toLowerCase() === 'orden' ? 'Recibo' : 'Ticket' }}
+            </button>
+            <button v-if="esAdministrador" class="ts-cash-action" type="button" title="Editar movimiento" @click="editarMovimiento(movimiento)">Editar</button>
+            <button v-if="esAdministrador" class="ts-cash-action is-danger" type="button" title="Eliminar movimiento" :disabled="eliminandoId === movimiento.id" @click="eliminarMovimiento(movimiento)">{{ eliminandoId === movimiento.id ? 'Eliminando…' : 'Eliminar' }}</button>
           </div>
         </article>
       </div>
     </section>
+    <TicketPreviewModal :ticket="ticketActual" @close="ticketActual = null" />
   </div>
 </template>
 
@@ -194,9 +233,9 @@ onMounted(cargarMovimientos)
 .ts-cash-actions{display:flex;align-items:center;gap:6px;margin-left:4px}
 .ts-cash-action{border:1px solid var(--ts-border,#dbe3ee);background:var(--ts-surface,#fff);color:var(--ts-text,#334155);border-radius:9px;padding:7px 10px;font-size:.72rem;font-weight:750;cursor:pointer;transition:.15s ease}
 .ts-cash-action:hover{background:var(--ts-soft,#f8fafc);border-color:#94a3b8}
-.ts-cash-action.is-danger{color:#b91c1c;border-color:#fecaca;background:#fff}
+.ts-cash-action.is-document{color:#175cff;border-color:#bfdbfe;background:#eff6ff}.ts-cash-action.is-document:hover{background:#dbeafe;border-color:#93c5fd}.ts-cash-action.is-danger{color:#b91c1c;border-color:#fecaca;background:#fff}
 .ts-cash-action.is-danger:hover{background:#fef2f2;border-color:#fca5a5}
 .ts-cash-action:disabled{opacity:.55;cursor:not-allowed}
 @media (max-width:900px){.ts-cash-actions{width:100%;justify-content:flex-end;margin-left:0;padding-top:8px}}
-@media(max-width:600px){.ts-metric-strip-four{grid-template-columns:repeat(2,minmax(0,1fr))!important}.ts-cash-list{padding:12px!important;gap:10px!important}.ts-cash-row{position:relative!important;display:grid!important;grid-template-columns:48px minmax(0,1fr)!important;gap:10px 12px!important;padding:15px!important}.ts-cash-icon{grid-row:1/span 2;width:48px!important;height:48px!important}.ts-cash-main{min-width:0}.ts-cash-main strong{font-size:1rem!important;white-space:normal!important;overflow-wrap:anywhere}.ts-cash-main small{font-size:.78rem!important;line-height:1.4}.ts-reference-pill{grid-column:2!important;justify-self:start!important}.ts-cash-amount{grid-column:2!important;justify-self:start!important;font-size:1.25rem!important;margin-top:2px}.ts-cash-actions{grid-column:1/-1!important;width:100%!important;display:grid!important;grid-template-columns:1fr 1fr!important;gap:8px!important;padding-top:10px!important;margin:0!important;border-top:1px solid var(--ts-border)}.ts-cash-action{width:100%;min-height:44px;font-size:.82rem!important}.ts-cash-action.is-danger{background:color-mix(in srgb,var(--ts-danger) 8%,var(--ts-surface))!important}.ts-orders-toolbar{padding:12px!important}.ts-orders-toolbar select,.ts-orders-toolbar input{font-size:16px!important}}
+@media(max-width:600px){.ts-metric-strip-four{grid-template-columns:repeat(2,minmax(0,1fr))!important}.ts-cash-list{padding:12px!important;gap:10px!important}.ts-cash-row{position:relative!important;display:grid!important;grid-template-columns:48px minmax(0,1fr)!important;gap:10px 12px!important;padding:15px!important}.ts-cash-icon{grid-row:1/span 2;width:48px!important;height:48px!important}.ts-cash-main{min-width:0}.ts-cash-main strong{font-size:1rem!important;white-space:normal!important;overflow-wrap:anywhere}.ts-cash-main small{font-size:.78rem!important;line-height:1.4}.ts-reference-pill{grid-column:2!important;justify-self:start!important}.ts-cash-amount{grid-column:2!important;justify-self:start!important;font-size:1.25rem!important;margin-top:2px}.ts-cash-actions{grid-column:1/-1!important;width:100%!important;display:grid!important;grid-template-columns:repeat(auto-fit,minmax(90px,1fr))!important;gap:8px!important;padding-top:10px!important;margin:0!important;border-top:1px solid var(--ts-border)}.ts-cash-action{width:100%;min-height:44px;font-size:.82rem!important}.ts-cash-action.is-danger{background:color-mix(in srgb,var(--ts-danger) 8%,var(--ts-surface))!important}.ts-orders-toolbar{padding:12px!important}.ts-orders-toolbar select,.ts-orders-toolbar input{font-size:16px!important}}
 </style>

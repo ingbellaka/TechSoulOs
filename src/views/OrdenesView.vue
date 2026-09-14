@@ -2,6 +2,8 @@
 import { computed, onMounted, ref } from 'vue'
 import { supabase } from '../lib/supabase'
 import { useAuthStore } from '../stores/auth'
+import TicketPreviewModal from '../components/tickets/TicketPreviewModal.vue'
+import { buildReciboOrden } from '../utils/tickets'
 
 const ordenes = ref([])
 const filtro = ref('')
@@ -18,6 +20,8 @@ const metodoPago = ref('Efectivo')
 const referenciaPago = ref('')
 const errorPago = ref('')
 const procesandoPago = ref(false)
+const negocio = ref({})
+const ticketActual = ref(null)
 
 const esAdministrador = computed(() => authStore.isAdmin)
 
@@ -220,7 +224,7 @@ async function registrarLiquidacion() {
     return
   }
 
-  const { error: errorCaja } = await supabase.from('movimientos_caja').insert({
+  const { data: movimientoPago, error: errorCaja } = await supabase.from('movimientos_caja').insert({
     tipo: 'Entrada',
     concepto: `Pago orden ${orden.folio}`,
     monto,
@@ -228,7 +232,7 @@ async function registrarLiquidacion() {
     referencia_tipo: 'orden',
     referencia_id: orden.id,
     notas: [orden.clientes?.nombre, referenciaPago.value].filter(Boolean).join(' · ')
-  })
+  }).select().single()
 
   if (errorCaja) {
     await supabase.from('ordenes').update({ anticipo: pagadoOrden(orden) }).eq('id', orden.id)
@@ -245,6 +249,12 @@ async function registrarLiquidacion() {
   )
 
   procesandoPago.value = false
+  ticketActual.value = buildReciboOrden({
+    movimiento: movimientoPago,
+    orden: { ...orden, anticipo: nuevoAnticipo },
+    negocio: negocio.value,
+    pagadoAnterior: pagadoOrden(orden)
+  })
   cerrarPago()
   await cargarOrdenes()
 }
@@ -316,6 +326,8 @@ async function confirmarAccion() {
 
 onMounted(async () => {
   if (!authStore.perfil && authStore.user) await authStore.cargarPerfil()
+  const { data: config } = await supabase.from('configuracion_negocio').select('*').order('id').limit(1).maybeSingle()
+  negocio.value = config || {}
   await cargarOrdenes()
 })
 </script>
@@ -566,5 +578,6 @@ onMounted(async () => {
         </section>
       </div>
     </Teleport>
+    <TicketPreviewModal :ticket="ticketActual" @close="ticketActual = null" />
   </section>
 </template>

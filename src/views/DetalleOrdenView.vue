@@ -2,6 +2,8 @@
 import { ref, onMounted, computed, nextTick } from 'vue'
 import { useRoute } from 'vue-router'
 import { supabase } from '../lib/supabase'
+import TicketPreviewModal from '../components/tickets/TicketPreviewModal.vue'
+import { buildReciboOrden, buildTicketOrdenServicio } from '../utils/tickets'
 import { subirEvidencia } from '../lib/storage'
 
 const route = useRoute()
@@ -10,6 +12,7 @@ const evidencias = ref([])
 const checklist = ref([])
 const garantia = ref(null)
 const movimientos = ref([])
+const ticketActual = ref(null)
 const firmas = ref([])
 const historial = ref([])
 const seccionActiva = ref('resumen')
@@ -120,6 +123,29 @@ async function cargarDetalle() {
 
   await nextTick()
   prepararCanvas()
+}
+
+function abrirTicketOrdenServicio() {
+  if (!orden.value) return
+  const ultimoPago = movimientos.value.find(m => m.tipo === 'Entrada')
+  const metodoPago = ultimoPago?.metodo_pago || orden.value?.metodo_pago || orden.value?.forma_pago || 'No especificado'
+  ticketActual.value = buildTicketOrdenServicio({
+    orden: orden.value,
+    negocio: negocio.value,
+    paymentMethod: metodoPago
+  })
+}
+
+function abrirReciboMovimiento(movimiento) {
+  if (!orden.value || movimiento?.tipo !== 'Entrada') return
+  const pagosOrdenados = movimientos.value
+    .filter(m => m.tipo === 'Entrada')
+    .slice()
+    .sort((a,b) => Number(a.id) - Number(b.id))
+  const pagadoAnterior = pagosOrdenados
+    .filter(m => Number(m.id) < Number(movimiento.id))
+    .reduce((sum, m) => sum + Number(m.monto || 0), 0)
+  ticketActual.value = buildReciboOrden({ movimiento, orden: orden.value, negocio: negocio.value, pagadoAnterior })
 }
 
 function prepararCanvas() {
@@ -307,7 +333,8 @@ onMounted(cargarDetalle)
       <div class="ts-order-detail-actions">
         <router-link class="ts-action-secondary" :to="`/ordenes/${orden.id}/editar`">Editar</router-link>
         <a class="ts-action-secondary ts-whatsapp-button" :href="whatsappLink()" target="_blank" rel="noopener">WhatsApp</a>
-        <button class="ts-action-primary" type="button" @click="generarPdfOrden">Generar PDF</button>
+        <button class="ts-action-secondary" type="button" @click="abrirTicketOrdenServicio">Comprobante de pago</button>
+        <button class="ts-action-primary" type="button" @click="generarPdfOrden">Orden de servicio PDF</button>
       </div>
     </header>
 
@@ -445,7 +472,7 @@ onMounted(cargarDetalle)
       <article class="ts-detail-card ts-detail-movements-card">
         <div class="ts-detail-card-heading"><div><span class="ts-detail-label">Historial financiero</span><h2>Movimientos</h2></div></div>
         <div v-if="movimientos.length" class="ts-detail-movement-list">
-          <div v-for="m in movimientos" :key="m.id" class="ts-detail-movement-item"><span class="ts-movement-type" :class="m.tipo === 'Entrada' ? 'is-entry' : 'is-exit'">{{ m.tipo === 'Entrada' ? '+' : '−' }}</span><div><strong>{{ m.concepto }}</strong><small>{{ fecha(m.fecha_movimiento) }}</small></div><b>{{ moneda(m.monto) }}</b></div>
+          <div v-for="m in movimientos" :key="m.id" class="ts-detail-movement-item"><span class="ts-movement-type" :class="m.tipo === 'Entrada' ? 'is-entry' : 'is-exit'">{{ m.tipo === 'Entrada' ? '+' : '−' }}</span><div><strong>{{ m.concepto }}</strong><small>{{ fecha(m.fecha_movimiento) }}</small></div><b>{{ moneda(m.monto) }}</b><button v-if="m.tipo === 'Entrada'" class="ts-receipt-link no-print" type="button" @click="abrirReciboMovimiento(m)">Recibo</button></div>
         </div>
         <div v-else class="ts-empty-detail-state"><strong>Sin movimientos vinculados</strong><p>Los ingresos y gastos de esta orden aparecerán aquí.</p></div>
       </article>
@@ -482,4 +509,10 @@ onMounted(cargarDetalle)
   </div>
 
   <div v-else class="ts-detail-loading"><span></span><p>Cargando orden...</p></div>
+  <TicketPreviewModal :ticket="ticketActual" @close="ticketActual = null" />
 </template>
+
+<style scoped>
+.ts-receipt-link{border:1px solid #bfdbfe;background:#eff6ff;color:#175cff;border-radius:9px;padding:7px 10px;font-weight:800;font-size:.75rem;cursor:pointer}
+@media(max-width:600px){.ts-detail-movement-item{display:grid!important;grid-template-columns:auto minmax(0,1fr)!important;gap:8px 10px!important}.ts-detail-movement-item>b,.ts-receipt-link{grid-column:2!important;justify-self:start}}
+</style>

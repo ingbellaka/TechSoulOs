@@ -4,6 +4,8 @@ import { useRoute } from 'vue-router'
 import { supabase } from '../lib/supabase'
 import { registrarAbonoVenta } from '../services/flujo-operativo.service'
 import { useAuthStore } from '../stores/auth'
+import TicketPreviewModal from '../components/tickets/TicketPreviewModal.vue'
+import { buildTicketVenta, normalizarSaldo } from '../utils/tickets'
 
 const productos = ref([])
 const ventas = ref([])
@@ -15,6 +17,7 @@ const mostrarVenta = ref(false)
 const procesando = ref(false)
 const cargando = ref(true)
 const ventaAbono = ref(null)
+const ticketActual = ref(null)
 const abono = ref({ monto: 0, metodo_pago: 'Efectivo', notas: '' })
 const authStore = useAuthStore()
 const route = useRoute()
@@ -67,10 +70,10 @@ const productoItem = computed(() => productos.value.find(p => String(p.id) === S
 const subtotalItem = computed(() => Number(item.value.cantidad || 0) * Number(item.value.precio_unitario || 0))
 const totalVenta = computed(() => form.value.items.reduce((s, renglon) => s + Number(renglon.subtotal || 0), 0))
 const anticipoAplicado = computed(() => Math.min(Math.max(Number(form.value.anticipo || 0), 0), totalVenta.value))
-const saldoVenta = computed(() => Math.max(0, totalVenta.value - anticipoAplicado.value))
+const saldoVenta = computed(() => normalizarSaldo(totalVenta.value - anticipoAplicado.value))
 const productosDisponibles = computed(() => productos.value.filter(p => Number(p.stock || 0) > 0))
 const totalEdicion = computed(() => (editForm.value?.items || []).reduce((s, renglon) => s + Number(renglon.cantidad || 0) * Number(renglon.precio_unitario || 0), 0))
-const saldoEdicion = computed(() => Math.max(0, totalEdicion.value - Number(ventaEditar.value?.pagado || 0)))
+const saldoEdicion = computed(() => normalizarSaldo(totalEdicion.value - Number(ventaEditar.value?.pagado || 0)))
 
 const ventasHoy = computed(() => {
   const hoy = new Date().toDateString()
@@ -104,7 +107,7 @@ async function cargar() {
   ventas.value = (vtas || []).map(v => ({
     ...v,
     pagado: Number(v.pagado ?? v.anticipo ?? v.total ?? 0),
-    saldo: Number(v.saldo ?? Math.max(0, Number(v.total || 0) - Number(v.anticipo ?? v.total ?? 0))),
+    saldo: normalizarSaldo(v.saldo ?? (Number(v.total || 0) - Number(v.anticipo ?? v.total ?? 0))),
     estado_entrega: v.estado_entrega || 'Entregado'
   }))
   detalles.value = dets || []
@@ -263,16 +266,32 @@ async function registrarVenta() {
     if (error) errores.push(error.message)
   }
 
+  const itemsTicket = form.value.items.map(r => ({
+    descripcion: r.descripcion,
+    cantidad: Number(r.cantidad || 1),
+    precio_unitario: Number(r.precio_unitario || 0),
+    subtotal: Number(r.subtotal || 0)
+  }))
   procesando.value = false
   form.value = nuevaVenta()
   item.value = nuevoItem()
   mostrarVenta.value = false
   await cargar()
+  const ventaActualizada = ventas.value.find(v => String(v.id) === String(venta.id)) || venta
+  ticketActual.value = buildTicketVenta({ venta: ventaActualizada, items: itemsTicket, negocio: negocio.value })
   if (errores.length) alert(`La venta se guardó, pero hubo operaciones pendientes: ${[...new Set(errores)].join(' · ')}`)
 }
 
 function itemsVenta(ventaId) {
   return detalles.value.filter(d => String(d.venta_id) === String(ventaId))
+}
+
+function abrirTicketVenta(venta) {
+  ticketActual.value = buildTicketVenta({
+    venta,
+    items: itemsVenta(venta.id),
+    negocio: negocio.value
+  })
 }
 
 
@@ -294,7 +313,7 @@ function generarNotaVenta(venta) {
   }
 
   const pagado = Number(venta.pagado ?? venta.anticipo ?? 0)
-  const saldo = Number(venta.saldo ?? Math.max(0, Number(venta.total || 0) - pagado))
+  const saldo = normalizarSaldo(venta.saldo ?? (Number(venta.total || 0) - pagado))
   const estadoPago = saldo <= 0 ? 'Pagada' : (pagado > 0 ? 'Pago parcial' : 'Pendiente')
   const filas = conceptos.length
     ? conceptos.map((d) => `<tr><td><b>${escaparHtml(d.descripcion || 'Concepto')}</b>${d.notas ? `<small>${escaparHtml(d.notas)}</small>` : ''}</td><td>${escaparHtml(d.cantidad || 0)}</td><td>${escaparHtml(moneda(d.precio_unitario))}</td><td>${escaparHtml(moneda(d.subtotal))}</td></tr>`).join('')
@@ -413,7 +432,7 @@ async function guardarEdicionVenta() {
     }
 
     const total = totalEdicion.value
-    const saldo = Math.max(0, total - pagado)
+    const saldo = normalizarSaldo(total - pagado)
     const estadoPago = saldo <= 0 ? 'Pagado' : (pagado > 0 ? 'Parcial' : 'Pendiente')
     const { error: errorVenta } = await supabase.from('ventas').update({
       cliente_nombre: editForm.value.cliente_nombre.trim() || 'Cliente de mostrador',
@@ -630,7 +649,7 @@ onMounted(async () => {
             <div><span>{{ venta.folio || `Venta #${venta.id}` }}</span><strong>{{ venta.cliente_nombre || 'Cliente de mostrador' }}</strong><small>{{ fecha(venta.fecha_venta || venta.created_at) }} · {{ venta.metodo_pago }}</small></div>
             <div class="sale-money"><strong>{{ moneda(venta.total) }}</strong><small v-if="venta.saldo > 0">Saldo: {{ moneda(venta.saldo) }}</small><small v-else>Pagada</small></div>
           </div>
-          <div class="sale-status-line"><span class="status-chip">{{ venta.estado_entrega }}</span><div class="sale-line-actions"><span>{{ itemsVenta(venta.id).length }} concepto(s)</span><button class="edit-btn" type="button" @click="abrirEditarVenta(venta)">Editar</button><button class="pdf-btn" type="button" @click="generarNotaVenta(venta)">Nota PDF</button><button v-if="venta.saldo > 0" class="abono-btn" @click="abrirAbono(venta)">Registrar abono</button><button v-if="esAdministrador" class="delete-btn" type="button" @click="eliminarVenta(venta)">Eliminar</button></div></div>
+          <div class="sale-status-line"><span class="status-chip">{{ venta.estado_entrega }}</span><div class="sale-line-actions"><span>{{ itemsVenta(venta.id).length }} concepto(s)</span><button class="ticket-btn" type="button" @click="abrirTicketVenta(venta)" title="Ver ticket de venta"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3h10a2 2 0 0 1 2 2v16l-3-2-2 2-2-2-2 2-2-2-3 2V5a2 2 0 0 1 2-2Z"/><path d="M9 8h6M9 12h6M9 16h4"/></svg><span>Ticket</span></button><button class="edit-btn" type="button" @click="abrirEditarVenta(venta)">Editar</button><button class="pdf-btn" type="button" @click="generarNotaVenta(venta)">Nota PDF</button><button v-if="venta.saldo > 0" class="abono-btn" @click="abrirAbono(venta)">Registrar abono</button><button v-if="esAdministrador" class="delete-btn" type="button" @click="eliminarVenta(venta)">Eliminar</button></div></div>
           <div v-if="itemsVenta(venta.id).length" class="sale-items">
             <div v-for="detalle in itemsVenta(venta.id)" :key="detalle.id" class="sale-item-line">
               <div><span class="type-pill" :class="`type-${detalle.tipo_item || 'inventario'}`">{{ nombreTipo(detalle.tipo_item || 'inventario') }}</span><strong>{{ detalle.descripcion || 'Producto' }}</strong><small>{{ detalle.cantidad }} × {{ moneda(detalle.precio_unitario) }}</small></div>
@@ -684,11 +703,12 @@ onMounted(async () => {
         <footer><button type="button" class="ts-action-secondary" @click="ventaAbono=null">Cancelar</button><button class="ts-action-primary">Guardar abono</button></footer>
       </form>
     </div>
+    <TicketPreviewModal :ticket="ticketActual" @close="ticketActual = null" />
   </div>
 </template>
 
 <style scoped>
-.venta-builder{display:grid;gap:22px}.cliente-grid,.checkout-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}.tipo-tabs{display:flex;gap:8px;flex-wrap:wrap;padding:6px;background:var(--ts-surface-soft,#f5f7fb);border-radius:14px}.tipo-tabs button{border:0;background:transparent;padding:10px 14px;border-radius:10px;font-weight:700;cursor:pointer;color:inherit}.tipo-tabs button.active{background:var(--ts-surface,#fff);box-shadow:0 4px 16px rgba(15,23,42,.08);color:var(--ts-primary,#2563eb)}.item-editor{display:grid;grid-template-columns:2fr repeat(3,minmax(130px,1fr));gap:14px;align-items:end;padding:18px;border:1px solid var(--ts-border,#e5e7eb);border-radius:16px}.item-wide{grid-column:span 2}.item-add{display:flex;align-items:center;justify-content:space-between;gap:12px;grid-column:1/-1;padding-top:4px}.cart-list{display:grid;gap:10px}.cart-row{display:grid;grid-template-columns:auto 1fr auto auto;align-items:center;gap:14px;padding:14px 16px;border:1px solid var(--ts-border,#e5e7eb);border-radius:14px}.cart-row div{display:grid;gap:3px}.cart-row small,.sale-head small,.sale-item-line small{color:var(--ts-muted,#64748b)}.cart-empty{padding:24px;text-align:center;border:1px dashed var(--ts-border,#d6dae3);border-radius:14px;color:var(--ts-muted,#64748b)}.type-pill{display:inline-flex;width:max-content;padding:5px 9px;border-radius:999px;font-size:.72rem;font-weight:800;background:#e2e8f0}.type-encargo{background:#fef3c7;color:#92400e}.type-servicio{background:#dbeafe;color:#1d4ed8}.type-libre{background:#ede9fe;color:#6d28d9}.type-inventario{background:#dcfce7;color:#166534}.remove-line{width:30px;height:30px;border:0;border-radius:50%;font-size:22px;cursor:pointer;background:#fee2e2;color:#b91c1c}.checkout-notes{grid-column:1/-1}.totals-card{grid-column:1/-1;display:grid;grid-template-columns:repeat(3,1fr);gap:12px;padding:16px;border-radius:14px;background:var(--ts-surface-soft,#f5f7fb)}.totals-card div{display:grid;gap:5px}.totals-card .balance strong{font-size:1.2rem}.smart-sales-list{display:grid;gap:14px}.smart-sale-card{border:1px solid var(--ts-border,#e5e7eb);border-radius:16px;padding:18px;display:grid;gap:14px}.sale-head{display:flex;justify-content:space-between;gap:20px}.sale-head>div:first-child{display:grid;gap:4px}.sale-money{text-align:right;display:grid;gap:4px}.sale-money>strong{font-size:1.25rem}.sale-line-actions{display:flex;align-items:center;gap:10px}.pdf-btn{border:1px solid var(--ts-border,#d0d5dd);border-radius:9px;padding:7px 10px;background:var(--ts-surface,#fff);color:inherit;font-weight:700;cursor:pointer}.edit-btn{border:1px solid #bfdbfe;border-radius:9px;padding:7px 10px;background:#eff6ff;color:#1d4ed8;font-weight:800;cursor:pointer}.delete-btn{border:1px solid #fecaca;border-radius:9px;padding:7px 10px;background:#fff1f2;color:#be123c;font-weight:800;cursor:pointer}.edit-sale-modal{width:min(760px,100%)}.edit-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.edit-items{display:grid;gap:8px}.edit-item-row{display:grid;grid-template-columns:minmax(220px,1fr) 90px 130px 110px;gap:8px;align-items:center}.edit-item-row input{min-width:0}.edit-summary{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;background:#f8fafc;border-radius:12px;padding:12px}.edit-summary div{display:grid;gap:3px}.edit-summary span{font-size:.75rem;color:#64748b}.edit-warning{display:block;color:#64748b;line-height:1.45}.abono-btn{border:0;border-radius:9px;padding:7px 10px;background:#101828;color:#fff;font-weight:700;cursor:pointer}.payment-backdrop{position:fixed;inset:0;background:#10182899;display:grid;place-items:center;z-index:1000;padding:20px}.payment-modal{width:min(430px,100%);background:#fff;border-radius:18px;padding:22px;display:grid;gap:15px;color:#101828}.payment-modal header,.payment-modal footer{display:flex;justify-content:space-between;align-items:center;gap:12px}.payment-modal header h3{margin:3px 0}.payment-modal header button{border:0;background:none;font-size:28px}.payment-modal label{display:grid;gap:6px}.payment-modal input,.payment-modal select,.payment-modal textarea{padding:11px;border:1px solid #d0d5dd;border-radius:9px}.sale-status-line{display:flex;justify-content:space-between;align-items:center;padding-top:10px;border-top:1px solid var(--ts-border,#e5e7eb);font-size:.86rem;color:var(--ts-muted,#64748b)}.status-chip{padding:6px 10px;border-radius:999px;background:#eef2ff;color:#3730a3;font-weight:800}.sale-items{display:grid;gap:8px}.sale-item-line{display:flex;justify-content:space-between;gap:16px;align-items:center;padding:10px 12px;background:var(--ts-surface-soft,#f8fafc);border-radius:12px}.sale-item-line>div{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.line-status{min-width:180px;border:1px solid var(--ts-border,#d7dce5);border-radius:9px;padding:8px;background:var(--ts-surface,#fff);color:inherit}.delivered-label{font-size:.8rem;font-weight:800;color:#15803d}.sale-notes{margin:0;color:var(--ts-muted,#64748b);font-size:.88rem}@media(max-width:900px){.item-editor{grid-template-columns:1fr 1fr}.item-wide{grid-column:1/-1}}@media(max-width:640px){.edit-grid,.edit-summary{grid-template-columns:1fr}.edit-item-row{grid-template-columns:1fr 80px 110px}.edit-item-row strong{grid-column:1/-1}.cliente-grid,.checkout-grid,.item-editor{grid-template-columns:1fr}.item-wide,.checkout-notes{grid-column:auto}.cart-row{grid-template-columns:1fr auto}.cart-row>.type-pill{grid-column:1}.cart-row>div{grid-column:1/-1}.totals-card{grid-template-columns:1fr}.sale-head,.sale-item-line{align-items:flex-start;flex-direction:column}.sale-money{text-align:left}.line-status{width:100%}}
+.venta-builder{display:grid;gap:22px}.cliente-grid,.checkout-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}.tipo-tabs{display:flex;gap:8px;flex-wrap:wrap;padding:6px;background:var(--ts-surface-soft,#f5f7fb);border-radius:14px}.tipo-tabs button{border:0;background:transparent;padding:10px 14px;border-radius:10px;font-weight:700;cursor:pointer;color:inherit}.tipo-tabs button.active{background:var(--ts-surface,#fff);box-shadow:0 4px 16px rgba(15,23,42,.08);color:var(--ts-primary,#2563eb)}.item-editor{display:grid;grid-template-columns:2fr repeat(3,minmax(130px,1fr));gap:14px;align-items:end;padding:18px;border:1px solid var(--ts-border,#e5e7eb);border-radius:16px}.item-wide{grid-column:span 2}.item-add{display:flex;align-items:center;justify-content:space-between;gap:12px;grid-column:1/-1;padding-top:4px}.cart-list{display:grid;gap:10px}.cart-row{display:grid;grid-template-columns:auto 1fr auto auto;align-items:center;gap:14px;padding:14px 16px;border:1px solid var(--ts-border,#e5e7eb);border-radius:14px}.cart-row div{display:grid;gap:3px}.cart-row small,.sale-head small,.sale-item-line small{color:var(--ts-muted,#64748b)}.cart-empty{padding:24px;text-align:center;border:1px dashed var(--ts-border,#d6dae3);border-radius:14px;color:var(--ts-muted,#64748b)}.type-pill{display:inline-flex;width:max-content;padding:5px 9px;border-radius:999px;font-size:.72rem;font-weight:800;background:#e2e8f0}.type-encargo{background:#fef3c7;color:#92400e}.type-servicio{background:#dbeafe;color:#1d4ed8}.type-libre{background:#ede9fe;color:#6d28d9}.type-inventario{background:#dcfce7;color:#166534}.remove-line{width:30px;height:30px;border:0;border-radius:50%;font-size:22px;cursor:pointer;background:#fee2e2;color:#b91c1c}.checkout-notes{grid-column:1/-1}.totals-card{grid-column:1/-1;display:grid;grid-template-columns:repeat(3,1fr);gap:12px;padding:16px;border-radius:14px;background:var(--ts-surface-soft,#f5f7fb)}.totals-card div{display:grid;gap:5px}.totals-card .balance strong{font-size:1.2rem}.smart-sales-list{display:grid;gap:14px}.smart-sale-card{border:1px solid var(--ts-border,#e5e7eb);border-radius:16px;padding:18px;display:grid;gap:14px}.sale-head{display:flex;justify-content:space-between;gap:20px}.sale-head>div:first-child{display:grid;gap:4px}.sale-money{text-align:right;display:grid;gap:4px}.sale-money>strong{font-size:1.25rem}.sale-line-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.ticket-btn{display:inline-flex;align-items:center;justify-content:center;gap:7px;border:1px solid var(--ts-primary,#2563eb);border-radius:9px;padding:7px 12px;background:var(--ts-primary,#2563eb);color:#fff;font-weight:800;cursor:pointer;line-height:1.1;transition:transform .16s ease,box-shadow .16s ease,background .16s ease}.ticket-btn svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;flex:0 0 auto}.ticket-btn:hover{background:#1d4ed8;box-shadow:0 5px 14px rgba(37,99,235,.2);transform:translateY(-1px)}.ticket-btn:focus-visible{outline:3px solid rgba(37,99,235,.24);outline-offset:2px}.pdf-btn{border:1px solid var(--ts-border,#d0d5dd);border-radius:9px;padding:7px 10px;background:var(--ts-surface,#fff);color:inherit;font-weight:700;cursor:pointer}.edit-btn{border:1px solid #bfdbfe;border-radius:9px;padding:7px 10px;background:#eff6ff;color:#1d4ed8;font-weight:800;cursor:pointer}.delete-btn{border:1px solid #fecaca;border-radius:9px;padding:7px 10px;background:#fff1f2;color:#be123c;font-weight:800;cursor:pointer}.edit-sale-modal{width:min(760px,100%)}.edit-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.edit-items{display:grid;gap:8px}.edit-item-row{display:grid;grid-template-columns:minmax(220px,1fr) 90px 130px 110px;gap:8px;align-items:center}.edit-item-row input{min-width:0}.edit-summary{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;background:#f8fafc;border-radius:12px;padding:12px}.edit-summary div{display:grid;gap:3px}.edit-summary span{font-size:.75rem;color:#64748b}.edit-warning{display:block;color:#64748b;line-height:1.45}.abono-btn{border:0;border-radius:9px;padding:7px 10px;background:#101828;color:#fff;font-weight:700;cursor:pointer}.payment-backdrop{position:fixed;inset:0;background:#10182899;display:grid;place-items:center;z-index:1000;padding:20px}.payment-modal{width:min(430px,100%);background:#fff;border-radius:18px;padding:22px;display:grid;gap:15px;color:#101828}.payment-modal header,.payment-modal footer{display:flex;justify-content:space-between;align-items:center;gap:12px}.payment-modal header h3{margin:3px 0}.payment-modal header button{border:0;background:none;font-size:28px}.payment-modal label{display:grid;gap:6px}.payment-modal input,.payment-modal select,.payment-modal textarea{padding:11px;border:1px solid #d0d5dd;border-radius:9px}.sale-status-line{display:flex;justify-content:space-between;align-items:center;padding-top:10px;border-top:1px solid var(--ts-border,#e5e7eb);font-size:.86rem;color:var(--ts-muted,#64748b)}.status-chip{padding:6px 10px;border-radius:999px;background:#eef2ff;color:#3730a3;font-weight:800}.sale-items{display:grid;gap:8px}.sale-item-line{display:flex;justify-content:space-between;gap:16px;align-items:center;padding:10px 12px;background:var(--ts-surface-soft,#f8fafc);border-radius:12px}.sale-item-line>div{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.line-status{min-width:180px;border:1px solid var(--ts-border,#d7dce5);border-radius:9px;padding:8px;background:var(--ts-surface,#fff);color:inherit}.delivered-label{font-size:.8rem;font-weight:800;color:#15803d}.sale-notes{margin:0;color:var(--ts-muted,#64748b);font-size:.88rem}@media(max-width:900px){.item-editor{grid-template-columns:1fr 1fr}.item-wide{grid-column:1/-1}}@media(max-width:640px){.edit-grid,.edit-summary{grid-template-columns:1fr}.edit-item-row{grid-template-columns:1fr 80px 110px}.edit-item-row strong{grid-column:1/-1}.cliente-grid,.checkout-grid,.item-editor{grid-template-columns:1fr}.item-wide,.checkout-notes{grid-column:auto}.cart-row{grid-template-columns:1fr auto}.cart-row>.type-pill{grid-column:1}.cart-row>div{grid-column:1/-1}.totals-card{grid-template-columns:1fr}.sale-head,.sale-item-line{align-items:flex-start;flex-direction:column}.sale-money{text-align:left}.line-status{width:100%}}
 
 @media(max-width:600px){.ts-metric-strip-four{grid-template-columns:repeat(2,minmax(0,1fr))!important}.smart-sales-list{gap:10px}.smart-sale-card{padding:15px!important;border-radius:16px!important;overflow:hidden}.sale-head{display:grid!important;grid-template-columns:1fr!important;gap:12px!important}.sale-head>div:first-child{min-width:0}.sale-head strong{overflow-wrap:anywhere}.sale-money{text-align:left!important;min-width:0}.sale-money>strong{font-size:1.55rem!important}.sale-line-actions{display:grid!important;grid-template-columns:repeat(2,minmax(0,1fr))!important;width:100%!important;gap:8px!important}.sale-line-actions>*{min-width:0!important;width:100%!important;min-height:44px!important;text-align:center;white-space:normal}.sale-item-line{display:grid!important;grid-template-columns:1fr!important;gap:8px!important;padding:12px!important}.sale-item-line>div{min-width:0}.sale-item-line strong{white-space:normal!important;overflow-wrap:anywhere;font-size:1rem}.sale-item-line small{white-space:normal!important;overflow-wrap:anywhere}.line-status{width:max-content!important;max-width:100%}.edit-grid{grid-template-columns:1fr!important}.edit-item-row{grid-template-columns:1fr!important;gap:8px!important;padding:12px 0;border-bottom:1px solid var(--ts-border)}.edit-item-row input,.edit-item-row select{font-size:16px!important;min-height:46px}.edit-summary{grid-template-columns:1fr!important}.item-editor{grid-template-columns:1fr!important;padding:14px!important}.item-wide{grid-column:auto!important}.item-add{align-items:stretch!important;flex-direction:column!important}.item-add button{width:100%;min-height:48px}.cart-row{grid-template-columns:1fr!important;padding:13px!important}.cart-row>*{grid-column:1!important}.totals-card{grid-template-columns:1fr!important}.checkout-grid,.cliente-grid{grid-template-columns:1fr!important}.pdf-btn,.edit-btn,.delete-btn{font-size:.86rem!important}}
 </style>
