@@ -14,6 +14,25 @@ const cargando = ref(false)
 const errorCarga = ref('')
 const seccion = ref('equipo')
 const estadoOriginal = ref('')
+const aviso = ref({ visible: false, tipo: 'success', titulo: '', mensaje: '' })
+const confirmacion = ref({ visible: false, titulo: '', mensaje: '', detalle: '', resolver: null })
+
+let avisoTimer = null
+function mostrarAviso(tipo, titulo, mensaje = '') {
+  if (avisoTimer) clearTimeout(avisoTimer)
+  aviso.value = { visible: true, tipo, titulo, mensaje }
+  avisoTimer = setTimeout(() => { aviso.value.visible = false }, 3200)
+}
+function pedirConfirmacion({ titulo, mensaje, detalle = '' }) {
+  return new Promise(resolve => {
+    confirmacion.value = { visible: true, titulo, mensaje, detalle, resolver: resolve }
+  })
+}
+function responderConfirmacion(valor) {
+  const resolver = confirmacion.value.resolver
+  confirmacion.value = { visible: false, titulo: '', mensaje: '', detalle: '', resolver: null }
+  if (resolver) resolver(valor)
+}
 
 const estados = [
   { value: 'Recibido', label: 'Recibido', help: 'El equipo acaba de ingresar al taller.' },
@@ -111,20 +130,26 @@ async function registrarHistorial(tipo, titulo, descripcion, estadoAnterior = nu
 
 async function guardarCambios() {
   if (!orden.value.falla_reportada?.trim()) {
-    alert('Escribe la falla reportada por el cliente.')
     seccion.value = 'servicio'
+    mostrarAviso('error', 'Falta la falla reportada', 'Escribe lo que indicó el cliente antes de guardar.')
     return
   }
 
   if (Number(orden.value.anticipo || 0) > Number(orden.value.costo_total || 0) && Number(orden.value.costo_total || 0) > 0) {
-    const continuar = window.confirm('El pago registrado es mayor que el total de la orden. ¿Deseas guardar de todas formas?')
+    const continuar = await pedirConfirmacion({
+      titulo: 'Pago mayor al total',
+      mensaje: 'El pago registrado supera el total de la orden.',
+      detalle: `Total ${moneda(orden.value.costo_total)} · Pagado ${moneda(orden.value.anticipo)}. ¿Deseas guardar de todas formas?`
+    })
     if (!continuar) return
   }
 
   if (orden.value.estado === 'Entregado' && saldo.value > 0) {
-    const continuar = window.confirm(
-      `Este equipo tiene un saldo pendiente de ${moneda(saldo.value)}. La política del taller es entregar solo equipos liquidados. ¿Deseas marcarlo como entregado de todas formas?`
-    )
+    const continuar = await pedirConfirmacion({
+      titulo: 'Entregar con saldo pendiente',
+      mensaje: `Este equipo todavía tiene ${moneda(saldo.value)} por pagar.`,
+      detalle: 'La política del taller es entregar únicamente equipos liquidados. ¿Deseas marcarlo como entregado de todas formas?'
+    })
     if (!continuar) return
   }
 
@@ -211,10 +236,10 @@ async function guardarCambios() {
 
     await registrarHistorial('edicion', 'Orden actualizada', 'Se actualizaron los datos técnicos, financieros o administrativos de la orden.')
 
-    alert('Orden actualizada correctamente.')
+    sessionStorage.setItem('techsoul_toast', JSON.stringify({ tipo: 'success', titulo: 'Orden actualizada', mensaje: 'Los cambios se guardaron correctamente.' }))
     router.push(`/ordenes/${orden.value.id}`)
   } catch (error) {
-    alert(error.message)
+    mostrarAviso('error', 'No se pudo guardar la orden', error?.message || 'Ocurrió un error inesperado.')
   } finally {
     cargando.value = false
   }
@@ -224,6 +249,33 @@ onMounted(cargar)
 </script>
 
 <template>
+
+  <Transition name="ts-toast">
+    <div v-if="aviso.visible" class="ts-edit-toast" :class="`is-${aviso.tipo}`" role="status">
+      <div class="ts-edit-toast-icon">{{ aviso.tipo === 'success' ? '✓' : '!' }}</div>
+      <div><strong>{{ aviso.titulo }}</strong><span v-if="aviso.mensaje">{{ aviso.mensaje }}</span></div>
+      <button type="button" aria-label="Cerrar" @click="aviso.visible = false">×</button>
+    </div>
+  </Transition>
+
+  <Teleport to="body">
+    <div v-if="confirmacion.visible" class="ts-confirm-backdrop" @click.self="responderConfirmacion(false)">
+      <section class="ts-confirm-modal" role="dialog" aria-modal="true">
+        <div class="ts-confirm-icon">!</div>
+        <div class="ts-confirm-copy">
+          <span>CONFIRMACIÓN</span>
+          <h2>{{ confirmacion.titulo }}</h2>
+          <p>{{ confirmacion.mensaje }}</p>
+          <small v-if="confirmacion.detalle">{{ confirmacion.detalle }}</small>
+        </div>
+        <div class="ts-confirm-actions">
+          <button type="button" class="ts-action-secondary" @click="responderConfirmacion(false)">Volver</button>
+          <button type="button" class="ts-action-primary" @click="responderConfirmacion(true)">Continuar</button>
+        </div>
+      </section>
+    </div>
+  </Teleport>
+
   <div v-if="errorCarga" class="ts-edit-order-state">
     <h2>No se pudo cargar la orden</h2>
     <p>{{ errorCarga }}</p>
@@ -378,6 +430,11 @@ onMounted(cargar)
 </template>
 
 <style scoped>
+
+.ts-edit-toast{position:fixed;top:20px;right:20px;z-index:1200;width:min(390px,calc(100vw - 28px));display:grid;grid-template-columns:38px 1fr auto;align-items:center;gap:12px;padding:14px 14px;border:1px solid #d0d5dd;border-radius:16px;background:#fff;box-shadow:0 18px 48px rgba(15,23,42,.18);color:#101828}.ts-edit-toast.is-success{border-color:#abefc6}.ts-edit-toast.is-error{border-color:#fecdca}.ts-edit-toast-icon{width:38px;height:38px;display:grid;place-items:center;border-radius:11px;background:#ecfdf3;color:#067647;font-weight:900}.ts-edit-toast.is-error .ts-edit-toast-icon{background:#fef3f2;color:#b42318}.ts-edit-toast>div:nth-child(2){display:grid;gap:2px}.ts-edit-toast strong{font-size:.9rem}.ts-edit-toast span{font-size:.78rem;color:#667085;line-height:1.35}.ts-edit-toast button{border:0;background:transparent;font-size:1.35rem;color:#667085;cursor:pointer}.ts-toast-enter-active,.ts-toast-leave-active{transition:.2s ease}.ts-toast-enter-from,.ts-toast-leave-to{opacity:0;transform:translateY(-8px)}
+.ts-confirm-backdrop{position:fixed;inset:0;z-index:1300;display:grid;place-items:center;padding:18px;background:rgba(15,23,42,.52);backdrop-filter:blur(3px)}.ts-confirm-modal{width:min(480px,100%);padding:24px;border:1px solid #e4e7ec;border-radius:22px;background:#fff;box-shadow:0 24px 70px rgba(15,23,42,.28)}.ts-confirm-icon{width:44px;height:44px;display:grid;place-items:center;border-radius:14px;background:#fff4ed;color:#c4320a;font-size:1.2rem;font-weight:900;margin-bottom:16px}.ts-confirm-copy>span{display:block;margin-bottom:5px;color:#2563eb;font-size:.68rem;font-weight:900;letter-spacing:.13em}.ts-confirm-copy h2{margin:0 0 8px;font-size:1.45rem;line-height:1.15;color:#101828}.ts-confirm-copy p{margin:0;color:#344054;font-size:.92rem;line-height:1.5}.ts-confirm-copy small{display:block;margin-top:10px;padding:11px 12px;border-radius:12px;background:#f8fafc;color:#667085;font-size:.78rem;line-height:1.45}.ts-confirm-actions{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:22px}.ts-confirm-actions button{min-height:48px}
+@media(max-width:680px){.ts-edit-toast{top:12px;right:14px;left:14px;width:auto}.ts-confirm-modal{padding:20px;border-radius:20px}.ts-confirm-actions{grid-template-columns:1fr}.ts-confirm-actions .ts-action-primary{grid-row:1}.ts-confirm-actions .ts-action-secondary{grid-row:2}}
+
 .ts-schedule-editor{margin-top:4px;padding:16px;border:1px solid var(--ts-border,#e2e8f0);border-radius:15px;background:var(--ts-soft,#f8fafc)}.ts-schedule-editor>div:first-child{display:flex;flex-direction:column;margin-bottom:12px}.ts-schedule-editor>div:first-child>span{font-size:.68rem;font-weight:850;text-transform:uppercase;color:#2563eb}.ts-schedule-editor>div:first-child>strong{font-size:.9rem;margin:3px 0}.ts-schedule-editor>div:first-child>small{font-size:.75rem;color:#667085}
 
 .ts-finance-panel { min-height: auto; }
