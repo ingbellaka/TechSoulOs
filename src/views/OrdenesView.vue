@@ -501,6 +501,10 @@ onMounted(async () => {
           <footer class="ts-order-actions">
             <router-link class="ts-action-primary ts-action-compact" :to="`/ordenes/${orden.id}`">Ver detalle</router-link>
             <button class="ts-action-secondary ts-action-compact" type="button" @click="abrirPago(orden)">Registrar pago</button>
+            <button class="ts-action-expense ts-action-compact" type="button" @click="abrirGasto(orden)">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 1v22M17 5H9.5a3.5 3.5 0 0 0 0 7H14a3.5 3.5 0 0 1 0 7H6" /></svg>
+              Registrar gasto
+            </button>
             <button class="ts-action-secondary ts-action-compact ts-ticket-order-action" type="button" @click="abrirTicketOrden(orden)">
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9V2h12v7M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8" rx="1"/></svg>
               Imprimir ticket
@@ -525,10 +529,6 @@ onMounted(async () => {
                   <svg viewBox="0 0 24 24"><path d="M12 20h9" /><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" /></svg>
                   Editar orden
                 </router-link>
-                <button type="button" @click="abrirGasto(orden); menuAbierto = null">
-                  <svg viewBox="0 0 24 24"><path d="M12 1v22M17 5H9.5a3.5 3.5 0 0 0 0 7H14a3.5 3.5 0 0 1 0 7H6" /></svg>
-                  Registrar gasto
-                </button>
                 <button v-if="orden.estado !== 'Cancelado'" type="button" @click="abrirConfirmacion(orden, 'cancelar')">
                   <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" /><path d="m9 9 6 6M15 9l-6 6" /></svg>
                   Cancelar orden
@@ -739,6 +739,30 @@ onMounted(async () => {
   align-items: center;
   gap: 0.45rem;
 }
+.ts-action-expense {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: .45rem;
+  border: 1px solid #fda29b;
+  background: #fff5f4;
+  color: #b42318;
+  font-weight: 750;
+  cursor: pointer;
+}
+.ts-action-expense:hover {
+  background: #fee4e2;
+  border-color: #f97066;
+}
+.ts-action-expense svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
 .ts-ticket-order-action svg {
   width: 16px;
   height: 16px;
@@ -749,7 +773,8 @@ onMounted(async () => {
   stroke-linejoin: round;
 }
 @media (max-width: 720px) {
-  .ts-order-actions .ts-ticket-order-action {
+  .ts-order-actions .ts-ticket-order-action,
+  .ts-order-actions .ts-action-expense {
     flex: 1 1 calc(50% - .4rem);
     justify-content: center;
     min-height: 44px;

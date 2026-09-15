@@ -568,68 +568,82 @@ onMounted(async () => {
     </section>
 
     <section v-if="mostrarVenta" class="ts-panel venta-builder">
-      <div class="ts-panel-heading">
-        <div><span class="ts-panel-kicker">Nueva operación</span><h3>Armar venta</h3></div>
+      <div class="ts-panel-heading venta-heading">
+        <div><span class="ts-panel-kicker">Nueva operación</span><h3>Armar venta</h3><p class="section-helper">Captura al cliente, agrega conceptos y después registra el cobro.</p></div>
         <strong class="ts-live-total">{{ moneda(totalVenta) }}</strong>
       </div>
 
-      <div class="cliente-grid">
-        <label class="ts-field"><span>Cliente</span><input v-model="form.cliente_nombre" placeholder="Cliente de mostrador"></label>
-        <label class="ts-field"><span>Teléfono</span><input v-model="form.cliente_telefono" placeholder="667 000 0000"></label>
-      </div>
-
-      <div class="tipo-tabs" role="tablist" aria-label="Tipo de concepto">
-        <button v-for="tipo in ['inventario', 'encargo', 'servicio', 'libre']" :key="tipo" type="button" :class="{ active: item.tipo === tipo }" @click="cambiarTipo(tipo)">
-          {{ nombreTipo(tipo) }}
-        </button>
-      </div>
-
-      <div class="item-editor">
-        <label v-if="item.tipo === 'inventario'" class="ts-field item-wide">
-          <span>Producto de inventario *</span>
-          <select v-model="item.producto_id" class="ts-filter-select ts-select-full" @change="seleccionarProducto">
-            <option value="">Selecciona un producto</option>
-            <option v-for="p in productosDisponibles" :key="p.id" :value="p.id">{{ p.nombre }} · {{ p.stock }} disponibles · {{ moneda(p.precio_venta) }}</option>
-          </select>
-        </label>
-        <label v-else class="ts-field item-wide"><span>Descripción *</span><input v-model="item.descripcion" :placeholder="item.tipo === 'encargo' ? 'Ej. Pantalla Xiaomi Poco X7 Pro OLED' : 'Describe el concepto'"></label>
-        <label class="ts-field"><span>Cantidad *</span><input v-model.number="item.cantidad" min="1" type="number"></label>
-        <label class="ts-field"><span>Precio unitario *</span><input v-model.number="item.precio_unitario" min="0" step="0.01" type="number"></label>
-
-        <template v-if="item.tipo === 'encargo'">
-          <label class="ts-field"><span>Costo estimado</span><input v-model.number="item.costo_estimado" min="0" step="0.01" type="number"></label>
-          <label class="ts-field"><span>Proveedor</span><input v-model="item.proveedor" placeholder="Opcional"></label>
-          <label class="ts-field"><span>Fecha estimada</span><input v-model="item.fecha_estimada" type="date"></label>
-        </template>
-        <label class="ts-field item-wide"><span>Notas del artículo</span><input v-model="item.notas" placeholder="Color, modelo, condición o indicaciones"></label>
-        <div class="item-add">
-          <span>Subtotal: <strong>{{ moneda(subtotalItem) }}</strong></span>
-          <button class="ts-action-secondary" type="button" @click="agregarItem">Agregar a la venta</button>
+      <section class="builder-section customer-section">
+        <div class="builder-section-title"><div><span class="section-number">01</span><div><strong>Cliente</strong><small>Datos de contacto de esta venta</small></div></div></div>
+        <div class="cliente-grid">
+          <label class="ts-field"><span>Cliente</span><input v-model="form.cliente_nombre" placeholder="Cliente de mostrador"></label>
+          <label class="ts-field"><span>Teléfono</span><input v-model="form.cliente_telefono" placeholder="667 000 0000"></label>
         </div>
-      </div>
+      </section>
 
-      <div v-if="form.items.length" class="cart-list">
-        <article v-for="renglon in form.items" :key="renglon.id_temporal" class="cart-row">
-          <span class="type-pill" :class="`type-${renglon.tipo}`">{{ nombreTipo(renglon.tipo) }}</span>
-          <div><strong>{{ renglon.descripcion }}</strong><small>{{ renglon.cantidad }} × {{ moneda(renglon.precio_unitario) }}<template v-if="renglon.fecha_estimada"> · Llegada estimada: {{ renglon.fecha_estimada }}</template></small></div>
-          <strong>{{ moneda(renglon.subtotal) }}</strong>
-          <button class="remove-line" type="button" title="Quitar" @click="quitarItem(renglon.id_temporal)">×</button>
-        </article>
-      </div>
-      <div v-else class="cart-empty">Todavía no has agregado conceptos a esta venta.</div>
-
-      <div class="checkout-grid">
-        <label class="ts-field"><span>Método de pago</span><select v-model="form.metodo_pago" class="ts-filter-select ts-select-full"><option>Efectivo</option><option>Transferencia</option><option>Tarjeta</option><option>Mercado Pago</option></select></label>
-        <label class="ts-field"><span>Pago / anticipo</span><input v-model.number="form.anticipo" min="0" :max="totalVenta" step="0.01" type="number"></label>
-        <label class="ts-field checkout-notes"><span>Notas generales</span><textarea v-model="form.notas" rows="2" placeholder="Información opcional sobre la venta"></textarea></label>
-        <div class="totals-card">
-          <div><span>Total</span><strong>{{ moneda(totalVenta) }}</strong></div>
-          <div><span>Pago recibido</span><strong>{{ moneda(anticipoAplicado) }}</strong></div>
-          <div class="balance"><span>Saldo pendiente</span><strong>{{ moneda(saldoVenta) }}</strong></div>
+      <section class="builder-section article-section">
+        <div class="builder-section-title"><div><span class="section-number">02</span><div><strong>Agregar artículo</strong><small>Selecciona el tipo de concepto que vas a vender</small></div></div></div>
+        <div class="tipo-tabs" role="tablist" aria-label="Tipo de concepto">
+          <button v-for="tipo in ['inventario', 'encargo', 'servicio', 'libre']" :key="tipo" type="button" :class="{ active: item.tipo === tipo }" @click="cambiarTipo(tipo)">{{ nombreTipo(tipo) }}</button>
         </div>
-      </div>
 
-      <div class="ts-form-actions">
+        <div class="item-editor">
+          <label v-if="item.tipo === 'inventario'" class="ts-field product-field">
+            <span>Producto de inventario *</span>
+            <select v-model="item.producto_id" class="ts-filter-select ts-select-full" @change="seleccionarProducto">
+              <option value="">Selecciona un producto</option>
+              <option v-for="p in productosDisponibles" :key="p.id" :value="p.id">{{ p.nombre }} · {{ p.stock }} disponibles · {{ moneda(p.precio_venta) }}</option>
+            </select>
+          </label>
+          <label v-else class="ts-field product-field"><span>Descripción *</span><input v-model="item.descripcion" :placeholder="item.tipo === 'encargo' ? 'Ej. Pantalla Xiaomi Poco X7 Pro OLED' : 'Describe el concepto'"></label>
+
+          <div class="item-numbers">
+            <label class="ts-field"><span>Cantidad *</span><input v-model.number="item.cantidad" min="1" type="number"></label>
+            <label class="ts-field"><span>Precio unitario *</span><input v-model.number="item.precio_unitario" min="0" step="0.01" type="number"></label>
+            <div class="subtotal-box"><span>Subtotal</span><strong>{{ moneda(subtotalItem) }}</strong></div>
+          </div>
+
+          <div v-if="item.tipo === 'encargo'" class="encargo-grid">
+            <label class="ts-field"><span>Costo estimado</span><input v-model.number="item.costo_estimado" min="0" step="0.01" type="number"></label>
+            <label class="ts-field"><span>Proveedor</span><input v-model="item.proveedor" placeholder="Opcional"></label>
+            <label class="ts-field"><span>Fecha estimada</span><input v-model="item.fecha_estimada" type="date"></label>
+          </div>
+
+          <label class="ts-field notes-field"><span>Notas del artículo</span><input v-model="item.notas" placeholder="Color, modelo, condición o indicaciones"></label>
+          <div class="item-add"><button class="ts-action-primary add-sale-btn" type="button" @click="agregarItem">+ Agregar a la venta</button></div>
+        </div>
+      </section>
+
+      <section class="builder-section cart-section">
+        <div class="builder-section-title"><div><span class="section-number">03</span><div><strong>Productos en la venta</strong><small>{{ form.items.length ? `${form.items.length} concepto(s) agregado(s)` : 'Aún no hay conceptos agregados' }}</small></div></div></div>
+        <div v-if="form.items.length" class="cart-list">
+          <article v-for="renglon in form.items" :key="renglon.id_temporal" class="cart-row">
+            <span class="type-pill" :class="`type-${renglon.tipo}`">{{ nombreTipo(renglon.tipo) }}</span>
+            <div><strong>{{ renglon.descripcion }}</strong><small>{{ renglon.cantidad }} × {{ moneda(renglon.precio_unitario) }}<template v-if="renglon.fecha_estimada"> · Llegada estimada: {{ renglon.fecha_estimada }}</template></small></div>
+            <strong>{{ moneda(renglon.subtotal) }}</strong>
+            <button class="remove-line" type="button" title="Quitar" @click="quitarItem(renglon.id_temporal)">×</button>
+          </article>
+        </div>
+        <div v-else class="cart-empty">Todavía no has agregado conceptos a esta venta.</div>
+      </section>
+
+      <section class="builder-section checkout-section">
+        <div class="builder-section-title"><div><span class="section-number">04</span><div><strong>Cobro</strong><small>Define cómo paga el cliente y revisa el saldo</small></div></div></div>
+        <div class="checkout-layout">
+          <div class="checkout-fields">
+            <label class="ts-field"><span>Método de pago</span><select v-model="form.metodo_pago" class="ts-filter-select ts-select-full"><option>Efectivo</option><option>Transferencia</option><option>Tarjeta</option><option>Mercado Pago</option></select></label>
+            <label class="ts-field"><span>Pago / anticipo</span><input v-model.number="form.anticipo" min="0" :max="totalVenta" step="0.01" type="number"></label>
+            <label class="ts-field checkout-notes"><span>Notas generales</span><textarea v-model="form.notas" rows="3" placeholder="Información opcional sobre la venta"></textarea></label>
+          </div>
+          <aside class="totals-card">
+            <div><span>Total</span><strong>{{ moneda(totalVenta) }}</strong></div>
+            <div><span>Pago recibido</span><strong>{{ moneda(anticipoAplicado) }}</strong></div>
+            <div class="balance"><span>Saldo pendiente</span><strong>{{ moneda(saldoVenta) }}</strong></div>
+          </aside>
+        </div>
+      </section>
+
+      <div class="ts-form-actions venta-actions">
         <button class="ts-action-secondary" type="button" @click="mostrarVenta = false">Cancelar</button>
         <button class="ts-action-primary" type="button" :disabled="procesando || !form.items.length" @click="registrarVenta">{{ procesando ? 'Procesando…' : 'Confirmar venta' }}</button>
       </div>
@@ -708,7 +722,68 @@ onMounted(async () => {
 </template>
 
 <style scoped>
+/* TechSoul OS · Ventas responsive */
+.ts-module-page{width:100%;max-width:1480px;margin:0 auto;padding-inline:clamp(14px,2vw,28px);box-sizing:border-box;overflow-x:hidden}
+.venta-builder{display:grid;gap:20px;max-width:1180px;width:100%;margin-inline:auto}
+.venta-builder .ts-panel-heading{align-items:center}
+.venta-builder .ts-live-total{font-size:clamp(1.35rem,2vw,2rem);white-space:nowrap}
+.venta-builder .ts-field input,.venta-builder .ts-field select,.venta-builder .ts-field textarea{width:100%;min-width:0;box-sizing:border-box}
+.venta-builder .ts-field input,.venta-builder .ts-field select{min-height:46px}
+.cliente-grid{max-width:900px}
+.tipo-tabs{width:100%;overflow-x:auto;scrollbar-width:none}
+.tipo-tabs::-webkit-scrollbar{display:none}
+.tipo-tabs button{white-space:nowrap;flex:0 0 auto}
+.item-editor{width:100%;box-sizing:border-box}
+.checkout-grid{align-items:start}
+.ts-form-actions{display:flex;justify-content:flex-end;gap:10px;flex-wrap:wrap}
 .venta-builder{display:grid;gap:22px}.cliente-grid,.checkout-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}.tipo-tabs{display:flex;gap:8px;flex-wrap:wrap;padding:6px;background:var(--ts-surface-soft,#f5f7fb);border-radius:14px}.tipo-tabs button{border:0;background:transparent;padding:10px 14px;border-radius:10px;font-weight:700;cursor:pointer;color:inherit}.tipo-tabs button.active{background:var(--ts-surface,#fff);box-shadow:0 4px 16px rgba(15,23,42,.08);color:var(--ts-primary,#2563eb)}.item-editor{display:grid;grid-template-columns:2fr repeat(3,minmax(130px,1fr));gap:14px;align-items:end;padding:18px;border:1px solid var(--ts-border,#e5e7eb);border-radius:16px}.item-wide{grid-column:span 2}.item-add{display:flex;align-items:center;justify-content:space-between;gap:12px;grid-column:1/-1;padding-top:4px}.cart-list{display:grid;gap:10px}.cart-row{display:grid;grid-template-columns:auto 1fr auto auto;align-items:center;gap:14px;padding:14px 16px;border:1px solid var(--ts-border,#e5e7eb);border-radius:14px}.cart-row div{display:grid;gap:3px}.cart-row small,.sale-head small,.sale-item-line small{color:var(--ts-muted,#64748b)}.cart-empty{padding:24px;text-align:center;border:1px dashed var(--ts-border,#d6dae3);border-radius:14px;color:var(--ts-muted,#64748b)}.type-pill{display:inline-flex;width:max-content;padding:5px 9px;border-radius:999px;font-size:.72rem;font-weight:800;background:#e2e8f0}.type-encargo{background:#fef3c7;color:#92400e}.type-servicio{background:#dbeafe;color:#1d4ed8}.type-libre{background:#ede9fe;color:#6d28d9}.type-inventario{background:#dcfce7;color:#166534}.remove-line{width:30px;height:30px;border:0;border-radius:50%;font-size:22px;cursor:pointer;background:#fee2e2;color:#b91c1c}.checkout-notes{grid-column:1/-1}.totals-card{grid-column:1/-1;display:grid;grid-template-columns:repeat(3,1fr);gap:12px;padding:16px;border-radius:14px;background:var(--ts-surface-soft,#f5f7fb)}.totals-card div{display:grid;gap:5px}.totals-card .balance strong{font-size:1.2rem}.smart-sales-list{display:grid;gap:14px}.smart-sale-card{border:1px solid var(--ts-border,#e5e7eb);border-radius:16px;padding:18px;display:grid;gap:14px}.sale-head{display:flex;justify-content:space-between;gap:20px}.sale-head>div:first-child{display:grid;gap:4px}.sale-money{text-align:right;display:grid;gap:4px}.sale-money>strong{font-size:1.25rem}.sale-line-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.ticket-btn{display:inline-flex;align-items:center;justify-content:center;gap:7px;border:1px solid var(--ts-primary,#2563eb);border-radius:9px;padding:7px 12px;background:var(--ts-primary,#2563eb);color:#fff;font-weight:800;cursor:pointer;line-height:1.1;transition:transform .16s ease,box-shadow .16s ease,background .16s ease}.ticket-btn svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;flex:0 0 auto}.ticket-btn:hover{background:#1d4ed8;box-shadow:0 5px 14px rgba(37,99,235,.2);transform:translateY(-1px)}.ticket-btn:focus-visible{outline:3px solid rgba(37,99,235,.24);outline-offset:2px}.pdf-btn{border:1px solid var(--ts-border,#d0d5dd);border-radius:9px;padding:7px 10px;background:var(--ts-surface,#fff);color:inherit;font-weight:700;cursor:pointer}.edit-btn{border:1px solid #bfdbfe;border-radius:9px;padding:7px 10px;background:#eff6ff;color:#1d4ed8;font-weight:800;cursor:pointer}.delete-btn{border:1px solid #fecaca;border-radius:9px;padding:7px 10px;background:#fff1f2;color:#be123c;font-weight:800;cursor:pointer}.edit-sale-modal{width:min(760px,100%)}.edit-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.edit-items{display:grid;gap:8px}.edit-item-row{display:grid;grid-template-columns:minmax(220px,1fr) 90px 130px 110px;gap:8px;align-items:center}.edit-item-row input{min-width:0}.edit-summary{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;background:#f8fafc;border-radius:12px;padding:12px}.edit-summary div{display:grid;gap:3px}.edit-summary span{font-size:.75rem;color:#64748b}.edit-warning{display:block;color:#64748b;line-height:1.45}.abono-btn{border:0;border-radius:9px;padding:7px 10px;background:#101828;color:#fff;font-weight:700;cursor:pointer}.payment-backdrop{position:fixed;inset:0;background:#10182899;display:grid;place-items:center;z-index:1000;padding:20px}.payment-modal{width:min(430px,100%);background:#fff;border-radius:18px;padding:22px;display:grid;gap:15px;color:#101828}.payment-modal header,.payment-modal footer{display:flex;justify-content:space-between;align-items:center;gap:12px}.payment-modal header h3{margin:3px 0}.payment-modal header button{border:0;background:none;font-size:28px}.payment-modal label{display:grid;gap:6px}.payment-modal input,.payment-modal select,.payment-modal textarea{padding:11px;border:1px solid #d0d5dd;border-radius:9px}.sale-status-line{display:flex;justify-content:space-between;align-items:center;padding-top:10px;border-top:1px solid var(--ts-border,#e5e7eb);font-size:.86rem;color:var(--ts-muted,#64748b)}.status-chip{padding:6px 10px;border-radius:999px;background:#eef2ff;color:#3730a3;font-weight:800}.sale-items{display:grid;gap:8px}.sale-item-line{display:flex;justify-content:space-between;gap:16px;align-items:center;padding:10px 12px;background:var(--ts-surface-soft,#f8fafc);border-radius:12px}.sale-item-line>div{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.line-status{min-width:180px;border:1px solid var(--ts-border,#d7dce5);border-radius:9px;padding:8px;background:var(--ts-surface,#fff);color:inherit}.delivered-label{font-size:.8rem;font-weight:800;color:#15803d}.sale-notes{margin:0;color:var(--ts-muted,#64748b);font-size:.88rem}@media(max-width:900px){.item-editor{grid-template-columns:1fr 1fr}.item-wide{grid-column:1/-1}}@media(max-width:640px){.edit-grid,.edit-summary{grid-template-columns:1fr}.edit-item-row{grid-template-columns:1fr 80px 110px}.edit-item-row strong{grid-column:1/-1}.cliente-grid,.checkout-grid,.item-editor{grid-template-columns:1fr}.item-wide,.checkout-notes{grid-column:auto}.cart-row{grid-template-columns:1fr auto}.cart-row>.type-pill{grid-column:1}.cart-row>div{grid-column:1/-1}.totals-card{grid-template-columns:1fr}.sale-head,.sale-item-line{align-items:flex-start;flex-direction:column}.sale-money{text-align:left}.line-status{width:100%}}
 
 @media(max-width:600px){.ts-metric-strip-four{grid-template-columns:repeat(2,minmax(0,1fr))!important}.smart-sales-list{gap:10px}.smart-sale-card{padding:15px!important;border-radius:16px!important;overflow:hidden}.sale-head{display:grid!important;grid-template-columns:1fr!important;gap:12px!important}.sale-head>div:first-child{min-width:0}.sale-head strong{overflow-wrap:anywhere}.sale-money{text-align:left!important;min-width:0}.sale-money>strong{font-size:1.55rem!important}.sale-line-actions{display:grid!important;grid-template-columns:repeat(2,minmax(0,1fr))!important;width:100%!important;gap:8px!important}.sale-line-actions>*{min-width:0!important;width:100%!important;min-height:44px!important;text-align:center;white-space:normal}.sale-item-line{display:grid!important;grid-template-columns:1fr!important;gap:8px!important;padding:12px!important}.sale-item-line>div{min-width:0}.sale-item-line strong{white-space:normal!important;overflow-wrap:anywhere;font-size:1rem}.sale-item-line small{white-space:normal!important;overflow-wrap:anywhere}.line-status{width:max-content!important;max-width:100%}.edit-grid{grid-template-columns:1fr!important}.edit-item-row{grid-template-columns:1fr!important;gap:8px!important;padding:12px 0;border-bottom:1px solid var(--ts-border)}.edit-item-row input,.edit-item-row select{font-size:16px!important;min-height:46px}.edit-summary{grid-template-columns:1fr!important}.item-editor{grid-template-columns:1fr!important;padding:14px!important}.item-wide{grid-column:auto!important}.item-add{align-items:stretch!important;flex-direction:column!important}.item-add button{width:100%;min-height:48px}.cart-row{grid-template-columns:1fr!important;padding:13px!important}.cart-row>*{grid-column:1!important}.totals-card{grid-template-columns:1fr!important}.checkout-grid,.cliente-grid{grid-template-columns:1fr!important}.pdf-btn,.edit-btn,.delete-btn{font-size:.86rem!important}}
+
+/* Responsive integral del constructor de venta */
+@media (max-width:1100px){
+  .venta-builder{max-width:100%}
+  .item-editor{grid-template-columns:minmax(0,2fr) minmax(120px,.65fr) minmax(150px,.8fr)}
+  .item-wide{grid-column:1/-1}
+}
+@media (max-width:760px){
+  .ts-module-page{padding-inline:12px}
+  .venta-builder{gap:14px}
+  .venta-builder .ts-panel-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
+  .cliente-grid,.checkout-grid,.item-editor{grid-template-columns:1fr!important;gap:12px}
+  .cliente-grid{max-width:none}
+  .item-wide,.checkout-notes{grid-column:1!important}
+  .item-editor{padding:14px;border-radius:14px}
+  .tipo-tabs{flex-wrap:nowrap;padding:5px;margin-inline:0}
+  .tipo-tabs button{min-height:42px;padding:9px 12px}
+  .item-add{grid-column:1!important;display:grid!important;gap:10px;align-items:stretch!important}
+  .item-add>span{font-size:.95rem}
+  .item-add button{width:100%;min-height:48px}
+  .cart-row{grid-template-columns:1fr auto!important;gap:8px 10px;padding:13px}
+  .cart-row .type-pill{grid-column:1!important}
+  .cart-row>div{grid-column:1/-1!important;min-width:0}
+  .cart-row>div strong,.cart-row>div small{overflow-wrap:anywhere}
+  .cart-row>strong{grid-column:1!important;font-size:1.05rem}
+  .cart-row>.remove-line{grid-column:2!important;grid-row:1!important}
+  .totals-card{grid-template-columns:1fr!important;gap:0;padding:8px 14px}
+  .totals-card div{display:flex;justify-content:space-between;align-items:center;padding:11px 0;border-bottom:1px solid var(--ts-border,#e5e7eb)}
+  .totals-card div:last-child{border-bottom:0}
+  .ts-form-actions{display:grid;grid-template-columns:1fr 1fr;width:100%}
+  .ts-form-actions button{width:100%;min-height:48px}
+}
+@media (max-width:480px){
+  .ts-module-page{padding-inline:10px}
+  .venta-builder .ts-panel-heading{display:grid;grid-template-columns:1fr auto}
+  .venta-builder .ts-live-total{font-size:1.45rem}
+  .ts-form-actions{grid-template-columns:1fr}
+}
+
+/* Constructor de venta · layout POS limpio */
+.venta-builder{max-width:1040px;gap:16px;padding:clamp(16px,2vw,24px)}
+.venta-heading{padding-bottom:4px}.section-helper{margin:5px 0 0;color:var(--ts-muted,#64748b);font-size:.9rem}.builder-section{display:grid;gap:16px;padding:18px;border:1px solid var(--ts-border,#e5e7eb);border-radius:16px;background:var(--ts-surface,#fff)}
+.builder-section-title>div{display:flex;align-items:center;gap:11px}.builder-section-title strong{display:block;font-size:.98rem}.builder-section-title small{display:block;margin-top:2px;color:var(--ts-muted,#64748b)}.section-number{display:grid;place-items:center;width:34px;height:34px;border-radius:10px;background:#eef4ff;color:var(--ts-primary,#2563eb);font-size:.76rem;font-weight:900;flex:0 0 auto}
+.customer-section .cliente-grid{max-width:none}.article-section{gap:14px}.item-editor{display:grid;grid-template-columns:1fr!important;gap:14px;padding:0;border:0;border-radius:0;align-items:stretch}.product-field,.notes-field{grid-column:1!important}.item-numbers{display:grid;grid-template-columns:minmax(110px,.65fr) minmax(160px,1fr) minmax(160px,1fr);gap:12px;align-items:end}.subtotal-box{min-height:46px;padding:8px 14px;border:1px solid var(--ts-border,#e5e7eb);border-radius:10px;background:var(--ts-surface-soft,#f8fafc);display:flex;align-items:center;justify-content:space-between;gap:12px}.subtotal-box span{font-size:.78rem;color:var(--ts-muted,#64748b);font-weight:700}.subtotal-box strong{font-size:1.05rem}.encargo-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}.item-add{display:flex;justify-content:flex-end!important;padding-top:0}.add-sale-btn{min-width:190px}.cart-section{background:var(--ts-surface-soft,#fbfcfe)}.cart-empty{background:var(--ts-surface,#fff)}
+.checkout-layout{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(260px,.65fr);gap:18px;align-items:stretch}.checkout-fields{display:grid;grid-template-columns:1fr 1fr;gap:14px}.checkout-fields .checkout-notes{grid-column:1/-1}.totals-card{grid-column:auto!important;display:grid;grid-template-columns:1fr!important;gap:0!important;padding:8px 16px!important;border:1px solid var(--ts-border,#e5e7eb);background:var(--ts-surface-soft,#f8fafc)}.totals-card div{display:flex!important;align-items:center;justify-content:space-between;gap:12px;padding:13px 0;border-bottom:1px solid var(--ts-border,#e5e7eb)}.totals-card div:last-child{border-bottom:0}.totals-card span{color:var(--ts-muted,#64748b);font-size:.82rem}.totals-card strong{font-size:1rem}.totals-card .balance strong{font-size:1.15rem;color:var(--ts-primary,#2563eb)}.venta-actions{padding-top:2px}.venta-actions .ts-action-primary{min-width:190px}
+@media(max-width:820px){.venta-builder{max-width:100%}.item-numbers,.encargo-grid{grid-template-columns:1fr 1fr}.subtotal-box{grid-column:1/-1}.checkout-layout{grid-template-columns:1fr}.checkout-fields{grid-template-columns:1fr 1fr}.totals-card{grid-column:1!important}}
+@media(max-width:600px){.venta-builder{padding:12px!important;gap:12px}.venta-heading{display:grid!important;grid-template-columns:1fr auto!important}.section-helper{display:none}.builder-section{padding:14px;gap:13px;border-radius:14px}.builder-section-title small{font-size:.76rem}.cliente-grid,.item-numbers,.encargo-grid,.checkout-fields{grid-template-columns:1fr!important}.subtotal-box{grid-column:1!important}.tipo-tabs{display:grid!important;grid-template-columns:repeat(2,minmax(0,1fr));overflow:visible!important}.tipo-tabs button{width:100%;white-space:normal}.item-add{display:block!important}.add-sale-btn{width:100%;min-width:0;min-height:48px}.checkout-fields .checkout-notes{grid-column:1}.venta-actions{grid-template-columns:1fr!important}.venta-actions button{width:100%}.cart-section{padding-inline:12px}.cart-row{background:var(--ts-surface,#fff)}}
 </style>
