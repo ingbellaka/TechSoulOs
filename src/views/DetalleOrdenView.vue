@@ -331,10 +331,13 @@ onMounted(cargarDetalle)
       </div>
 
       <div class="ts-order-detail-actions">
-        <router-link class="ts-action-secondary" :to="`/ordenes/${orden.id}/editar`">Editar</router-link>
+        <router-link class="ts-action-primary ts-edit-order-action" :to="`/ordenes/${orden.id}/editar`">
+          <span class="ts-action-icon" aria-hidden="true">✎</span>
+          <span>Editar orden</span>
+        </router-link>
         <a class="ts-action-secondary ts-whatsapp-button" :href="whatsappLink()" target="_blank" rel="noopener">WhatsApp</a>
         <button class="ts-action-secondary" type="button" @click="abrirTicketOrdenServicio">Comprobante de pago</button>
-        <button class="ts-action-primary" type="button" @click="generarPdfOrden">Orden de servicio PDF</button>
+        <button class="ts-action-secondary" type="button" @click="generarPdfOrden">Orden de servicio PDF</button>
       </div>
     </header>
 
@@ -514,5 +517,56 @@ onMounted(cargarDetalle)
 
 <style scoped>
 .ts-receipt-link{border:1px solid #bfdbfe;background:#eff6ff;color:#175cff;border-radius:9px;padding:7px 10px;font-weight:800;font-size:.75rem;cursor:pointer}
-@media(max-width:600px){.ts-detail-movement-item{display:grid!important;grid-template-columns:auto minmax(0,1fr)!important;gap:8px 10px!important}.ts-detail-movement-item>b,.ts-receipt-link{grid-column:2!important;justify-self:start}}
+
+/* Acciones principales del detalle de orden */
+.ts-order-detail-actions{
+  display:flex;
+  align-items:center;
+  justify-content:flex-end;
+  gap:10px;
+  flex-wrap:wrap;
+}
+.ts-order-detail-actions > *{
+  min-height:42px;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  white-space:nowrap;
+  text-decoration:none;
+}
+.ts-edit-order-action{
+  gap:8px;
+  min-width:142px;
+  box-shadow:0 8px 20px rgba(37,99,235,.18);
+}
+.ts-action-icon{
+  font-size:1rem;
+  line-height:1;
+}
+
+@media(max-width:900px){
+  .ts-order-detail-actions{
+    width:100%;
+    display:grid;
+    grid-template-columns:repeat(2,minmax(0,1fr));
+  }
+  .ts-order-detail-actions > *{width:100%;box-sizing:border-box}
+  .ts-edit-order-action{grid-column:1/-1}
+}
+
+@media(max-width:600px){
+  .ts-order-detail-actions{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+  .ts-edit-order-action{grid-column:1/-1}
+  .ts-whatsapp-button{grid-column:auto}
+  .ts-order-detail-actions > :last-child{grid-column:1/-1}
+  .ts-detail-movement-item{display:grid!important;grid-template-columns:auto minmax(0,1fr)!important;gap:8px 10px!important}
+  .ts-detail-movement-item>b,.ts-receipt-link{grid-column:2!important;justify-self:start}
+}
+
+@media(max-width:420px){
+  .ts-order-detail-actions{grid-template-columns:1fr}
+  .ts-order-detail-actions > *,
+  .ts-edit-order-action,
+  .ts-order-detail-actions > :last-child{grid-column:1}
+}
 </style>
