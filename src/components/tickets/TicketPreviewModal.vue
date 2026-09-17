@@ -1,13 +1,15 @@
 <script setup>
 import { computed } from 'vue'
-import { monedaMX, fechaTicket, ticketWhatsappText } from '../../utils/tickets'
+import html2canvas from 'html2canvas'
+import { jsPDF } from 'jspdf'
+import { monedaMX, fechaTicket } from '../../utils/tickets'
 
 const props = defineProps({
   ticket: { type: Object, default: null }
 })
 const emit = defineEmits(['close'])
 
-const telefonoWhatsApp = computed(() => String(props.ticket?.business?.whatsapp || '').replace(/\D/g, ''))
+const telefonoWhatsApp = computed(() => String(props.ticket?.phone || '').replace(/\D/g, ''))
 
 function esc(v) {
   return String(v ?? '').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'",'&#039;')
@@ -44,8 +46,50 @@ function abrirDocumento(autoPrint = true, copy = 'client') {
   w.document.open(); w.document.write(ticketHtml(autoPrint, copy)); w.document.close()
 }
 
-function pdf() {
-  abrirDocumento(true, 'client')
+function normalizarWhatsApp(numero) {
+  const digits = String(numero || '').replace(/\D/g, '')
+  if (!digits) return ''
+  if (digits.length === 10) return `52${digits}`
+  if (digits.length === 12 && digits.startsWith('52')) return digits
+  return digits
+}
+
+async function descargarPdfDigital() {
+  const t = props.ticket
+  if (!t) return false
+  const source = document.querySelector('.ticket-paper')
+  if (!source) return false
+
+  const clone = source.cloneNode(true)
+  clone.querySelector('.ticket-physical-signature')?.remove()
+  Object.assign(clone.style, {
+    position: 'fixed', left: '-10000px', top: '0', width: '57mm',
+    margin: '0', boxShadow: 'none', background: '#fff', zIndex: '-1'
+  })
+  document.body.appendChild(clone)
+
+  try {
+    await Promise.all(Array.from(clone.querySelectorAll('img')).map(img => img.complete ? Promise.resolve() : new Promise(resolve => { img.onload = resolve; img.onerror = resolve })))
+    const canvas = await html2canvas(clone, { scale: 3, backgroundColor: '#ffffff', useCORS: true, logging: false })
+    const pageWidth = 57
+    const pageHeight = Math.max(20, pageWidth * canvas.height / canvas.width)
+    const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: [pageWidth, pageHeight], compress: true })
+    doc.addImage(canvas.toDataURL('image/png'), 'PNG', 0, 0, pageWidth, pageHeight, undefined, 'FAST')
+    const safeFolio = String(t.folio || 'ticket').replace(/[^a-zA-Z0-9_-]/g, '-')
+    doc.save(`Comprobante_${safeFolio}.pdf`)
+    return true
+  } finally {
+    clone.remove()
+  }
+}
+
+async function pdf() {
+  try {
+    await descargarPdfDigital()
+  } catch (error) {
+    console.error(error)
+    alert('No se pudo generar el PDF. Intenta nuevamente.')
+  }
 }
 
 function imprimirCliente() {
@@ -56,11 +100,33 @@ function imprimirTechSoul() {
   abrirDocumento(true, 'techsoul')
 }
 
-function whatsapp() {
-  const text = ticketWhatsappText(props.ticket)
-  const numero = telefonoWhatsApp.value
-  const url = numero ? `https://wa.me/52${numero.replace(/^52/, '')}?text=${encodeURIComponent(text)}` : `https://wa.me/?text=${encodeURIComponent(text)}`
-  window.open(url, '_blank', 'noopener')
+async function whatsapp() {
+  const numero = normalizarWhatsApp(telefonoWhatsApp.value)
+  if (!numero) {
+    alert('Esta orden no tiene un número de cliente registrado.')
+    return
+  }
+
+  // Abrimos la pestaña inmediatamente para evitar que el navegador bloquee el popup
+  // mientras se genera y descarga el PDF.
+  const waWindow = window.open('about:blank', '_blank')
+  if (!waWindow) {
+    alert('Permite ventanas emergentes para abrir WhatsApp.')
+    return
+  }
+
+  try {
+    await descargarPdfDigital()
+    const t = props.ticket
+    const nombre = t?.client || 'cliente'
+    const folio = t?.folio || ''
+    const text = `Hola ${nombre}, te compartimos tu comprobante de pago${folio ? ` de la orden ${folio}` : ''}. Gracias por tu confianza en TechSoul.`
+    waWindow.location.href = `https://wa.me/${numero}?text=${encodeURIComponent(text)}`
+  } catch (error) {
+    console.error(error)
+    waWindow.close()
+    alert('No se pudo generar el PDF para WhatsApp. Intenta nuevamente.')
+  }
 }
 </script>
 
