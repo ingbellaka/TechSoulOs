@@ -11,19 +11,78 @@ const cargando = ref(false)
 const guardando = ref(false)
 const mostrarFormulario = ref(false)
 const form = ref(nuevoFormulario())
+const formFecha = ref(fechaSeleccionada.value)
+const formHora = ref('10:00')
+
+const HORARIOS_TALLER = {
+  1: { abre: '10:00', cierra: '18:00' },
+  2: { abre: '10:00', cierra: '18:00' },
+  3: { abre: '10:00', cierra: '18:00' },
+  4: { abre: '10:00', cierra: '18:00' },
+  5: { abre: '10:00', cierra: '17:00' },
+  6: { abre: '10:00', cierra: '15:00' }
+}
+const INTERVALO_MIN = 30
+const DURACIONES_BASE = [15, 30, 45, 60, 90, 120, 180, 240, 300, 360, 420, 480]
 
 function nuevoFormulario() {
-  const base = new Date()
-  base.setMinutes(Math.ceil(base.getMinutes() / 30) * 30, 0, 0)
   return {
     nombre_cliente: '', telefono: '', equipo: '', servicio: '',
-    inicio: toLocalInput(base), duracion_min: 30, estado: 'Cita', notas: ''
+    duracion_min: 30, estado: 'Cita', notas: ''
   }
 }
 
-function toLocalInput(date) {
-  const pad = n => String(n).padStart(2, '0')
-  return `${date.getFullYear()}-${pad(date.getMonth()+1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`
+function minutosDeHora(hora) {
+  const [h, m] = String(hora).split(':').map(Number)
+  return (h * 60) + m
+}
+
+function horaDeMinutos(total) {
+  const h = Math.floor(total / 60)
+  const m = total % 60
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`
+}
+
+function horarioDeFecha(fecha) {
+  if (!fecha) return null
+  const dia = new Date(`${fecha}T12:00:00`).getDay()
+  return HORARIOS_TALLER[dia] || null
+}
+
+const horarioFormulario = computed(() => horarioDeFecha(formFecha.value))
+
+const duracionesDisponibles = computed(() => {
+  const h = horarioFormulario.value
+  if (!h) return []
+  const jornada = minutosDeHora(h.cierra) - minutosDeHora(h.abre)
+  return DURACIONES_BASE.filter(min => min <= jornada)
+})
+
+const horasDisponibles = computed(() => {
+  const h = horarioFormulario.value
+  if (!h) return []
+  const abre = minutosDeHora(h.abre)
+  const cierra = minutosDeHora(h.cierra)
+  const duracion = Number(form.value.duracion_min || 30)
+  const horas = []
+  for (let min = abre; min + duracion <= cierra; min += INTERVALO_MIN) {
+    horas.push(horaDeMinutos(min))
+  }
+  return horas
+})
+
+function asegurarHoraValida() {
+  if (!duracionesDisponibles.value.includes(Number(form.value.duracion_min))) {
+    form.value.duracion_min = duracionesDisponibles.value.includes(30) ? 30 : (duracionesDisponibles.value[0] || 30)
+  }
+  if (!horasDisponibles.value.includes(formHora.value)) {
+    formHora.value = horasDisponibles.value[0] || ''
+  }
+}
+
+function etiquetaHorario(fecha) {
+  const h = horarioDeFecha(fecha)
+  return h ? `${h.abre}–${h.cierra}` : 'Cerrado'
 }
 
 function rangoDia(fecha) {
@@ -98,12 +157,26 @@ async function cargarAgenda() {
 
 function abrirNuevaCita() {
   form.value = nuevoFormulario()
-  form.value.inicio = `${fechaSeleccionada.value}T10:00`
+  formFecha.value = fechaSeleccionada.value
+  formHora.value = horarioDeFecha(formFecha.value)?.abre || ''
+  asegurarHoraValida()
   mostrarFormulario.value = true
 }
 
 async function guardarCita() {
-  if (!form.value.nombre_cliente.trim() || !form.value.servicio.trim() || !form.value.inicio) return alert('Cliente, servicio y fecha/hora son obligatorios.')
+  if (!form.value.nombre_cliente.trim() || !form.value.servicio.trim() || !formFecha.value || !formHora.value) {
+    return alert('Cliente, servicio, fecha y hora son obligatorios.')
+  }
+
+  const horario = horarioDeFecha(formFecha.value)
+  if (!horario) return alert('El taller está cerrado los domingos. Selecciona otro día.')
+
+  const duracion = Number(form.value.duracion_min || 30)
+  const inicioMin = minutosDeHora(formHora.value)
+  if (inicioMin < minutosDeHora(horario.abre) || inicioMin + duracion > minutosDeHora(horario.cierra)) {
+    return alert(`La cita debe quedar dentro del horario ${horario.abre} a ${horario.cierra}.`)
+  }
+
   guardando.value = true
   const payload = {
     ...form.value,
@@ -112,8 +185,8 @@ async function guardarCita() {
     telefono: form.value.telefono.trim(),
     equipo: form.value.equipo.trim(),
     notas: form.value.notas.trim(),
-    inicio: new Date(form.value.inicio).toISOString(),
-    duracion_min: Number(form.value.duracion_min || 30)
+    inicio: new Date(`${formFecha.value}T${formHora.value}:00`).toISOString(),
+    duracion_min: duracion
   }
   const { error } = await supabase.from('citas_agenda').insert(payload)
   guardando.value = false
@@ -199,8 +272,23 @@ onMounted(cargarAgenda)
         <label><span>Teléfono</span><input v-model="form.telefono" placeholder="667..."></label>
         <label><span>Equipo</span><input v-model="form.equipo" placeholder="Ej. iPhone 13"></label>
         <label><span>Servicio *</span><input v-model="form.servicio" placeholder="Ej. Cambio de pantalla"></label>
-        <label><span>Fecha y hora *</span><input v-model="form.inicio" type="datetime-local"></label>
-        <label><span>Duración</span><select v-model.number="form.duracion_min"><option :value="15">15 min</option><option :value="30">30 min</option><option :value="45">45 min</option><option :value="60">1 hora</option><option :value="90">1 h 30 min</option><option :value="120">2 horas</option><option :value="240">4 horas</option><option :value="480">1 día</option></select></label>
+        <label>
+          <span>Fecha *</span>
+          <input v-model="formFecha" type="date" @change="asegurarHoraValida">
+          <small class="schedule-help">{{ horarioFormulario ? `Horario del taller: ${etiquetaHorario(formFecha)}` : 'Domingo · taller cerrado' }}</small>
+        </label>
+        <label>
+          <span>Duración</span>
+          <select v-model.number="form.duracion_min" @change="asegurarHoraValida" :disabled="!horarioFormulario">
+            <option v-for="min in duracionesDisponibles" :key="min" :value="min">{{ duracion(min) }}</option>
+          </select>
+        </label>
+        <label>
+          <span>Hora de inicio *</span>
+          <select v-model="formHora" :disabled="!horarioFormulario || !horasDisponibles.length">
+            <option v-for="horaCita in horasDisponibles" :key="horaCita" :value="horaCita">{{ horaCita }}</option>
+          </select>
+        </label>
         <label class="full"><span>Notas</span><textarea v-model="form.notas" rows="2" placeholder="Información adicional"></textarea></label>
       </div>
       <div class="agenda-actions"><button class="ts-action-secondary" @click="mostrarFormulario=false">Cancelar</button><button class="ts-action-primary" :disabled="guardando" @click="guardarCita">{{ guardando ? 'Guardando…' : 'Guardar cita' }}</button></div>
@@ -208,7 +296,11 @@ onMounted(cargarAgenda)
 
     <section class="agenda-board ts-panel">
       <div class="board-heading">
-        <div><small>Plan del día</small><h3>{{ fechaBonita(fechaSeleccionada) }}</h3></div>
+        <div>
+          <small>Plan del día</small>
+          <h3>{{ fechaBonita(fechaSeleccionada) }}</h3>
+          <p class="day-schedule">{{ horarioDeFecha(fechaSeleccionada) ? `Horario ${etiquetaHorario(fechaSeleccionada)}` : 'Taller cerrado' }}</p>
+        </div>
         <span class="board-count">{{ resumenDia.total }} programado{{ resumenDia.total === 1 ? '' : 's' }}</span>
       </div>
 
@@ -254,155 +346,139 @@ onMounted(cargarAgenda)
 </template>
 
 <style scoped>
-.agenda-page{padding-bottom:28px}.agenda-header{align-items:flex-end}.agenda-new{display:flex;align-items:center;gap:6px}.agenda-overview{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:18px 0}.overview-card{display:flex;align-items:center;gap:13px;min-height:106px;padding:17px 18px;border:1px solid var(--ts-border,#e2e8f0);border-radius:18px;background:var(--ts-surface,#fff);box-shadow:0 8px 24px rgba(15,23,42,.035)}.overview-icon{width:42px;height:42px;border-radius:13px;display:grid;place-items:center;background:#eff6ff;font-size:1.05rem}.overview-card small{display:block;color:var(--ts-muted,#64748b);font-size:.68rem;font-weight:800;text-transform:uppercase;letter-spacing:.05em}.overview-card strong{display:block;margin-top:2px;font-size:1.45rem;line-height:1.1;color:var(--ts-text,#0f172a)}.overview-card p{margin:4px 0 0;color:var(--ts-muted,#64748b);font-size:.7rem}.agenda-toolbar{display:grid;grid-template-columns:1fr minmax(300px,1.25fr) 1fr;align-items:center;gap:16px;padding:12px 14px}.day-nav{border:0;background:transparent;color:var(--ts-text,#0f172a);font-size:.77rem;font-weight:800;padding:10px 12px;border-radius:10px}.day-nav:first-child{justify-self:start}.day-nav:last-child{justify-self:end}.day-nav:hover{background:var(--ts-soft,#f8fafc)}.agenda-date{text-align:center;display:grid;grid-template-columns:1fr auto;align-items:center;column-gap:10px}.agenda-date small{grid-column:1/-1;color:var(--ts-muted,#64748b);font-size:.65rem;text-transform:uppercase;letter-spacing:.06em;font-weight:800}.agenda-date strong{text-transform:capitalize;font-size:.9rem}.agenda-date input{width:38px;height:34px;border:1px solid var(--ts-border,#dbe3ee);border-radius:9px;padding:5px;color:transparent;background:var(--ts-soft,#f8fafc)}.agenda-date input::-webkit-calendar-picker-indicator{opacity:1;cursor:pointer}.agenda-form{margin-top:16px;padding:20px}.form-heading{display:flex;justify-content:space-between;gap:18px;align-items:flex-start;margin-bottom:17px}.form-heading h3{margin:2px 0 3px}.form-heading p{margin:0;color:var(--ts-muted,#64748b);font-size:.76rem}.form-close{width:34px;height:34px;border:0;border-radius:10px;background:var(--ts-soft,#f1f5f9);font-size:1.25rem;color:#64748b}.agenda-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}.agenda-grid label{display:flex;flex-direction:column;gap:6px}.agenda-grid label span{font-size:.72rem;font-weight:800;color:var(--ts-muted,#64748b)}.agenda-grid input,.agenda-grid select,.agenda-grid textarea,.agenda-row-actions select{border:1px solid var(--ts-border,#dbe3ee);border-radius:11px;padding:10px 12px;background:var(--ts-surface,#fff);color:var(--ts-text,#0f172a);outline:none}.agenda-grid input:focus,.agenda-grid select:focus,.agenda-grid textarea:focus{border-color:#60a5fa;box-shadow:0 0 0 3px rgba(37,99,235,.08)}.agenda-grid .full{grid-column:1/-1}.agenda-actions{display:flex;justify-content:flex-end;gap:10px;margin-top:16px}.agenda-board{margin-top:16px;padding:0;overflow:hidden}.board-heading{display:flex;align-items:center;justify-content:space-between;padding:17px 20px;border-bottom:1px solid var(--ts-border,#e2e8f0)}.board-heading small{display:block;color:#2563eb;font-size:.65rem;font-weight:850;text-transform:uppercase;letter-spacing:.06em}.board-heading h3{text-transform:capitalize;margin:2px 0 0;font-size:.95rem}.board-count{padding:6px 9px;border-radius:999px;background:#eff6ff;color:#1d4ed8;font-size:.68rem;font-weight:800}.agenda-timeline{padding:8px 20px 18px}.agenda-event{display:grid;grid-template-columns:72px 20px 1fr;gap:10px;min-height:118px}.agenda-time{padding-top:19px;text-align:right;display:flex;flex-direction:column}.agenda-time strong{font-size:.88rem;color:var(--ts-text,#0f172a)}.agenda-time small{color:var(--ts-muted,#64748b);font-size:.65rem;margin-top:2px}.timeline-marker{position:relative;display:flex;justify-content:center}.timeline-marker:after{content:"";position:absolute;top:0;bottom:0;width:1px;background:#dbe3ee}.timeline-marker span{position:relative;z-index:2;margin-top:23px;width:10px;height:10px;border-radius:50%;background:#2563eb;box-shadow:0 0 0 4px #dbeafe}.is-order .timeline-marker span{background:#16a34a;box-shadow:0 0 0 4px #dcfce7}.agenda-card{align-self:start;margin:8px 0;padding:15px 16px;border:1px solid var(--ts-border,#e2e8f0);border-radius:15px;background:var(--ts-surface,#fff);box-shadow:0 5px 16px rgba(15,23,42,.035)}.agenda-title-row,.event-footer{display:flex;align-items:center;justify-content:space-between;gap:12px}.agenda-title{display:flex;align-items:center;gap:7px}.agenda-kind,.agenda-folio,.duration-pill,.status-pill{font-size:.64rem;font-weight:850;border-radius:999px;padding:5px 8px}.agenda-kind{background:#eff6ff;color:#1d4ed8}.is-order .agenda-kind{background:#ecfdf5;color:#15803d}.agenda-folio{background:#f1f5f9;color:#475569}.duration-pill{background:#f8fafc;color:#64748b}.client-name{display:block;margin-top:10px;font-size:.94rem}.service-line{display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin:5px 0 12px;color:var(--ts-muted,#64748b);font-size:.76rem}.service-line b{color:var(--ts-text,#0f172a)}.status-pill{background:#f8fafc;color:#475569}.agenda-row-actions{display:flex;align-items:center;gap:7px}.agenda-row-actions select{padding:7px 9px;font-size:.7rem}.open-order{border:0;background:transparent;color:#2563eb;font-size:.72rem;font-weight:850;padding:7px}.agenda-delete{border:0;background:#fff1f2;color:#be123c;border-radius:9px;padding:8px 9px;font-size:.68rem;font-weight:800}.agenda-empty{text-align:center;padding:54px 20px;color:var(--ts-muted,#64748b)}.empty-icon{width:56px;height:56px;display:grid;place-items:center;margin:0 auto 13px;border-radius:18px;background:#eff6ff;font-size:1.4rem}.agenda-empty strong{display:block;color:var(--ts-text,#0f172a);font-size:1rem}.agenda-empty p{margin:5px 0 16px;font-size:.78rem}@media(max-width:1050px){.agenda-overview{grid-template-columns:repeat(2,1fr)}}@media(max-width:760px){.agenda-header{align-items:flex-start}.agenda-overview{grid-template-columns:1fr 1fr}.overview-card{min-height:92px;padding:14px}.agenda-toolbar{grid-template-columns:1fr 1fr}.agenda-date{grid-column:1/-1;grid-row:1}.agenda-grid{grid-template-columns:1fr}.agenda-grid .full{grid-column:auto}.agenda-event{grid-template-columns:58px 16px 1fr}.agenda-timeline{padding:8px 12px 14px}.agenda-card{padding:13px}.agenda-title-row,.event-footer{align-items:flex-start;flex-direction:column}.agenda-row-actions{width:100%;justify-content:flex-end}.day-nav span{display:none}}@media(max-width:480px){.agenda-overview{grid-template-columns:1fr}.overview-card{min-height:auto}.agenda-event{grid-template-columns:1fr}.agenda-time{text-align:left;flex-direction:row;gap:6px;padding:8px 0 0}.timeline-marker{display:none}.agenda-card{margin-top:0}}
+.agenda-page{padding-bottom:28px}.agenda-header{align-items:flex-end}.agenda-new{display:flex;align-items:center;gap:6px}.agenda-overview{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:18px 0}.overview-card{display:flex;align-items:center;gap:13px;min-height:106px;padding:17px 18px;border:1px solid var(--ts-border,#e2e8f0);border-radius:18px;background:var(--ts-surface,#fff);box-shadow:0 8px 24px rgba(15,23,42,.035)}.overview-icon{width:42px;height:42px;border-radius:13px;display:grid;place-items:center;background:#eff6ff;font-size:1.05rem}.overview-card small{display:block;color:var(--ts-muted,#64748b);font-size:.68rem;font-weight:800;text-transform:uppercase;letter-spacing:.05em}.overview-card strong{display:block;margin-top:2px;font-size:1.45rem;line-height:1.1;color:var(--ts-text,#0f172a)}.overview-card p{margin:4px 0 0;color:var(--ts-muted,#64748b);font-size:.7rem}.agenda-toolbar{display:grid;grid-template-columns:1fr minmax(300px,1.25fr) 1fr;align-items:center;gap:16px;padding:12px 14px}.day-nav{border:0;background:transparent;color:var(--ts-text,#0f172a);font-size:.77rem;font-weight:800;padding:10px 12px;border-radius:10px}.day-nav:first-child{justify-self:start}.day-nav:last-child{justify-self:end}.day-nav:hover{background:var(--ts-soft,#f8fafc)}.agenda-date{text-align:center;display:grid;grid-template-columns:1fr auto;align-items:center;column-gap:10px}.agenda-date small{grid-column:1/-1;color:var(--ts-muted,#64748b);font-size:.65rem;text-transform:uppercase;letter-spacing:.06em;font-weight:800}.agenda-date strong{text-transform:capitalize;font-size:.9rem}.agenda-date input{width:38px;height:34px;border:1px solid var(--ts-border,#dbe3ee);border-radius:9px;padding:5px;color:transparent;background:var(--ts-soft,#f8fafc)}.agenda-date input::-webkit-calendar-picker-indicator{opacity:1;cursor:pointer}.agenda-form{margin-top:16px;padding:20px}.form-heading{display:flex;justify-content:space-between;gap:18px;align-items:flex-start;margin-bottom:17px}.form-heading h3{margin:2px 0 3px}.form-heading p{margin:0;color:var(--ts-muted,#64748b);font-size:.76rem}.form-close{width:34px;height:34px;border:0;border-radius:10px;background:var(--ts-soft,#f1f5f9);font-size:1.25rem;color:#64748b}.agenda-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}.agenda-grid label{display:flex;flex-direction:column;gap:6px}.agenda-grid label span{font-size:.72rem;font-weight:800;color:var(--ts-muted,#64748b)}.agenda-grid input,.agenda-grid select,.agenda-grid textarea,.agenda-row-actions select{border:1px solid var(--ts-border,#dbe3ee);border-radius:11px;padding:10px 12px;background:var(--ts-surface,#fff);color:var(--ts-text,#0f172a);outline:none}.agenda-grid input:focus,.agenda-grid select:focus,.agenda-grid textarea:focus{border-color:#60a5fa;box-shadow:0 0 0 3px rgba(37,99,235,.08)}.agenda-grid .full{grid-column:1/-1}.agenda-actions{display:flex;justify-content:flex-end;gap:10px;margin-top:16px}.agenda-board{margin-top:16px;padding:0;overflow:hidden;container-type:inline-size}.board-heading{display:flex;align-items:center;justify-content:space-between;padding:17px 20px;border-bottom:1px solid var(--ts-border,#e2e8f0)}.board-heading small{display:block;color:#2563eb;font-size:.65rem;font-weight:850;text-transform:uppercase;letter-spacing:.06em}.board-heading h3{text-transform:capitalize;margin:2px 0 0;font-size:.95rem}.board-count{padding:6px 9px;border-radius:999px;background:#eff6ff;color:#1d4ed8;font-size:.68rem;font-weight:800;white-space:nowrap;flex:0 0 auto}.agenda-timeline{padding:8px 20px 18px}.agenda-event{display:grid;grid-template-columns:72px 20px 1fr;gap:10px;min-height:118px}.agenda-time{padding-top:19px;text-align:right;display:flex;flex-direction:column}.agenda-time strong{font-size:.88rem;color:var(--ts-text,#0f172a)}.agenda-time small{color:var(--ts-muted,#64748b);font-size:.65rem;margin-top:2px}.timeline-marker{position:relative;display:flex;justify-content:center}.timeline-marker:after{content:"";position:absolute;top:0;bottom:0;width:1px;background:#dbe3ee}.timeline-marker span{position:relative;z-index:2;margin-top:23px;width:10px;height:10px;border-radius:50%;background:#2563eb;box-shadow:0 0 0 4px #dbeafe}.is-order .timeline-marker span{background:#16a34a;box-shadow:0 0 0 4px #dcfce7}.agenda-card{align-self:start;margin:8px 0;padding:15px 16px;border:1px solid var(--ts-border,#e2e8f0);border-radius:15px;background:var(--ts-surface,#fff);box-shadow:0 5px 16px rgba(15,23,42,.035)}.agenda-title-row,.event-footer{display:flex;align-items:center;justify-content:space-between;gap:12px}.agenda-title{display:flex;align-items:center;gap:7px}.agenda-kind,.agenda-folio,.duration-pill,.status-pill{font-size:.64rem;font-weight:850;border-radius:999px;padding:5px 8px}.agenda-kind{background:#eff6ff;color:#1d4ed8}.is-order .agenda-kind{background:#ecfdf5;color:#15803d}.agenda-folio{background:#f1f5f9;color:#475569}.duration-pill{background:#f8fafc;color:#64748b}.client-name{display:block;margin-top:10px;font-size:.94rem;overflow-wrap:break-word;word-break:normal}.service-line{display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin:5px 0 12px;color:var(--ts-muted,#64748b);font-size:.76rem;overflow-wrap:break-word;word-break:normal}.service-line b{color:var(--ts-text,#0f172a)}.status-pill{background:#f8fafc;color:#475569}.agenda-row-actions{display:flex;align-items:center;gap:7px}.agenda-row-actions select{padding:7px 9px;font-size:.7rem}.open-order{border:0;background:transparent;color:#2563eb;font-size:.72rem;font-weight:850;padding:7px}.agenda-delete{border:0;background:#fff1f2;color:#be123c;border-radius:9px;padding:8px 9px;font-size:.68rem;font-weight:800}.agenda-empty{text-align:center;padding:54px 20px;color:var(--ts-muted,#64748b)}.empty-icon{width:56px;height:56px;display:grid;place-items:center;margin:0 auto 13px;border-radius:18px;background:#eff6ff;font-size:1.4rem}.agenda-empty strong{display:block;color:var(--ts-text,#0f172a);font-size:1rem}.agenda-empty p{margin:5px 0 16px;font-size:.78rem}.schedule-help{font-size:.66rem;color:var(--ts-muted,#64748b);margin-top:1px}.day-schedule{margin:3px 0 0;color:var(--ts-muted,#64748b);font-size:.68rem;font-weight:700}@media(max-width:1050px){.agenda-overview{grid-template-columns:repeat(2,1fr)}}@media(max-width:760px){.agenda-header{align-items:flex-start}.agenda-overview{grid-template-columns:1fr 1fr}.overview-card{min-height:92px;padding:14px}.agenda-toolbar{grid-template-columns:1fr 1fr}.agenda-date{grid-column:1/-1;grid-row:1}.agenda-grid{grid-template-columns:1fr}.agenda-grid .full{grid-column:auto}.agenda-event{grid-template-columns:58px 16px 1fr}.agenda-timeline{padding:8px 12px 14px}.agenda-card{padding:13px}.agenda-title-row,.event-footer{align-items:flex-start;flex-direction:column}.agenda-row-actions{width:100%;justify-content:flex-end}.day-nav span{display:none}}@media(max-width:480px){.agenda-overview{grid-template-columns:1fr}.overview-card{min-height:auto}.agenda-event{grid-template-columns:1fr}.agenda-time{text-align:left;flex-direction:row;gap:6px;padding:8px 0 0}.timeline-marker{display:none}.agenda-card{margin-top:0}}
 
-/* === AGENDA MOBILE: corrección estructural ===
-   En móvil dejamos de usar CSS Grid para cada evento.
-   Esto evita por completo las columnas implícitas que comprimían la tarjeta. */
-@media (max-width: 600px) {
-  .agenda-page,
-  .agenda-board,
-  .agenda-timeline,
-  .agenda-event,
-  .agenda-card {
-    width: 100% !important;
-    max-width: 100% !important;
-    min-width: 0 !important;
-    box-sizing: border-box !important;
+/* Responsive de la agenda basado en el ancho REAL del panel.
+   Esto evita que una cita se comprima aunque el layout padre/sidebar reduzca el espacio. */
+@container (max-width: 700px){
+  .board-heading{
+    align-items:flex-start;
+    gap:12px;
+    padding:16px;
   }
-
-  .agenda-board {
-    overflow: hidden !important;
+  .board-heading > div{
+    min-width:0;
+    flex:1 1 auto;
   }
-
-  .agenda-timeline {
-    padding: 8px 12px 14px !important;
-    overflow: hidden !important;
+  .board-heading h3{
+    line-height:1.3;
+    overflow-wrap:break-word;
+    word-break:normal;
   }
-
-  .agenda-event {
-    display: block !important;
-    grid-template-columns: none !important;
-    min-height: 0 !important;
-    margin: 0 !important;
+  .agenda-timeline{
+    padding:10px 14px 16px;
   }
-
-  .agenda-time {
-    display: flex !important;
-    width: 100% !important;
-    flex-direction: row !important;
-    align-items: center !important;
-    gap: 8px !important;
-    padding: 12px 2px 6px !important;
-    text-align: left !important;
-    white-space: nowrap !important;
+  .agenda-event{
+    display:block;
+    min-width:0;
+    min-height:0;
+    padding:0 0 12px;
   }
-
+  .agenda-time{
+    padding:8px 2px 6px;
+    text-align:left;
+    flex-direction:row;
+    align-items:center;
+    gap:7px;
+    white-space:nowrap;
+  }
   .agenda-time strong,
-  .agenda-time small {
-    width: auto !important;
-    max-width: none !important;
-    white-space: nowrap !important;
-    word-break: normal !important;
-    overflow-wrap: normal !important;
+  .agenda-time small{
+    margin:0;
   }
-
-  .timeline-marker {
-    display: none !important;
+  .agenda-time small::before{
+    content:"– ";
   }
-
-  .agenda-card {
-    display: block !important;
-    margin: 0 0 12px !important;
-    padding: 14px !important;
-    overflow: hidden !important;
+  .timeline-marker{
+    display:none;
   }
-
-  .agenda-title-row {
-    display: flex !important;
-    width: 100% !important;
-    flex-direction: row !important;
-    align-items: center !important;
-    justify-content: space-between !important;
-    flex-wrap: wrap !important;
-    gap: 8px !important;
+  .agenda-card{
+    width:100%;
+    min-width:0;
+    box-sizing:border-box;
+    margin:0;
+    padding:14px;
   }
-
-  .agenda-title {
-    display: flex !important;
-    min-width: 0 !important;
-    flex: 1 1 auto !important;
-    flex-wrap: wrap !important;
-    gap: 6px !important;
+  .agenda-title-row{
+    flex-direction:row;
+    align-items:center;
+    flex-wrap:wrap;
+    gap:8px;
   }
-
-  .agenda-kind,
-  .agenda-folio,
-  .duration-pill,
-  .status-pill {
-    width: auto !important;
-    max-width: 100% !important;
-    white-space: nowrap !important;
-    word-break: normal !important;
-    overflow-wrap: normal !important;
+  .agenda-title{
+    min-width:0;
+    flex-wrap:wrap;
   }
-
-  .client-name {
-    display: block !important;
-    width: 100% !important;
-    margin-top: 10px !important;
-    white-space: normal !important;
-    word-break: normal !important;
-    overflow-wrap: break-word !important;
+  .duration-pill{
+    margin-left:auto;
+    white-space:nowrap;
   }
-
-  .service-line,
-  .service-line b {
-    width: 100% !important;
-    min-width: 0 !important;
-    white-space: normal !important;
-    word-break: normal !important;
-    overflow-wrap: break-word !important;
+  .client-name{
+    font-size:1rem;
+    line-height:1.3;
   }
-
-  .event-footer {
-    display: flex !important;
-    width: 100% !important;
-    flex-direction: column !important;
-    align-items: stretch !important;
-    gap: 10px !important;
+  .service-line{
+    display:block;
+    line-height:1.45;
   }
-
-  .agenda-row-actions {
-    display: flex !important;
-    width: 100% !important;
-    min-width: 0 !important;
-    flex-wrap: wrap !important;
-    justify-content: flex-start !important;
+  .service-line span{
+    display:none;
   }
-
-  .agenda-row-actions select {
-    width: 100% !important;
-    min-width: 0 !important;
+  .service-line b{
+    display:block;
+    margin-bottom:2px;
   }
-
-  .board-heading {
-    padding: 15px 14px !important;
-    gap: 10px !important;
+  .event-footer{
+    flex-direction:column;
+    align-items:stretch;
+    gap:10px;
   }
-
-  .board-heading > div {
-    min-width: 0 !important;
+  .status-pill{
+    align-self:flex-start;
   }
-
-  .board-heading h3 {
-    white-space: normal !important;
-    overflow-wrap: break-word !important;
+  .agenda-row-actions{
+    width:100%;
+    display:grid;
+    grid-template-columns:minmax(0,1fr) auto;
+    gap:8px;
   }
+  .agenda-row-actions select{
+    width:100%;
+    min-width:0;
+  }
+  .open-order{
+    grid-column:1/-1;
+    width:100%;
+    text-align:center;
+    border:1px solid var(--ts-border,#dbe3ee);
+    border-radius:10px;
+  }
+}
 
-  .board-count {
-    flex: 0 0 auto !important;
-    white-space: nowrap !important;
+@container (max-width: 420px){
+  .board-heading{
+    flex-direction:column;
+  }
+  .board-count{
+    align-self:flex-start;
+  }
+  .agenda-timeline{
+    padding:8px 10px 14px;
+  }
+  .agenda-card{
+    padding:13px 12px;
+  }
+  .agenda-title-row{
+    align-items:flex-start;
+  }
+  .duration-pill{
+    margin-left:0;
+  }
+  .agenda-row-actions{
+    grid-template-columns:1fr;
+  }
+  .agenda-delete{
+    width:100%;
   }
 }
 
