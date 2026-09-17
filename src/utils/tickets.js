@@ -76,7 +76,7 @@ export function buildTicketVenta({ venta, items = [], negocio = {} }) {
   }
 }
 
-export function buildTicketOrdenServicio({ orden, negocio = {}, paymentMethod = '' }) {
+export function buildTicketOrdenServicio({ orden, negocio = {}, paymentMethod = '', firma = null }) {
   const total = redondearMoneda(orden?.costo_total || 0)
   const pagado = redondearMoneda(orden?.anticipo || 0)
   const saldo = normalizarSaldo(total - pagado)
@@ -100,6 +100,9 @@ export function buildTicketOrdenServicio({ orden, negocio = {}, paymentMethod = 
     balance: saldo,
     isPaid: saldo <= 0,
     paymentMethod: paymentMethod || orden?.metodo_pago || orden?.forma_pago || 'No especificado',
+    signature: firma?.firma_base64 || '',
+    signerName: firma?.nombre_firmante || '',
+    signedAt: firma?.fecha_firma || firma?.created_at || '',
     business: normalizeBusiness(negocio),
     conditions: [
       '90 días de garantía a partir de que se le notificó.',

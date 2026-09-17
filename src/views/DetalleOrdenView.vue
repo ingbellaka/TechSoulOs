@@ -132,7 +132,8 @@ function abrirTicketOrdenServicio() {
   ticketActual.value = buildTicketOrdenServicio({
     orden: orden.value,
     negocio: negocio.value,
-    paymentMethod: metodoPago
+    paymentMethod: metodoPago,
+    firma: firmas.value[0] || null
   })
 }
 
