@@ -39,48 +39,48 @@ function ticketHtml(autoPrint = false, copy = 'client') {
   @page{size:58mm auto;margin:0}
   *{box-sizing:border-box}
   html,body{width:58mm!important;margin:0!important;padding:0!important;background:#fff!important;color:#000!important}
-  body{font-family:Arial,"Helvetica Neue",sans-serif!important;font-size:12px!important;font-weight:600!important;line-height:1.32!important;-webkit-font-smoothing:none!important;text-rendering:geometricPrecision!important;-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important}
+  body{font-family:Arial,"Helvetica Neue",sans-serif!important;font-size:12.5px!important;font-weight:400!important;line-height:1.38!important;-webkit-font-smoothing:none!important;text-rendering:geometricPrecision!important;-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important}
   .ticket{width:50mm!important;margin:0 auto!important;padding:2.5mm 0 4mm!important;background:#fff!important;color:#000!important;transform:none!important;zoom:1!important}
   .logo{display:block;width:auto;max-width:32mm;max-height:10mm;object-fit:contain;margin:0 auto 1.5mm;filter:grayscale(1) contrast(3)}
-  .business{text-align:center;color:#000!important;font-size:10px!important;font-weight:700!important;line-height:1.28!important}
-  .business b{font-size:12px!important;font-weight:900!important}
+  .business{text-align:center;color:#000!important;font-size:10.5px!important;font-weight:400!important;line-height:1.32!important}
+  .business b{font-size:12.5px!important;font-weight:600!important}
   .title{text-align:center;border-top:2px dashed #000;border-bottom:2px dashed #000;margin:2.2mm 0;padding:1.8mm 0}
-  .title h1{font-size:13px!important;font-weight:900!important;letter-spacing:.02em!important;line-height:1.15!important;margin:0 0 1mm!important;white-space:normal!important}
-  .title b{font-size:12px!important;font-weight:900!important}
-  .title div{font-size:10px!important;font-weight:700!important}
-  .copy-label{font-size:9px!important;font-weight:900!important;letter-spacing:.08em!important;margin-bottom:.8mm!important}
+  .title h1{font-size:13px!important;font-weight:700!important;letter-spacing:.02em!important;line-height:1.15!important;margin:0 0 1mm!important;white-space:normal!important}
+  .title b{font-size:12.5px!important;font-weight:600!important}
+  .title div{font-size:10.5px!important;font-weight:400!important}
+  .copy-label{font-size:9.5px!important;font-weight:600!important;letter-spacing:.08em!important;margin-bottom:.8mm!important}
   .meta{display:block!important;margin:0 0 2mm!important}
   .meta span,.meta b{display:block!important;color:#000!important}
-  .meta span{font-size:9px!important;font-weight:800!important;text-transform:uppercase!important;letter-spacing:.04em!important;margin-top:1.3mm!important}
-  .meta b{font-size:12px!important;font-weight:900!important;line-height:1.2!important;overflow-wrap:anywhere!important}
-  .section{font-size:10px!important;letter-spacing:.06em!important;font-weight:900!important;margin:2mm 0 1mm!important}
+  .meta span{font-size:9.5px!important;font-weight:500!important;text-transform:uppercase!important;letter-spacing:.04em!important;margin-top:1.3mm!important}
+  .meta b{font-size:12.5px!important;font-weight:600!important;line-height:1.2!important;overflow-wrap:anywhere!important}
+  .section{font-size:10.5px!important;letter-spacing:.05em!important;font-weight:600!important;margin:2mm 0 1mm!important}
   .items{width:100%!important;border-collapse:collapse!important;border-top:2px solid #000!important;border-bottom:2px solid #000!important}
-  .items td{padding:1.5mm 0!important;vertical-align:top!important;font-size:11px!important;font-weight:800!important}
-  .items td:last-child{text-align:right!important;white-space:nowrap!important;font-weight:900!important}
-  .items small{display:block!important;color:#000!important;font-size:10px!important;font-weight:700!important;margin-top:.5mm!important}
-  .sum{display:flex!important;justify-content:space-between!important;align-items:baseline!important;gap:2mm!important;padding:1mm 0!important;font-size:11px!important;font-weight:800!important}
-  .sum b{font-size:12px!important;font-weight:900!important;white-space:nowrap!important}
-  .sum.total{font-size:13px!important;font-weight:900!important;border-top:2px solid #000!important;margin-top:1mm!important;padding-top:1.5mm!important}
-  .sum.total b{font-size:14px!important}
-  .sum.balance{font-size:12px!important;font-weight:900!important}
-  .sum.balance b{font-size:13px!important}
-  .payment{border-top:2px dashed #000!important;border-bottom:2px dashed #000!important;padding:1.5mm 0!important;margin:1.7mm 0!important;display:block!important;font-size:10px!important;font-weight:800!important}
+  .items td{padding:1.5mm 0!important;vertical-align:top!important;font-size:11.5px!important;font-weight:400!important}
+  .items td:last-child{text-align:right!important;white-space:nowrap!important;font-weight:600!important}
+  .items small{display:block!important;color:#000!important;font-size:10.5px!important;font-weight:400!important;margin-top:.5mm!important}
+  .sum{display:flex!important;justify-content:space-between!important;align-items:baseline!important;gap:2mm!important;padding:1mm 0!important;font-size:11.5px!important;font-weight:400!important}
+  .sum b{font-size:12.5px!important;font-weight:600!important;white-space:nowrap!important}
+  .sum.total{font-size:13px!important;font-weight:700!important;border-top:2px solid #000!important;margin-top:1mm!important;padding-top:1.5mm!important}
+  .sum.total b{font-size:14px!important;font-weight:700!important}
+  .sum.balance{font-size:12.5px!important;font-weight:600!important}
+  .sum.balance b{font-size:13px!important;font-weight:700!important}
+  .payment{border-top:2px dashed #000!important;border-bottom:2px dashed #000!important;padding:1.5mm 0!important;margin:1.7mm 0!important;display:block!important;font-size:10.5px!important;font-weight:400!important}
   .payment span{display:block!important;text-transform:uppercase!important;font-size:9px!important;letter-spacing:.04em!important}
-  .payment b{display:block!important;font-size:12px!important;font-weight:900!important;text-align:left!important;margin-top:.4mm!important}
-  .warranty{margin:2mm 0!important;padding:1.5mm 0!important;border-top:2px dashed #000!important;border-bottom:2px dashed #000!important;font-size:10px!important;font-weight:800!important}
-  .conditions{border-top:2px dashed #000!important;margin-top:1.8mm!important;padding-top:1.8mm!important;font-size:10.5px!important;font-weight:700!important;line-height:1.35!important}
-  .conditions b{display:block!important;margin-bottom:1mm!important;font-size:11px!important;font-weight:900!important;letter-spacing:.04em!important}
+  .payment b{display:block!important;font-size:12.5px!important;font-weight:600!important;text-align:left!important;margin-top:.4mm!important}
+  .warranty{margin:2mm 0!important;padding:1.5mm 0!important;border-top:2px dashed #000!important;border-bottom:2px dashed #000!important;font-size:10.5px!important;font-weight:400!important}
+  .conditions{border-top:2px dashed #000!important;margin-top:1.8mm!important;padding-top:1.8mm!important;font-size:11px!important;font-weight:400!important;line-height:1.42!important}
+  .conditions b{display:block!important;margin-bottom:1mm!important;font-size:11px!important;font-weight:600!important;letter-spacing:.04em!important}
   .conditions ul{margin:0!important;padding-left:4.5mm!important}
   .conditions li{margin:1.2mm 0!important}
   .conditions.compact p{margin:0!important;line-height:1.35!important}
-  .thanks{text-align:center!important;font-size:10px!important;font-weight:900!important;letter-spacing:.04em!important;margin:3mm 0 1.5mm!important}
-  .footer{text-align:center!important;color:#000!important;font-size:9px!important;font-weight:900!important}
+  .thanks{text-align:center!important;font-size:10.5px!important;font-weight:600!important;letter-spacing:.04em!important;margin:3mm 0 1.5mm!important}
+  .footer{text-align:center!important;color:#000!important;font-size:9.5px!important;font-weight:600!important}
   .acceptance{border-top:2px dashed #000!important;margin-top:2.2mm!important;padding-top:2mm!important;text-align:center!important}
-  .acceptance b{display:block!important;font-size:11px!important;font-weight:900!important;letter-spacing:.05em!important}
-  .acceptance p{margin:1mm 0!important;font-size:10px!important;font-weight:700!important}
+  .acceptance b{display:block!important;font-size:11px!important;font-weight:600!important;letter-spacing:.05em!important}
+  .acceptance p{margin:1mm 0!important;font-size:10.5px!important;font-weight:400!important}
   .signature-space{height:12mm!important}
   .signature-line{width:36mm!important;border-top:2px solid #000!important;margin:1mm auto .7mm!important}
-  .signed-at{font-size:9px!important;color:#000!important;font-weight:800!important}
+  .signed-at{font-size:9.5px!important;color:#000!important;font-weight:400!important}
   @media print{
     html,body{width:58mm!important;min-width:58mm!important;max-width:58mm!important;height:auto!important}
     .ticket{width:50mm!important;min-width:50mm!important;max-width:50mm!important;margin-left:auto!important;margin-right:auto!important;padding:2.5mm 0 4mm!important;box-shadow:none!important;transform:none!important;zoom:1!important}
