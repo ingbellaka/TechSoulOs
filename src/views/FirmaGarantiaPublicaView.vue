@@ -38,22 +38,117 @@ async function cargar() {
   cargando.value = false
 }
 
+function configurarContexto() {
+  if (!ctx) return
+  ctx.lineWidth = 2.4
+  ctx.lineCap = 'round'
+  ctx.lineJoin = 'round'
+  ctx.strokeStyle = '#0b1739'
+}
+
 function prepararCanvas() {
   const c = canvas.value
   if (!c) return
-  const rect = c.getBoundingClientRect(); const ratio = window.devicePixelRatio || 1
-  c.width = Math.max(1, rect.width * ratio); c.height = Math.max(1, rect.height * ratio)
-  ctx = c.getContext('2d'); ctx.scale(ratio, ratio); ctx.lineWidth = 2.4; ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.strokeStyle = '#0b1739'
+
+  const rect = c.getBoundingClientRect()
+  if (!rect.width || !rect.height) return
+
+  const ratio = Math.max(1, window.devicePixelRatio || 1)
+  const nuevoAncho = Math.max(1, Math.round(rect.width * ratio))
+  const nuevoAlto = Math.max(1, Math.round(rect.height * ratio))
+
+  // IMPORTANTE: cambiar width/height borra el canvas.
+  // En iPhone el teclado provoca eventos resize; por eso antes se perdía
+  // la firma después de escribir el nombre y se guardaba un PNG vacío.
+  let respaldo = null
+  if (c.width && c.height && tieneFirma) {
+    respaldo = document.createElement('canvas')
+    respaldo.width = c.width
+    respaldo.height = c.height
+    respaldo.getContext('2d').drawImage(c, 0, 0)
+  }
+
+  if (c.width !== nuevoAncho || c.height !== nuevoAlto) {
+    c.width = nuevoAncho
+    c.height = nuevoAlto
+  }
+
+  ctx = c.getContext('2d')
+  ctx.setTransform(ratio, 0, 0, ratio, 0, 0)
+  configurarContexto()
+
+  if (respaldo) {
+    // Dibujamos en coordenadas físicas sin la transformación CSS.
+    ctx.save()
+    ctx.setTransform(1, 0, 0, 1, 0, 0)
+    ctx.drawImage(respaldo, 0, 0, respaldo.width, respaldo.height, 0, 0, c.width, c.height)
+    ctx.restore()
+    configurarContexto()
+  }
 }
-function punto(e) { const r = canvas.value.getBoundingClientRect(); const p = e.touches?.[0] || e; return { x:p.clientX-r.left, y:p.clientY-r.top } }
-function iniciar(e) { e.preventDefault(); dibujando=true; const p=punto(e); ctx.beginPath(); ctx.moveTo(p.x,p.y) }
-function mover(e) { if(!dibujando) return; e.preventDefault(); const p=punto(e); ctx.lineTo(p.x,p.y); ctx.stroke(); tieneFirma=true }
-function terminar(){ dibujando=false }
-function limpiar(){ if(!ctx||!canvas.value)return; ctx.clearRect(0,0,canvas.value.width,canvas.value.height); tieneFirma=false }
+
+function punto(e) {
+  const c = canvas.value
+  const r = c.getBoundingClientRect()
+  return { x: e.clientX - r.left, y: e.clientY - r.top }
+}
+
+function iniciar(e) {
+  if (!ctx) prepararCanvas()
+  e.preventDefault()
+  dibujando = true
+  try { canvas.value?.setPointerCapture?.(e.pointerId) } catch {}
+  const p = punto(e)
+  ctx.beginPath()
+  ctx.moveTo(p.x, p.y)
+}
+
+function mover(e) {
+  if (!dibujando || !ctx) return
+  e.preventDefault()
+  const p = punto(e)
+  ctx.lineTo(p.x, p.y)
+  ctx.stroke()
+  tieneFirma = true
+}
+
+function terminar(e) {
+  if (!dibujando) return
+  dibujando = false
+  try { canvas.value?.releasePointerCapture?.(e?.pointerId) } catch {}
+}
+
+function limpiar() {
+  if (!ctx || !canvas.value) return
+  const c = canvas.value
+  ctx.save()
+  ctx.setTransform(1, 0, 0, 1, 0, 0)
+  ctx.clearRect(0, 0, c.width, c.height)
+  ctx.restore()
+  configurarContexto()
+  tieneFirma = false
+}
+
+function canvasTieneTrazos() {
+  const c = canvas.value
+  if (!c) return false
+  const contexto = c.getContext('2d', { willReadFrequently: true })
+  const data = contexto.getImageData(0, 0, c.width, c.height).data
+
+  // Un trazo real debe contener una cantidad mínima de píxeles visibles.
+  let visibles = 0
+  for (let i = 3; i < data.length; i += 4) {
+    if (data[i] > 20 && ++visibles >= 20) return true
+  }
+  return false
+}
 
 async function firmar() {
   if (!nombre.value.trim()) return alert('Escribe tu nombre completo.')
-  if (!tieneFirma) return alert('Firma dentro del recuadro para continuar.')
+  if (!tieneFirma || !canvasTieneTrazos()) {
+    tieneFirma = false
+    return alert('La firma está vacía. Firma nuevamente dentro del recuadro para continuar.')
+  }
   if (!acepto.value) return alert('Debes aceptar las condiciones de garantía.')
   enviando.value = true
   const firma = canvas.value.toDataURL('image/png')
@@ -89,7 +184,7 @@ onBeforeUnmount(() => window.removeEventListener('resize', prepararCanvas))
       <section class="detail-card"><div class="detail-icon">🛠️</div><div><small>Servicio realizado</small><strong>{{ solicitud.servicio }}</strong><span class="done">Completado</span></div></section>
       <section class="detail-card"><div class="detail-icon">🛡️</div><div><small>Vigencia de garantía</small><strong>{{ solicitud.dias_garantia }} días</strong><span>Del {{ fecha(solicitud.fecha_emision) }} al {{ fecha(vence(solicitud)) }}.</span></div></section>
       <section class="terms-card"><h2>📄 Condiciones de garantía</h2><ol><li v-for="(c,i) in condiciones" :key="i">{{ c }}</li></ol><div class="notice">ⓘ Al firmar, confirmas que has leído y aceptas las condiciones de garantía de TechSoul.</div></section>
-      <section class="signature-card"><h2>✍️ Firma del cliente</h2><p>Por favor, firma en el recuadro con tu dedo.</p><canvas ref="canvas" @mousedown="iniciar" @mousemove="mover" @mouseup="terminar" @mouseleave="terminar" @touchstart="iniciar" @touchmove="mover" @touchend="terminar"></canvas><button class="clear" @click="limpiar">↻ Limpiar firma</button>
+      <section class="signature-card"><h2>✍️ Firma del cliente</h2><p>Por favor, firma en el recuadro con tu dedo.</p><canvas ref="canvas" @pointerdown="iniciar" @pointermove="mover" @pointerup="terminar" @pointercancel="terminar" @pointerleave="terminar"></canvas><button class="clear" @click="limpiar">↻ Limpiar firma</button>
         <label>Nombre completo<input v-model="nombre" autocomplete="name"></label>
         <label>Correo <em>(opcional)</em><input v-model="correo" type="email" autocomplete="email"></label>
         <label>Teléfono <em>(opcional)</em><input v-model="telefono" type="tel" autocomplete="tel"></label>

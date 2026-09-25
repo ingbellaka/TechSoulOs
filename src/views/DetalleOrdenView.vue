@@ -14,6 +14,36 @@ const garantia = ref(null)
 const movimientos = ref([])
 const ticketActual = ref(null)
 const firmas = ref([])
+const firmaGarantiaRemota = ref(null)
+const errorImagenFirma = ref(false)
+
+function normalizarFirmaDataUrl(valor) {
+  if (!valor) return ''
+  let firma = String(valor).trim()
+
+  // Corrige valores que pudieron llegar con comillas o espacios/saltos de línea.
+  if ((firma.startsWith('"') && firma.endsWith('"')) || (firma.startsWith("'") && firma.endsWith("'"))) {
+    firma = firma.slice(1, -1)
+  }
+  firma = firma.replace(/\r|\n/g, '').replace(/\s+/g, '')
+
+  // La firma pública se guarda como PNG base64.
+  if (firma.startsWith('data:image/')) return firma
+  if (/^[A-Za-z0-9+/=]+$/.test(firma)) return `data:image/png;base64,${firma}`
+  return firma
+}
+
+const firmaGarantiaSrc = computed(() =>
+  normalizarFirmaDataUrl(firmaGarantiaRemota.value?.firma_data_url)
+)
+
+function onErrorFirmaGarantia() {
+  errorImagenFirma.value = true
+}
+
+function onLoadFirmaGarantia() {
+  errorImagenFirma.value = false
+}
 const historial = ref([])
 const seccionActiva = ref('resumen')
 const negocio = ref({ nombre_negocio: 'TechSoul', cuota_almacenamiento_dia: 50, dias_gracia_almacenamiento: 30 })
@@ -103,12 +133,13 @@ async function cargarDetalle() {
   orden.value = dataOrden
   nombreFirmante.value = dataOrden.clientes?.nombre || ''
 
-  const [{ data: fotos }, { data: checks }, { data: garantias }, { data: movs }, { data: dataFirmas }, historialResult, { data: dataNegocio }] = await Promise.all([
+  const [{ data: fotos }, { data: checks }, { data: garantias }, { data: movs }, { data: dataFirmas }, firmaRemotaResult, historialResult, { data: dataNegocio }] = await Promise.all([
     supabase.from('evidencias').select('*').eq('orden_id', id).order('id', { ascending: false }),
     supabase.from('checklist_orden').select('*').eq('orden_id', id).order('id'),
     supabase.from('garantias').select('*').eq('orden_id', id).order('id', { ascending: false }),
     supabase.from('movimientos_caja').select('*').eq('referencia_tipo', 'orden').eq('referencia_id', id).order('id', { ascending: false }),
     supabase.from('firmas_orden').select('*').eq('orden_id', id).order('id', { ascending: false }),
+    supabase.from('garantia_firmas_remotas').select('*').eq('orden_id', id).eq('acepto_condiciones', true).not('firmado_en', 'is', null).not('firma_data_url', 'is', null).order('firmado_en', { ascending: false }).limit(1).maybeSingle(),
     supabase.from('orden_historial').select('*').eq('orden_id', id).order('created_at', { ascending: false }),
     supabase.from('configuracion_negocio').select('*').order('id').limit(1).single()
   ])
@@ -118,6 +149,7 @@ async function cargarDetalle() {
   garantia.value = (garantias || [])[0] || null
   movimientos.value = movs || []
   firmas.value = dataFirmas || []
+  firmaGarantiaRemota.value = firmaRemotaResult.data || null
   historial.value = historialResult.data || []
   if (dataNegocio) negocio.value = dataNegocio
 
@@ -263,51 +295,320 @@ function escaparHtml(valor = '') {
     .replaceAll("'", '&#039;')
 }
 
-function filaChecklist() {
-  if (!checklist.value.length) return '<p class="muted">Sin checklist registrado.</p>'
-  return `<div class="check-grid">${checklist.value.map((item) => `
-    <div class="check-item">
-      <span>${escaparHtml(item.item)}</span>
-      <b>${escaparHtml(item.estado || 'Pendiente')}</b>
-      ${item.notas ? `<small>${escaparHtml(item.notas)}</small>` : ''}
-    </div>`).join('')}</div>`
+
+function valorPrimero(...valores) {
+  return valores.find((v) => v !== undefined && v !== null && String(v).trim() !== '') || ''
+}
+
+function estadoChecklistPdf(item) {
+  const estado = normalizarEstado(item?.estado)
+  if (estado === 'bien') return { icono: '✓', texto: 'Correcto', clase: 'ok' }
+  if (estado === 'falla') return { icono: '!', texto: item?.estado || 'Con falla', clase: 'bad' }
+  if (estado === 'no-aplica') return { icono: '–', texto: 'No aplica', clase: 'na' }
+  return { icono: '•', texto: item?.estado || 'Pendiente', clase: 'pending' }
+}
+
+function checklistPdfHtml() {
+  if (!checklist.value.length) return '<div class="empty-box">Sin checklist registrado.</div>'
+  const mitad = Math.ceil(checklist.value.length / 2)
+  const columnas = [checklist.value.slice(0, mitad), checklist.value.slice(mitad)]
+
+  return `<div class="check-columns">${columnas.map((columna) => `
+    <table class="compact-table check-table">
+      <thead><tr><th>Función</th><th>Estado</th></tr></thead>
+      <tbody>${columna.map((item) => {
+        const estado = estadoChecklistPdf(item)
+        return `<tr>
+          <td>${escaparHtml(item.item || 'Prueba')}</td>
+          <td><span class="check-state ${estado.clase}"><i>${estado.icono}</i>${escaparHtml(estado.texto)}</span>${item.notas ? `<small>${escaparHtml(item.notas)}</small>` : ''}</td>
+        </tr>`
+      }).join('')}</tbody>
+    </table>`).join('')}</div>`
+}
+
+function clasificarEvidenciasPdf() {
+  const grupos = {
+    recepcion: [],
+    proceso: [],
+    final: [],
+    otras: []
+  }
+
+  for (const foto of evidencias.value) {
+    const texto = `${foto.tipo || ''} ${foto.descripcion || ''}`.toLowerCase()
+    if (['recepcion', 'recepción', 'ingreso', 'antes'].some((k) => texto.includes(k))) grupos.recepcion.push(foto)
+    else if (['proceso', 'reparacion', 'reparación', 'diagnostico', 'diagnóstico', 'desarm'].some((k) => texto.includes(k))) grupos.proceso.push(foto)
+    else if (['entrega', 'final', 'resultado', 'despues', 'después', 'salida'].some((k) => texto.includes(k))) grupos.final.push(foto)
+    else grupos.otras.push(foto)
+  }
+
+  // Si las evidencias antiguas no tienen categoría, las distribuimos visualmente sin modificar la BD.
+  if (!grupos.recepcion.length && grupos.otras.length) grupos.recepcion.push(...grupos.otras.splice(0, Math.min(3, grupos.otras.length)))
+  if (!grupos.proceso.length && grupos.otras.length > 3) grupos.proceso.push(...grupos.otras.splice(0, Math.min(3, grupos.otras.length)))
+  if (!grupos.final.length && grupos.otras.length) grupos.final.push(...grupos.otras.splice(-Math.min(3, grupos.otras.length)))
+
+  return grupos
+}
+
+function evidenciaGrupoHtml(titulo, fotos, numeroRef) {
+  if (!fotos.length) return ''
+  return `
+    <section class="evidence-group">
+      <div class="evidence-band">${escaparHtml(titulo)}</div>
+      <div class="photo-grid">
+        ${fotos.slice(0, 9).map((foto) => `
+          <figure>
+            <img src="${escaparHtml(foto.url_imagen || '')}" alt="${escaparHtml(foto.descripcion || foto.tipo || 'Evidencia')}">
+            <figcaption>${numeroRef.valor++}. ${escaparHtml(foto.descripcion || foto.tipo || 'Evidencia')}</figcaption>
+          </figure>`).join('')}
+      </div>
+    </section>`
+}
+
+function fechaCortaPdf(valor) {
+  if (!valor) return 'No registrada'
+  return new Date(valor).toLocaleString('es-MX', { dateStyle: 'medium', timeStyle: 'short' })
 }
 
 function generarPdfOrden() {
   if (!orden.value) return
+
   const o = orden.value
   const cliente = o.clientes || {}
   const equipo = o.equipos || {}
-  const firma = firmas.value[0]
+  const firma = firmaGarantiaRemota.value || firmas.value[0] || null
+  const grupos = clasificarEvidenciasPdf()
+  const fotoEquipo = grupos.recepcion[0]?.url_imagen || evidencias.value[0]?.url_imagen || ''
+  const pagado = Number(o.anticipo || 0)
+  const total = Number(o.costo_total || 0)
+  const saldo = Math.max(0, total - pagado)
+  const servicio = valorPrimero(o.servicio, o.tipo_servicio, garantia.value?.tipo_servicio, o.falla_reportada, 'Servicio técnico')
+  const descripcionServicio = valorPrimero(o.trabajo_realizado, o.diagnostico, o.falla_reportada, 'Pendiente de descripción')
+  const garantiaDias = Number(garantia.value?.dias_garantia || 0)
+  const folioGarantia = valorPrimero(firmaGarantiaRemota.value?.folio_garantia, garantia.value?.folio, garantia.value?.id ? `GAR-${String(garantia.value.id).padStart(4, '0')}` : '')
+  const fechaEntrega = valorPrimero(o.fecha_entrega, o.entregado_en, o.fecha_listo)
+  const responsable = valorPrimero(negocio.value?.responsable_nombre, o.tecnico, 'TechSoul')
+  const firmaResponsable = valorPrimero(negocio.value?.firma_url)
+  const tokenSeguimiento = valorPrimero(o.token_publico, o.token_seguimiento, o.public_token)
+  const seguimientoUrl = tokenSeguimiento ? `${window.location.origin}/seguimiento/${encodeURIComponent(tokenSeguimiento)}` : ''
+  const qrUrl = seguimientoUrl ? `https://api.qrserver.com/v1/create-qr-code/?size=220x220&margin=0&data=${encodeURIComponent(seguimientoUrl)}` : ''
+  const numeroRef = { valor: 1 }
+
   const popup = window.open('', '_blank')
   if (!popup) {
     alert('El navegador bloqueó la ventana del PDF. Permite ventanas emergentes para TechSoul e inténtalo otra vez.')
     return
   }
 
+  const header = (pagina) => `
+    <header class="pdf-header">
+      <div class="brand-lockup">
+        <div class="brand-name">TechSoul</div>
+        <div class="brand-sub">Servicio Técnico Especializado</div>
+      </div>
+      <div class="order-lockup">
+        <b>ORDEN DE SERVICIO</b>
+        <strong>${escaparHtml(o.folio || o.id)}</strong>
+      </div>
+    </header>`
+
+  const footer = (pagina) => `
+    <footer class="pdf-footer">
+      <div class="trust"><span>◉ Local establecido</span><span>◷ ${garantiaDias || 3} ${garantiaDias === 1 ? 'día' : garantiaDias ? 'días de garantía' : 'meses de garantía'}</span><span>◉ Atención rápida</span><span>◈ Calidad premium</span></div>
+      <div class="footer-bottom"><span>⌖ TechSoul &nbsp; | &nbsp; ${escaparHtml(negocio.value?.direccion || 'Blvd. Jardín de las Orquídeas 2584-B, Santa Fe, Culiacán')}</span><b>Pág. ${pagina} de 4</b></div>
+    </footer>`
+
   const html = `<!doctype html>
-  <html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Orden-${escaparHtml(o.folio || o.id)}</title>
-  <style>
-    @page{size:A4;margin:12mm}*{box-sizing:border-box}body{font-family:Arial,Helvetica,sans-serif;color:#172033;margin:0;background:#fff;font-size:11px;line-height:1.45}.sheet{max-width:186mm;margin:0 auto}.header{display:flex;justify-content:space-between;gap:20px;border-bottom:3px solid #2563eb;padding-bottom:14px;margin-bottom:14px}.brand h1{font-size:24px;margin:0;color:#101828}.brand p{margin:3px 0;color:#667085}.folio{text-align:right}.folio span{display:block;color:#667085;text-transform:uppercase;letter-spacing:.08em;font-size:9px}.folio strong{display:block;font-size:20px;color:#2563eb;margin:2px 0}.status{display:inline-block;border-radius:999px;background:#eef4ff;color:#1849a9;padding:4px 9px;font-weight:700}.grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px}.card{border:1px solid #dfe5ee;border-radius:9px;padding:11px;break-inside:avoid}.card h2{font-size:11px;text-transform:uppercase;letter-spacing:.07em;color:#475467;margin:0 0 8px}.row{display:grid;grid-template-columns:95px 1fr;gap:8px;margin:4px 0}.row span{color:#667085}.row b{font-weight:600;overflow-wrap:anywhere}.wide{grid-column:1/-1}.text-block{min-height:42px;border-radius:7px;background:#f8fafc;padding:9px;white-space:pre-wrap}.totals{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.total{background:#f8fafc;border-radius:8px;padding:9px}.total span{display:block;color:#667085;font-size:9px;text-transform:uppercase}.total b{display:block;font-size:15px;margin-top:2px}.total.balance b{color:#b42318}.check-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px}.check-item{border-bottom:1px solid #edf0f4;padding:5px 0;display:grid;grid-template-columns:1fr auto;gap:4px}.check-item b{font-size:9px;color:#344054}.check-item small{grid-column:1/-1;color:#667085}.signature{height:72px;display:flex;align-items:flex-end;justify-content:center}.signature img{max-height:58px;max-width:220px}.signature-line{border-top:1px solid #667085;padding-top:5px;text-align:center;color:#475467}.conditions{margin-top:12px;border-top:1px solid #dfe5ee;padding-top:9px;color:#667085;font-size:9px}.muted{color:#98a2b3}.footer{margin-top:10px;text-align:center;color:#98a2b3;font-size:9px}@media print{.no-print{display:none!important}body{-webkit-print-color-adjust:exact;print-color-adjust:exact}}
-  </style></head><body><main class="sheet">
-    <header class="header"><div class="brand"><h1>${escaparHtml(negocio.value.nombre_negocio || 'TechSoul')}</h1><p>Especialistas en celulares</p><p>${escaparHtml(negocio.value.direccion || '')}</p><p>${escaparHtml(negocio.value.telefono || '')}</p></div><div class="folio"><span>Orden de servicio</span><strong>${escaparHtml(o.folio || o.id)}</strong><span class="status">${escaparHtml(o.estado || 'Recibido')}</span><p>${escaparHtml(fecha(o.fecha_ingreso))}</p></div></header>
-    <section class="grid">
-      <article class="card"><h2>Cliente</h2><div class="row"><span>Nombre</span><b>${escaparHtml(cliente.nombre || 'No registrado')}</b></div><div class="row"><span>Teléfono</span><b>${escaparHtml(cliente.telefono || cliente.whatsapp || 'No registrado')}</b></div><div class="row"><span>Correo</span><b>${escaparHtml(cliente.correo || 'No registrado')}</b></div></article>
-      <article class="card"><h2>Equipo</h2><div class="row"><span>Equipo</span><b>${escaparHtml([equipo.marca,equipo.modelo].filter(Boolean).join(' ') || 'No registrado')}</b></div><div class="row"><span>Tipo / color</span><b>${escaparHtml([equipo.tipo_equipo,equipo.color].filter(Boolean).join(' · ') || 'No registrado')}</b></div><div class="row"><span>IMEI / Serie</span><b>${escaparHtml(equipo.imei_serie || 'No registrado')}</b></div><div class="row"><span>Accesorios</span><b>${escaparHtml(o.accesorios || equipo.accesorios || 'Ninguno registrado')}</b></div></article>
-      <article class="card wide"><h2>Falla reportada</h2><div class="text-block">${escaparHtml(o.falla_reportada || 'Sin información')}</div></article>
-      <article class="card"><h2>Diagnóstico</h2><div class="text-block">${escaparHtml(o.diagnostico || 'Pendiente')}</div></article>
-      <article class="card"><h2>Trabajo realizado</h2><div class="text-block">${escaparHtml(o.trabajo_realizado || 'Pendiente')}</div></article>
-      <article class="card wide"><h2>Checklist de recepción</h2>${filaChecklist()}</article>
-      <article class="card wide"><h2>Resumen financiero</h2><div class="totals"><div class="total"><span>Total</span><b>${escaparHtml(moneda(o.costo_total))}</b></div><div class="total"><span>Anticipo / pagado</span><b>${escaparHtml(moneda(o.anticipo))}</b></div><div class="total balance"><span>Saldo pendiente</span><b>${escaparHtml(moneda(Math.max(0, Number(o.costo_total || 0) - Number(o.anticipo || 0))))}</b></div></div>${cargoAlmacenamiento.value > 0 ? `<p style="margin-top:8px;color:#b42318"><b>Cargo por almacenamiento:</b> ${escaparHtml(moneda(cargoAlmacenamiento.value))} (${diasConCargo.value} día${diasConCargo.value === 1 ? '' : 's'} después del periodo de gracia). No incluido en el saldo mostrado arriba; se agrega al momento de pagar y recoger el equipo.</p>` : ''}</article>
-      ${garantia.value ? `<article class="card wide"><h2>Garantía</h2><div class="row"><span>Servicio</span><b>${escaparHtml(garantia.value.tipo_servicio || 'Servicio registrado')}</b></div><div class="row"><span>Vigencia</span><b>${escaparHtml(garantia.value.dias_garantia || 0)} días, a partir de que se notifica que el equipo está listo</b></div><div class="row"><span>Condiciones</span><b>${escaparHtml(garantia.value.condiciones || 'Sin condiciones adicionales')}</b></div></article>` : ''}
-      <article class="card"><h2>Firma de recepción / conformidad</h2><div class="signature">${firma?.firma_base64 ? `<img src="${firma.firma_base64}" alt="Firma">` : ''}</div><div class="signature-line">${escaparHtml(firma?.nombre_firmante || cliente.nombre || 'Nombre y firma del cliente')}</div></article>
-      <article class="card"><h2>Responsable</h2><div class="signature">${negocio.value?.firma_url ? `<img src="${escaparHtml(negocio.value.firma_url)}" alt="Firma del responsable">` : ''}</div><div class="signature-line">${escaparHtml(negocio.value?.responsable_nombre || o.tecnico || 'Técnico / recepción')}</div></article>
-    </section>
-    <p class="conditions"><b>Condiciones del servicio:</b> (1) La garantía cubre exclusivamente el trabajo o la pieza indicada arriba y no cubre golpes, humedad, mal uso, manipulación por terceros ni fallas ajenas al trabajo realizado. (2) La vigencia de la garantía comienza a partir de la fecha en que se notifica al cliente que el equipo está listo para recoger, no desde el ingreso del equipo. (3) Equipos no recogidos después de ${escaparHtml(diasGraciaAlmacenamiento.value)} días de esa notificación generarán una cuota de almacenamiento de ${escaparHtml(moneda(Number(negocio.value?.cuota_almacenamiento_dia || 0)))} por día adicional. (4) La entrega del equipo está sujeta a que el saldo se encuentre completamente liquidado. Al firmar, el cliente declara haber leído y aceptado estas condiciones.</p>
-    <p class="footer">Documento generado por TechSoul OS · ${escaparHtml(new Date().toLocaleString('es-MX'))}</p>
-    <div class="no-print" style="position:fixed;right:18px;bottom:18px"><button onclick="window.print()" style="border:0;border-radius:9px;background:#2563eb;color:white;padding:11px 16px;font-weight:700;cursor:pointer">Guardar como PDF / Imprimir</button></div>
-  </main><script>setTimeout(()=>window.print(),350)<\/script></body></html>`
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Orden-${escaparHtml(o.folio || o.id)}</title>
+<style>
+@page{size:A4;margin:0}
+*{box-sizing:border-box}
+:root{--blue:#0B43FF;--navy:#09275f;--ink:#13233f;--muted:#60708b;--line:#cfdced;--soft:#eef5ff;--green:#19a866;--red:#d92d20}
+html,body{margin:0;padding:0;background:#d9dde4;font-family:Arial,Helvetica,sans-serif;color:var(--ink);font-size:10.2px;line-height:1.32}
+.page{width:210mm;height:297mm;margin:0 auto 7mm;background:white;padding:9mm 10mm 8mm;position:relative;overflow:hidden;page-break-after:always}
+.page:last-of-type{page-break-after:auto}
+.pdf-header{height:25mm;display:flex;justify-content:space-between;align-items:flex-start;border-bottom:1px solid #dbe5f2;padding-bottom:3mm;margin-bottom:3mm}
+.brand-name{font-size:31px;line-height:.95;font-weight:950;letter-spacing:-1.8px;color:#0b2b66}.brand-sub{font-size:9px;margin-top:3px;color:#243b63}
+.order-lockup{text-align:right}.order-lockup>b{display:block;color:#0b2b66;font-size:9px}.order-lockup>strong{display:inline-block;margin-top:4px;background:var(--blue);color:white;border-radius:6px;padding:5px 10px;font-size:11px;box-shadow:0 3px 7px rgba(11,67,255,.18)}
+.intro-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:3mm}.meta-box{display:flex;gap:7px;align-items:center;border:1px solid var(--line);border-radius:7px;padding:7px 9px}.meta-box i{font-style:normal;color:#0b2b66;font-size:15px}.meta-box small{display:block;color:var(--muted);font-size:7.5px}.meta-box b{font-size:9px}
+.section{margin:0 0 3.2mm}.section-title{height:8mm;display:flex;align-items:center;background:linear-gradient(90deg,var(--blue) 0 39%,#edf4fc 39%);border-radius:4px;color:white;font-size:9px;font-weight:900;letter-spacing:.025em;padding:0 7px;text-transform:uppercase}.section-title.short{background:linear-gradient(90deg,var(--blue) 0 28%,#edf4fc 28%)}.section-title.tiny{background:linear-gradient(90deg,var(--blue) 0 23%,#edf4fc 23%)}
+.info-card{border:1px solid var(--line);border-radius:7px;overflow:hidden}.client-grid{display:grid;grid-template-columns:1fr 1fr 1.35fr}.client-cell{padding:7px 10px;border-right:1px solid var(--line)}.client-cell:last-child{border-right:0}.client-cell small{display:block;color:var(--muted);font-size:7.5px}.client-cell b{display:block;margin-top:1px;font-size:9px;overflow-wrap:anywhere}
+.device-grid{display:grid;grid-template-columns:31% 69%;min-height:44mm}.device-photo{display:flex;align-items:center;justify-content:center;border-right:1px solid var(--line);background:#fbfdff}.device-photo img{width:88%;height:39mm;object-fit:contain}.device-placeholder{font-size:9px;color:#98a2b3;text-align:center}.data-table,.compact-table{width:100%;border-collapse:collapse}.data-table th,.data-table td,.compact-table th,.compact-table td{border-bottom:1px solid var(--line);padding:5px 8px;text-align:left}.data-table tr:last-child th,.data-table tr:last-child td,.compact-table tr:last-child td{border-bottom:0}.data-table th{width:35%;font-weight:500;color:#344765}.data-table td{font-weight:750}.service-table th,.service-table td{padding:6px 8px;border-right:1px solid var(--line)}.service-table th:last-child,.service-table td:last-child{border-right:0}.service-table thead{background:#edf4fc}.service-table th{font-size:8px}.service-table td:last-child,.service-table th:last-child{text-align:right;width:21%;font-weight:800}
+.status-grid{display:grid;grid-template-columns:1fr 1fr;border:1px solid var(--line);border-radius:7px;padding:6px 9px;gap:0 16px}.status-item{display:grid;grid-template-columns:1fr auto;gap:5px;padding:4px 0;border-bottom:1px solid #edf1f6}.status-item:nth-last-child(-n+2){border-bottom:0}.status-item span{font-weight:650}.status-item b{font-size:8px}.status-item .ok{color:var(--green)}.status-item .bad{color:var(--red)}
+.text-box{border:1px solid var(--line);border-radius:7px;padding:8px 10px;min-height:13mm;white-space:pre-wrap}
+.pdf-footer{position:absolute;left:10mm;right:10mm;bottom:6mm;border-top:1px solid #dbe5f2;padding-top:3px;color:#173763}.trust{display:flex;justify-content:space-between;gap:6px;font-size:7px}.footer-bottom{display:flex;justify-content:space-between;margin-top:4px;font-size:7px}.footer-bottom b{color:#344765}
+.check-columns{display:grid;grid-template-columns:1fr 1fr;gap:8px}.compact-table{border:1px solid var(--line);border-radius:6px;overflow:hidden}.compact-table thead{background:#eaf2fb}.compact-table th{font-size:8px;text-align:center}.check-table td:first-child{width:58%}.check-state{display:flex;align-items:center;justify-content:center;gap:5px;font-size:8px}.check-state i{display:inline-grid;place-items:center;width:12px;height:12px;border-radius:50%;font-style:normal;font-size:8px;color:white}.check-state.ok i{background:var(--green)}.check-state.bad i{background:var(--red)}.check-state.na i,.check-state.pending i{background:#98a2b3}.check-state.bad{color:var(--red)}.check-table small{display:block;color:#667085;font-size:6.5px;text-align:center;margin-top:2px}
+.finance-table td:first-child{font-weight:650}.finance-table td:last-child{text-align:right;font-weight:800}.finance-table tr.total-row{background:#edf4fc;color:#0b2b66;font-size:10px}.finance-table tr.total-row td{font-weight:900}
+.warranty-table th{width:31%;font-weight:750}.warranty-table td{font-weight:500}
+.signature-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}.signature-card{height:50mm;border:1px solid var(--line);border-radius:7px;padding:8px 10px;display:flex;flex-direction:column}.signature-card h3{margin:0;font-size:8px;color:#344765;text-transform:uppercase}.signature-area{flex:1;display:flex;align-items:flex-end;justify-content:center;padding:5px}.signature-area img{max-width:85%;max-height:26mm;object-fit:contain}.signature-line{border-top:1px solid #536781;text-align:center;padding-top:4px;font-size:7.5px}.signature-pending{color:#98a2b3;font-size:8px;align-self:center;margin:auto}
+.evidence-band{height:7mm;background:linear-gradient(90deg,#eaf2fb 0 100%);border-left:5px solid var(--blue);border-radius:4px;padding:5px 7px;color:#0b2b66;font-weight:900;font-size:9px;margin-bottom:3mm}.evidence-group{margin-bottom:4mm}.photo-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.photo-grid figure{margin:0}.photo-grid img{width:100%;height:46mm;object-fit:cover;border-radius:5px;border:1px solid #cdd8e6;background:#f5f7fa}.photo-grid figcaption{font-size:7.5px;margin-top:3px;color:#263c5e}.empty-evidence{height:165mm;border:1px dashed #cbd5e1;border-radius:8px;display:grid;place-items:center;color:#94a3b8}
+.conditions-box{border:1px solid var(--line);border-radius:8px;padding:10px 12px}.conditions-box ol{margin:0;padding-left:18px}.conditions-box li{margin:0 0 7px}.qr-panel{width:145mm;margin:12mm auto 0;background:linear-gradient(135deg,#f1f7ff,#e4f0ff);border-radius:12px;min-height:62mm;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:8mm}.qr-panel img{width:32mm;height:32mm;background:white;padding:3px}.qr-panel h3{font-size:13px;color:#0b2b66;margin:5px 0 2px}.qr-panel p{font-size:8px;color:#445b7a;margin:0;max-width:85mm}.folio-qr-fallback{width:32mm;height:32mm;background:white;border:2px solid #0b2b66;display:grid;place-items:center;padding:4px;font-weight:900;color:#0b2b66;text-align:center}.closing-brand{text-align:center;margin-top:13mm}.closing-brand .brand-name{font-size:34px}.closing-brand .brand-sub{font-size:10px}
+.page1 .section{margin-bottom:2.6mm}.page1 .pdf-header{margin-bottom:2.4mm}.page1 .section-title{height:7mm}.page1 .device-grid{min-height:39mm}.page1 .device-photo img{height:34mm}.page1 .text-box{min-height:11mm}
+.no-print-toolbar{position:fixed;left:14px;right:14px;bottom:14px;display:flex;gap:8px;z-index:9999}.no-print-toolbar button{border-radius:10px;padding:12px 14px;font-weight:800;cursor:pointer}.back-btn{flex:1;border:1px solid #d0d5dd;background:white;color:#344054}.print-btn{flex:2;border:0;background:var(--blue);color:white}
+@media print{html,body{background:white}.page{margin:0;box-shadow:none}.no-print-toolbar{display:none!important}*{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important}}
+@media screen and (max-width:760px){body{background:white}.page{width:210mm;transform-origin:top left;margin:0 0 10px}.no-print-toolbar{left:8px;right:8px;bottom:8px}}
+</style>
+</head>
+<body>
+
+<section class="page page1">
+${header(1)}
+<div class="intro-grid">
+  <div><b>Fecha de ingreso:</b> ${escaparHtml(fechaCortaPdf(o.fecha_ingreso))}</div>
+  <div><b>Fecha de entrega:</b> ${escaparHtml(fechaCortaPdf(fechaEntrega))}</div>
+</div>
+
+<div class="section">
+  <div class="section-title short">1. DATOS DEL CLIENTE</div>
+  <div class="info-card client-grid">
+    <div class="client-cell"><small>Nombre</small><b>${escaparHtml(cliente.nombre || 'No registrado')}</b></div>
+    <div class="client-cell"><small>Teléfono</small><b>${escaparHtml(cliente.telefono || cliente.whatsapp || 'No registrado')}</b></div>
+    <div class="client-cell"><small>Correo</small><b>${escaparHtml(cliente.correo || cliente.email || 'No registrado')}</b></div>
+  </div>
+</div>
+
+<div class="section">
+  <div class="section-title short">2. DATOS DEL EQUIPO</div>
+  <div class="info-card device-grid">
+    <div class="device-photo">${fotoEquipo ? `<img src="${escaparHtml(fotoEquipo)}" alt="Equipo">` : '<div class="device-placeholder">Sin fotografía<br>del equipo</div>'}</div>
+    <table class="data-table"><tbody>
+      <tr><th>Modelo</th><td>${escaparHtml([equipo.marca, equipo.modelo].filter(Boolean).join(' ') || 'No registrado')}</td></tr>
+      <tr><th>Color</th><td>${escaparHtml(equipo.color || 'No registrado')}</td></tr>
+      <tr><th>Capacidad</th><td>${escaparHtml(valorPrimero(equipo.capacidad, equipo.almacenamiento, 'No registrado'))}</td></tr>
+      <tr><th>IMEI / Serie</th><td>${escaparHtml(valorPrimero(equipo.imei_serie, equipo.imei, equipo.numero_serie, 'No registrado'))}</td></tr>
+      <tr><th>Accesorios</th><td>${escaparHtml(valorPrimero(o.accesorios, equipo.accesorios, 'Sin accesorios registrados'))}</td></tr>
+    </tbody></table>
+  </div>
+</div>
+
+<div class="section">
+  <div class="section-title short">3. SERVICIO(S) REALIZADO(S)</div>
+  <div class="info-card"><table class="data-table service-table"><thead><tr><th>Servicio</th><th>Descripción</th><th>Precio</th></tr></thead><tbody>
+    <tr><td>${escaparHtml(servicio)}</td><td>${escaparHtml(descripcionServicio)}</td><td>${escaparHtml(moneda(total))}</td></tr>
+  </tbody></table></div>
+</div>
+
+<div class="section">
+  <div class="section-title">4. ESTADO GENERAL DEL EQUIPO AL INGRESO</div>
+  ${checklist.value.length ? `<div class="status-grid">${checklist.value.slice(0, 10).map((item) => {
+    const e = estadoChecklistPdf(item)
+    return `<div class="status-item"><span>${escaparHtml(item.item || 'Prueba')}</span><b class="${e.clase}">${escaparHtml(e.texto)}</b></div>`
+  }).join('')}</div>` : '<div class="text-box">Sin checklist de recepción registrado.</div>'}
+</div>
+
+<div class="section">
+  <div class="section-title tiny">5. DIAGNÓSTICO</div>
+  <div class="text-box">${escaparHtml(o.diagnostico || o.falla_reportada || 'Pendiente')}</div>
+</div>
+
+<div class="section">
+  <div class="section-title tiny">6. OBSERVACIONES</div>
+  <div class="text-box">${escaparHtml(valorPrimero(o.observaciones, o.notas, o.accesorios ? `Accesorios recibidos: ${o.accesorios}` : '', 'Sin observaciones adicionales'))}</div>
+</div>
+${footer(1)}
+</section>
+
+<section class="page">
+${header(2)}
+<div class="section">
+  <div class="section-title">7. CHECKLIST DE FUNCIONAMIENTO (ENTREGA)</div>
+  ${checklistPdfHtml()}
+</div>
+
+<div class="section">
+  <div class="section-title tiny">8. FINANZAS</div>
+  <div class="info-card"><table class="data-table finance-table"><tbody>
+    <tr><td>Concepto</td><td>Monto</td></tr>
+    <tr><td>${escaparHtml(servicio)}</td><td>${escaparHtml(moneda(total))}</td></tr>
+    <tr><td>Pagado / anticipo</td><td>${escaparHtml(moneda(pagado))}</td></tr>
+    <tr><td>Saldo pendiente</td><td>${escaparHtml(moneda(saldo))}</td></tr>
+    ${cargoAlmacenamiento.value > 0 ? `<tr><td>Almacenamiento</td><td>${escaparHtml(moneda(cargoAlmacenamiento.value))}</td></tr>` : ''}
+    <tr class="total-row"><td>Total</td><td>${escaparHtml(moneda(total + cargoAlmacenamiento.value))}</td></tr>
+  </tbody></table></div>
+</div>
+
+<div class="section">
+  <div class="section-title tiny">9. GARANTÍA</div>
+  <div class="info-card"><table class="data-table warranty-table"><tbody>
+    <tr><th>Folio de garantía</th><td>${escaparHtml(folioGarantia || 'Pendiente')}</td></tr>
+    <tr><th>Duración</th><td>${garantiaDias ? `${garantiaDias} días` : 'No especificada'}</td></tr>
+    <tr><th>Cobertura</th><td>${escaparHtml(valorPrimero(garantia.value?.condiciones, 'Trabajo o pieza indicada en esta orden'))}</td></tr>
+    <tr><th>No cubre</th><td>Golpes, humedad, mal uso, manipulación por terceros o fallas ajenas al trabajo realizado.</td></tr>
+  </tbody></table></div>
+</div>
+
+<div class="section">
+  <div class="section-title tiny">10. FIRMAS</div>
+  <div class="signature-grid">
+    <div class="signature-card">
+      <h3>Firma digital de garantía</h3>
+      <div class="signature-area">${firma && (firma.firma_data_url || firma.firma_base64) ? `<img src="${firma.firma_data_url || firma.firma_base64}" alt="Firma digital">` : '<span class="signature-pending">Firma digital pendiente</span>'}</div>
+      <div class="signature-line">${escaparHtml(valorPrimero(firma?.firmante_nombre, firma?.nombre_firmante, cliente.nombre, 'Cliente'))}</div>
+    </div>
+    <div class="signature-card">
+      <h3>Responsable / recibió el equipo</h3>
+      <div class="signature-area">${firmaResponsable ? `<img src="${escaparHtml(firmaResponsable)}" alt="Firma responsable">` : '<span class="signature-pending">Registro TechSoul</span>'}</div>
+      <div class="signature-line">${escaparHtml(responsable)}</div>
+    </div>
+  </div>
+</div>
+${footer(2)}
+</section>
+
+<section class="page">
+${header(3)}
+<div class="section">
+  <div class="section-title short">11. EVIDENCIAS DEL EQUIPO</div>
+</div>
+${evidencias.value.length ? `
+  ${evidenciaGrupoHtml('RECEPCIÓN', grupos.recepcion, numeroRef)}
+  ${evidenciaGrupoHtml('PROCESO', grupos.proceso, numeroRef)}
+  ${evidenciaGrupoHtml('RESULTADO FINAL', grupos.final, numeroRef)}
+  ${evidenciaGrupoHtml('OTRAS EVIDENCIAS', grupos.otras, numeroRef)}
+` : '<div class="empty-evidence">Esta orden todavía no tiene evidencias fotográficas.</div>'}
+${footer(3)}
+</section>
+
+<section class="page">
+${header(4)}
+<div class="section">
+  <div class="section-title short">12. CONDICIONES DEL SERVICIO</div>
+  <div class="conditions-box">
+    <ol>
+      <li>La garantía cubre exclusivamente el trabajo o la pieza indicada en esta orden durante la vigencia registrada.</li>
+      <li>No cubre golpes, humedad, mal uso, manipulación por terceros ni fallas ajenas al trabajo realizado.</li>
+      <li>En caso de modificación o intervención por terceros, la garantía puede perder validez.</li>
+      <li>La vigencia de la garantía comienza a partir de la fecha en que se notifica al cliente que el equipo está listo para recoger.</li>
+      <li>Equipos no recogidos después de ${escaparHtml(diasGraciaAlmacenamiento.value)} días de esa notificación generarán una cuota de almacenamiento de ${escaparHtml(moneda(Number(negocio.value?.cuota_almacenamiento_dia || 0)))} por día adicional.</li>
+      <li>La entrega del equipo está sujeta a que el saldo se encuentre completamente liquidado.</li>
+      <li>La firma digital registrada en TechSoul OS representa la aceptación de las condiciones de servicio y garantía asociadas a esta orden.</li>
+    </ol>
+  </div>
+</div>
+
+<div class="qr-panel">
+  ${qrUrl ? `<img src="${qrUrl}" alt="QR de seguimiento">` : `<div class="folio-qr-fallback">${escaparHtml(o.folio || o.id)}</div>`}
+  <h3>${qrUrl ? 'Consulta el estatus de tu orden' : 'Referencia de tu orden'}</h3>
+  <p>${qrUrl ? 'Escanea este código para consultar la información pública disponible de tu equipo.' : 'El seguimiento público aparecerá aquí cuando la orden tenga un token público configurado.'}</p>
+</div>
+
+<div class="closing-brand">
+  <div class="brand-name">TechSoul</div>
+  <div class="brand-sub">Servicio Técnico Especializado</div>
+</div>
+${footer(4)}
+</section>
+
+<div class="no-print-toolbar">
+  <button class="back-btn" onclick="if(window.opener){window.close()}else{history.back()}">← Regresar</button>
+  <button class="print-btn" onclick="window.print()">Guardar como PDF / Imprimir</button>
+</div>
+</body></html>`
+
   popup.document.open()
   popup.document.write(html)
   popup.document.close()
@@ -426,7 +727,7 @@ onMounted(cargarDetalle)
             <div><dt>Ingreso</dt><dd>{{ fecha(orden.fecha_ingreso, false) }}</dd></div>
             <div><dt>Listo / notificado</dt><dd>{{ orden.fecha_listo ? fecha(orden.fecha_listo, false) : 'Aún no' }}</dd></div>
             <div><dt>Evidencias</dt><dd>{{ evidencias.length }}</dd></div>
-            <div><dt>Firmas</dt><dd>{{ firmas.length }}</dd></div>
+            <div><dt>Firma digital</dt><dd>{{ firmaGarantiaRemota?.firmado_en ? 'Firmada' : 'Pendiente' }}</dd></div>
           </dl>
         </article>
 
@@ -484,28 +785,24 @@ onMounted(cargarDetalle)
 
     <section v-else class="ts-signature-detail-layout">
       <article class="ts-detail-card">
-        <div class="ts-detail-card-heading"><div><span class="ts-detail-label">Aceptación del cliente</span><h2>Firma digital</h2><p>Registra la entrega, autorización o conformidad del cliente.</p></div></div>
-        <div style="background:#f8fafc;border:1px solid #dfe5ee;border-radius:9px;padding:12px;font-size:13px;line-height:1.5;color:#344054;margin-bottom:12px">
-          <strong>Condiciones del servicio</strong>
-          <ol style="margin:8px 0 0;padding-left:18px">
-            <li>La garantía no cubre golpes, humedad, mal uso ni manipulación por terceros.</li>
-            <li>La garantía comienza a contar desde que se notifica al cliente que el equipo está listo, no desde el ingreso.</li>
-            <li>Equipos no recogidos después de {{ diasGraciaAlmacenamiento }} días de esa notificación generan una cuota de almacenamiento de {{ moneda(Number(negocio?.cuota_almacenamiento_dia || 0)) }} por día.</li>
-            <li>La entrega del equipo requiere que el saldo esté completamente liquidado.</li>
-          </ol>
+        <div class="ts-detail-card-heading"><div><span class="ts-detail-label">Garantía digital</span><h2>Firma del cliente</h2><p>La firma realizada desde el enlace público de garantía aparece aquí automáticamente.</p></div></div>
+        <div v-if="firmaGarantiaRemota?.firmado_en" class="ts-remote-signature-card">
+          <div class="ts-remote-signature-status">✓ Garantía firmada</div>
+          <img v-if="firmaGarantiaRemota.firma_data_url" :src="firmaGarantiaSrc"
+                    @load="onLoadFirmaGarantia"
+                    @error="onErrorFirmaGarantia" alt="Firma digital del cliente">
+          <dl>
+            <div><dt>Firmó</dt><dd>{{ firmaGarantiaRemota.firmante_nombre || orden.clientes?.nombre }}</dd></div>
+            <div><dt>Fecha y hora</dt><dd>{{ fecha(firmaGarantiaRemota.firmado_en) }}</dd></div>
+            <div><dt>Folio de garantía</dt><dd>{{ firmaGarantiaRemota.folio_garantia }}</dd></div>
+            <div><dt>Aceptó condiciones</dt><dd>{{ firmaGarantiaRemota.acepto_condiciones ? 'Sí' : 'No' }}</dd></div>
+          </dl>
         </div>
-        <label class="ts-signature-name"><span>Nombre de quien firma</span><input v-model="nombreFirmante" placeholder="Nombre completo"></label>
-        <canvas ref="canvasFirma" class="ts-signature-canvas" @mousedown="iniciarFirma" @mousemove="dibujarFirma" @mouseup="terminarFirma" @mouseleave="terminarFirma" @touchstart="iniciarFirma" @touchmove="dibujarFirma" @touchend="terminarFirma"></canvas>
-        <label class="ts-toggle-row" style="display:flex;align-items:center;gap:8px;margin-top:10px">
-          <input v-model="aceptaCondiciones" type="checkbox">
-          <span>El cliente leyó y acepta las condiciones anteriores.</span>
-        </label>
-        <div class="ts-signature-actions"><button class="ts-action-secondary" type="button" @click="limpiarFirma">Limpiar</button><button class="ts-action-primary" type="button" :disabled="!aceptaCondiciones" @click="guardarFirma">Guardar firma</button></div>
+        <div v-else class="ts-empty-detail-state"><strong>Firma digital pendiente</strong><p>Cuando el cliente firme desde el enlace de WhatsApp o el QR del ticket, la firma aparecerá en esta orden.</p></div>
       </article>
-      <article class="ts-detail-card">
-        <div class="ts-detail-card-heading"><div><span class="ts-detail-label">Historial</span><h2>Firmas guardadas</h2></div></div>
-        <div v-if="firmas.length" class="ts-saved-signatures"><figure v-for="firma in firmas" :key="firma.id"><img :src="firma.firma_base64" alt="Firma guardada"><figcaption><strong>{{ firma.nombre_firmante }}</strong><small>{{ fecha(firma.fecha_firma) }}</small></figcaption></figure></div>
-        <div v-else class="ts-empty-detail-state"><strong>Sin firmas registradas</strong><p>La primera firma guardada aparecerá aquí.</p></div>
+      <article v-if="firmas.length" class="ts-detail-card">
+        <div class="ts-detail-card-heading"><div><span class="ts-detail-label">Historial anterior</span><h2>Firmas registradas manualmente</h2></div></div>
+        <div class="ts-saved-signatures"><figure v-for="firma in firmas" :key="firma.id"><img :src="firma.firma_base64" alt="Firma guardada"><figcaption><strong>{{ firma.nombre_firmante }}</strong><small>{{ fecha(firma.fecha_firma) }}</small></figcaption></figure></div>
       </article>
     </section>
 
@@ -570,4 +867,13 @@ onMounted(cargarDetalle)
   .ts-edit-order-action,
   .ts-order-detail-actions > :last-child{grid-column:1}
 }
+
+.ts-remote-signature-card{border:1px solid #b7e4c7;background:#f6fff8;border-radius:14px;padding:16px}
+.ts-remote-signature-status{display:inline-flex;align-items:center;border-radius:999px;background:#dcfce7;color:#166534;padding:6px 10px;font-weight:800;margin-bottom:14px}
+.ts-remote-signature-card>img{display:block;max-width:320px;width:100%;max-height:180px;object-fit:contain;background:white;border:1px solid #e5e7eb;border-radius:10px;margin:0 auto 14px}
+.ts-remote-signature-card dl{margin:0;display:grid;gap:8px}
+.ts-remote-signature-card dl>div{display:grid;grid-template-columns:150px 1fr;gap:10px;border-top:1px solid #dbeafe;padding-top:8px}
+.ts-remote-signature-card dt{color:#667085}.ts-remote-signature-card dd{margin:0;font-weight:700;color:#172033}
+@media(max-width:600px){.ts-remote-signature-card dl>div{grid-template-columns:1fr;gap:2px}}
+
 </style>

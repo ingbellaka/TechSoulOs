@@ -25,6 +25,74 @@ const guardandoEvidencia = ref(false)
 const modalDiagnostico = ref(null)
 const diagnosticoForm = ref({ diagnostico: '', solucion: '', costo: '' })
 const guardandoDiagnostico = ref(false)
+
+// UI TechSoul
+const toast = ref({ visible: false, mensaje: '', tipo: 'success' })
+let toastTimer = null
+const modalTrabajo = ref(null)
+const trabajoTemporal = ref('')
+const modalConfirmacion = ref(null)
+let resolverConfirmacion = null
+
+function notificar(mensaje, tipo = 'success') {
+  if (toastTimer) window.clearTimeout(toastTimer)
+  toast.value = { visible: true, mensaje: String(mensaje || ''), tipo }
+  toastTimer = window.setTimeout(() => {
+    toast.value.visible = false
+  }, 2800)
+}
+
+function abrirModalTrabajo(orden) {
+  trabajoTemporal.value = orden.trabajo_realizado || ''
+  modalTrabajo.value = orden
+}
+
+function cerrarModalTrabajo() {
+  modalTrabajo.value = null
+  trabajoTemporal.value = ''
+}
+
+async function guardarTrabajoFinal() {
+  const orden = modalTrabajo.value
+  const trabajo = trabajoTemporal.value.trim()
+  if (!orden) return
+  if (!trabajo) {
+    notificar('Debes registrar el trabajo realizado.', 'error')
+    return
+  }
+
+  guardando.value = orden.id
+  const { error } = await supabase
+    .from('ordenes')
+    .update({ trabajo_realizado: trabajo })
+    .eq('id', orden.id)
+  guardando.value = null
+
+  if (error) {
+    notificar(error.message, 'error')
+    return
+  }
+
+  orden.trabajo_realizado = trabajo
+  cerrarModalTrabajo()
+  await cambiarEstado(orden, 'Reparado')
+  notificar('Reparación terminada correctamente.')
+}
+
+function confirmarTechSoul(titulo, mensaje, confirmarTexto = 'Confirmar') {
+  return new Promise(resolve => {
+    resolverConfirmacion = resolve
+    modalConfirmacion.value = { titulo, mensaje, confirmarTexto }
+  })
+}
+
+function responderConfirmacion(valor) {
+  const resolver = resolverConfirmacion
+  resolverConfirmacion = null
+  modalConfirmacion.value = null
+  if (resolver) resolver(valor)
+}
+
 let reloj = null
 
 const NOMBRE_TECNICO = 'Jorge Ortegón'
@@ -184,7 +252,7 @@ const ordenesVisibles = computed(() => {
       if (filtroEstado.value === 'todos') return true
       return o.estado === filtroEstado.value
     })
-    .filter(o => filtroPrioridad.value === 'todas' || prioridadEfectiva(o) === filtroPrioridad.value)
+    .filter(o => filtroPrioridad.value === 'todas' || (o.estado !== 'Listo' && prioridadEfectiva(o) === filtroPrioridad.value))
     .filter(o => filtroFecha.value === 'todas' || categoriaFecha(o) === filtroFecha.value)
     .filter(o => !q || [o.folio, o.clientes?.nombre, o.equipos?.marca, o.equipos?.modelo, o.falla_reportada]
       .filter(Boolean)
@@ -206,7 +274,7 @@ const resumen = computed(() => ({
   listas: ordenes.value.filter(o => o.estado === 'Listo').length,
   entregadosHoy: ordenes.value.filter(o => o.estado === 'Entregado' && mismoDia(o.updated_at || o.fecha_salida || o.fecha_entrega)).length,
   citasHoy: citas.value.filter(c => mismoDia(c.inicio, hoyLocal()) && !['Cancelada', 'Cancelado'].includes(c.estado)).length,
-  urgentes: ordenes.value.filter(o => !['Entregado', 'Cancelado'].includes(o.estado) && prioridadEfectiva(o) === 'urgente').length
+  urgentes: ordenes.value.filter(o => !['Listo', 'Entregado', 'Cancelado'].includes(o.estado) && prioridadEfectiva(o) === 'urgente').length
 }))
 
 async function cargar() {
@@ -225,7 +293,7 @@ async function cargar() {
 
   cargando.value = false
   if (ordenesRes.error) {
-    alert(`No se pudo cargar el panel: ${ordenesRes.error.message}`)
+    notificar(`No se pudo cargar el panel: ${ordenesRes.error.message}`, 'error')
     return
   }
   if (citasRes.error && !String(citasRes.error.message || '').toLowerCase().includes('citas_agenda')) {
@@ -263,6 +331,23 @@ function formatoTiempo(segundos) {
 
 function clasePrioridad(prioridad) {
   return `priority-card-${prioridad || 'normal'}`
+}
+
+function claseTarjeta(orden) {
+  if (orden.estado === 'Listo') return 'order-card-listo'
+  return clasePrioridad(prioridadEfectiva(orden))
+}
+
+function encabezadoTarjeta(orden) {
+  if (orden.estado === 'Listo') {
+    return { icono: '✓', titulo: 'LISTO', subtitulo: 'Equipo listo para entregar' }
+  }
+  const prioridad = prioridadEfectiva(orden)
+  return {
+    icono: prioridadIcono(prioridad),
+    titulo: prioridadLabel(prioridad).toUpperCase(),
+    subtitulo: prioridadSubtitulo(prioridad)
+  }
 }
 
 function prioridadLabel(prioridad) {
@@ -323,15 +408,15 @@ function abrirFecha(orden) {
 async function guardarFecha(orden) {
   if (!fechaTemporalDia.value || !fechaTemporalHora.value) return
   const horario = horarioDeFecha(fechaTemporalDia.value)
-  if (!horario) return alert('El taller está cerrado los domingos. Selecciona otro día.')
+  if (!horario) return notificar('El taller está cerrado los domingos. Selecciona otro día.', 'error')
   if (!horasFechaDisponibles.value.includes(fechaTemporalHora.value)) {
-    return alert(`Selecciona una hora dentro del horario ${horario.abre} a ${horario.cierra}.`)
+    return notificar(`Selecciona una hora dentro del horario ${horario.abre} a ${horario.cierra}.`, 'error')
   }
   guardando.value = orden.id
   const iso = new Date(`${fechaTemporalDia.value}T${fechaTemporalHora.value}:00`).toISOString()
   const { error } = await supabase.from('ordenes').update({ fecha_programada: iso }).eq('id', orden.id)
   guardando.value = null
-  if (error) return alert(error.message)
+  if (error) return notificar(error.message, 'error')
   orden.fecha_programada = iso
   editandoFechaId.value = null
   await registrarHistorial(orden, 'Fecha programada', `La orden se programó para ${fechaBonita(iso)}.`, { tipo: 'agenda' })
@@ -341,7 +426,7 @@ async function quitarFecha(orden) {
   guardando.value = orden.id
   const { error } = await supabase.from('ordenes').update({ fecha_programada: null }).eq('id', orden.id)
   guardando.value = null
-  if (error) return alert(error.message)
+  if (error) return notificar(error.message, 'error')
   orden.fecha_programada = null
   editandoFechaId.value = null
 }
@@ -370,7 +455,7 @@ async function guardarProduccion(orden, cambios, historial = null) {
   guardando.value = null
 
   if (error) {
-    alert(error.message)
+    notificar(error.message, 'error')
     return false
   }
 
@@ -416,8 +501,8 @@ async function solicitarEvidenciaInterna(orden) {
 async function guardarEvidenciaInterna() {
   const orden = modalEvidencia.value
   if (!orden) return
-  if (!fotoInterna.value) return alert('Toma o selecciona una fotografía del interior del equipo ya reparado.')
-  if (!descripcionInterna.value.trim()) return alert('Describe brevemente el trabajo realizado antes de pasar a pruebas.')
+  if (!fotoInterna.value) return notificar('Toma o selecciona una fotografía del interior del equipo ya reparado.', 'error')
+  if (!descripcionInterna.value.trim()) return notificar('Describe brevemente el trabajo realizado antes de pasar a pruebas.', 'error')
   guardandoEvidencia.value = true
   try {
     const url = await subirEvidencia(fotoInterna.value, `orden-${orden.id}/reparacion-interna`)
@@ -437,7 +522,7 @@ async function guardarEvidenciaInterna() {
     cerrarEvidenciaInterna()
     await cambiarEstado(orden, 'En pruebas', true)
   } catch (error) {
-    alert(error.message)
+    notificar(error.message, 'error')
   } finally {
     guardandoEvidencia.value = false
   }
@@ -463,9 +548,9 @@ async function guardarDiagnosticoYAutorizar() {
   const diagnostico = diagnosticoForm.value.diagnostico.trim()
   const solucion = diagnosticoForm.value.solucion.trim()
   const costo = Number(diagnosticoForm.value.costo || 0)
-  if (!diagnostico) return alert('Ingresa el diagnóstico técnico.')
-  if (!solucion) return alert('Ingresa la solución o reparación propuesta.')
-  if (costo < 0) return alert('Ingresa un costo válido.')
+  if (!diagnostico) return notificar('Ingresa el diagnóstico técnico.', 'error')
+  if (!solucion) return notificar('Ingresa la solución o reparación propuesta.', 'error')
+  if (costo < 0) return notificar('Ingresa un costo válido.', 'error')
   guardandoDiagnostico.value = true
   try {
     const { error } = await supabase.from('ordenes').update({ diagnostico, trabajo_realizado: solucion, costo_total: costo }).eq('id', orden.id)
@@ -476,7 +561,7 @@ async function guardarDiagnosticoYAutorizar() {
     cerrarDiagnostico()
     await cambiarEstado(orden, 'Esperando autorización', true)
   } catch (error) {
-    alert(error.message)
+    notificar(error.message, 'error')
   } finally {
     guardandoDiagnostico.value = false
   }
@@ -489,13 +574,8 @@ async function accionPrincipal(orden) {
   if (orden.estado === 'Esperando autorización') return cambiarEstado(orden, 'En reparación')
   if (orden.estado === 'Esperando pieza') return cambiarEstado(orden, 'En reparación')
   if (orden.estado === 'En reparación') {
-    const trabajo = window.prompt('Describe el trabajo realizado antes de marcar la reparación como terminada:', orden.trabajo_realizado || '')
-    if (trabajo === null) return
-    if (!trabajo.trim()) return alert('Debes registrar el trabajo realizado.')
-    const { error } = await supabase.from('ordenes').update({ trabajo_realizado: trabajo.trim() }).eq('id', orden.id)
-    if (error) return alert(error.message)
-    orden.trabajo_realizado = trabajo.trim()
-    return cambiarEstado(orden, 'Reparado')
+    abrirModalTrabajo(orden)
+    return
   }
   if (orden.estado === 'Reparado') return cambiarEstado(orden, 'En pruebas')
   if (orden.estado === 'Listo') return cambiarEstado(orden, 'Entregado')
@@ -522,7 +602,7 @@ async function cambiarEstado(orden, nuevoEstado, evidenciaValidada = false) {
       const ok = await solicitarEvidenciaInterna(orden)
       if (!ok) return
     } catch (error) {
-      alert(error.message)
+      notificar(error.message, 'error')
       return
     }
   }
@@ -532,7 +612,7 @@ async function cambiarEstado(orden, nuevoEstado, evidenciaValidada = false) {
       supabase.from('evidencias').select('tipo').eq('orden_id', orden.id).eq('tipo', 'Salida')
     ])
     if (ec || ef || !controles?.length || controles.some(c => c.estado === 'No probado') || !fotos?.length) {
-      alert('Antes de marcar como Listo completa el Control de calidad y la evidencia de salida.')
+      notificar('Antes de marcar como Listo completa el Control de calidad y la evidencia de salida.', 'error')
       return
     }
   }
@@ -543,7 +623,7 @@ async function cambiarEstado(orden, nuevoEstado, evidenciaValidada = false) {
   const anterior = orden.estado
   const { error } = await supabase.from('ordenes').update({ estado: nuevoEstado }).eq('id', orden.id)
   guardando.value = null
-  if (error) return alert(error.message)
+  if (error) return notificar(error.message, 'error')
 
   orden.estado = nuevoEstado
   orden.updated_at = new Date().toISOString()
@@ -567,12 +647,16 @@ async function cambiarEstado(orden, nuevoEstado, evidenciaValidada = false) {
     try {
       const firma = await asegurarFirmaGarantiaPorOrden(orden.id)
       if (firma) {
-        const enviar = window.confirm('Equipo listo ✓\n\n¿Enviar al cliente su garantía para firma digital por WhatsApp?')
+        const enviar = await confirmarTechSoul(
+          'Equipo listo ✓',
+          '¿Enviar al cliente su garantía para firma digital por WhatsApp?',
+          'Enviar por WhatsApp'
+        )
         if (enviar) abrirWhatsAppFirma(firma)
       }
     } catch (e) {
       console.warn('Firma digital de garantía:', e)
-      alert(`La orden quedó como Listo, pero no se pudo preparar la firma digital: ${e.message}`)
+      notificar(`La orden quedó como Listo, pero no se pudo preparar la firma digital: ${e.message}`, 'error')
     }
   }
 }
@@ -613,6 +697,8 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   if (reloj) window.clearInterval(reloj)
+  if (toastTimer) window.clearTimeout(toastTimer)
+  if (resolverConfirmacion) resolverConfirmacion(false)
 })
 </script>
 
@@ -693,13 +779,13 @@ onBeforeUnmount(() => {
     <div v-else-if="!ordenesVisibles.length" class="empty">No hay órdenes con estos filtros.</div>
 
     <div v-else class="orders-grid">
-      <article v-for="orden in ordenesVisibles" :key="orden.id" class="order-card" :class="clasePrioridad(prioridadEfectiva(orden))">
+      <article v-for="orden in ordenesVisibles" :key="orden.id" class="order-card" :class="claseTarjeta(orden)">
         <div class="priority-banner">
           <div class="priority-copy">
-            <span class="priority-icon">{{ prioridadIcono(prioridadEfectiva(orden)) }}</span>
+            <span class="priority-icon">{{ encabezadoTarjeta(orden).icono }}</span>
             <div>
-              <strong class="priority-title">{{ prioridadLabel(prioridadEfectiva(orden)).toUpperCase() }}</strong>
-              <small>{{ prioridadSubtitulo(prioridadEfectiva(orden)) }}</small>
+              <strong class="priority-title">{{ encabezadoTarjeta(orden).titulo }}</strong>
+              <small>{{ encabezadoTarjeta(orden).subtitulo }}</small>
             </div>
           </div>
 
@@ -795,6 +881,46 @@ onBeforeUnmount(() => {
         <div class="evidence-modal-actions"><button type="button" class="cancel-evidence" @click="cerrarEvidenciaInterna">Cancelar</button><button type="button" class="save-evidence" :disabled="guardandoEvidencia" @click="guardarEvidenciaInterna">{{ guardandoEvidencia ? 'Guardando...' : 'Guardar y pasar a pruebas' }}</button></div>
       </section>
     </div>
+
+    <Transition name="toast-techsoul">
+      <div v-if="toast.visible" class="techsoul-toast" :class="`toast-${toast.tipo}`" role="status">
+        <span class="toast-icon">{{ toast.tipo === 'error' ? '!' : '✓' }}</span>
+        <span>{{ toast.mensaje }}</span>
+      </div>
+    </Transition>
+
+    <div v-if="modalTrabajo" class="techsoul-modal-backdrop" @click.self="cerrarModalTrabajo">
+      <section class="techsoul-modal" role="dialog" aria-modal="true">
+        <div class="techsoul-modal-head">
+          <div><span>REPARACIÓN</span><h2>Finalizar reparación</h2></div>
+          <button type="button" @click="cerrarModalTrabajo">×</button>
+        </div>
+        <p>Describe el trabajo realizado antes de marcar la reparación como terminada.</p>
+        <label class="techsoul-modal-field">
+          <span>Trabajo realizado *</span>
+          <textarea v-model="trabajoTemporal" rows="5" placeholder="Ej. Se reemplazó cristal de cámara, se realizó limpieza y pruebas de funcionamiento."></textarea>
+        </label>
+        <div class="techsoul-modal-actions">
+          <button type="button" class="modal-cancel" @click="cerrarModalTrabajo">Cancelar</button>
+          <button type="button" class="modal-confirm" :disabled="!trabajoTemporal.trim() || guardando === modalTrabajo.id" @click="guardarTrabajoFinal">
+            {{ guardando === modalTrabajo.id ? 'Guardando…' : '✓ Finalizar reparación' }}
+          </button>
+        </div>
+      </section>
+    </div>
+
+    <div v-if="modalConfirmacion" class="techsoul-modal-backdrop" @click.self="responderConfirmacion(false)">
+      <section class="techsoul-modal techsoul-confirm" role="dialog" aria-modal="true">
+        <div class="confirm-icon">✓</div>
+        <h2>{{ modalConfirmacion.titulo }}</h2>
+        <p>{{ modalConfirmacion.mensaje }}</p>
+        <div class="techsoul-modal-actions">
+          <button type="button" class="modal-cancel" @click="responderConfirmacion(false)">Ahora no</button>
+          <button type="button" class="modal-confirm" @click="responderConfirmacion(true)">{{ modalConfirmacion.confirmarTexto }}</button>
+        </div>
+      </section>
+    </div>
+
   </section>
 </template>
 
@@ -807,10 +933,17 @@ onBeforeUnmount(() => {
   font-weight: 900;
   letter-spacing: .01em;
 }
-.priority-copy small{font-size:.68rem;font-weight:700;margin-top:2px}.date-block{border:0;border-left:1px solid rgba(16,32,68,.1);background:rgba(255,255,255,.35);display:grid;grid-template-columns:28px 1fr auto;align-items:center;gap:7px;text-align:left;padding:10px 12px;cursor:pointer;color:inherit}.date-icon{font-size:1.2rem}.date-block span:nth-child(2){display:flex;flex-direction:column;min-width:0}.date-block small{font-size:.63rem}.date-block strong{font-size:.69rem;line-height:1.25;margin-top:2px}.date-block b{font-size:1.25rem}.priority-card-urgente{border-color:#ff8379}.priority-card-urgente .priority-banner{background:linear-gradient(90deg,#ffd5d1,#ffe8e5);color:#bd1c12}.priority-card-urgente .priority-icon{background:#d92d20;color:#fff}.priority-card-alta{border-color:#f7bc52}.priority-card-alta .priority-banner{background:linear-gradient(90deg,#ffe8b7,#fff3d2);color:#d96b00}.priority-card-alta .priority-icon{background:#f79009;color:#fff}.priority-card-normal .priority-banner{background:#f8fafc;color:#102044}.priority-card-normal .priority-icon{background:#dce4ef;color:#34445f}.priority-card-baja .priority-banner{background:#f0faf5;color:#137a55}.priority-card-baja .priority-icon{background:#d8f2e6;color:#137a55}.date-editor{display:grid;grid-template-columns:1fr auto auto auto;gap:6px;padding:9px 12px;background:#f8fbff;border-bottom:1px solid #e0e7f0}.date-field{display:flex;flex-direction:column;gap:4px}.date-field label{font-size:.62rem;font-weight:800;color:var(--ts-muted,#64748b)}.date-editor select{border:1px solid var(--ts-border,#dbe3ee);border-radius:9px;padding:8px 9px;background:var(--ts-surface,#fff);color:var(--ts-text,#0f172a)}.date-schedule{grid-column:1/-1;color:var(--ts-muted,#64748b);font-size:.64rem;font-weight:700}.date-editor input{min-width:0;border:1px solid #cdd8e6;border-radius:8px;padding:7px 8px}.date-editor button{border:0;border-radius:8px;padding:7px 9px;font-weight:800;font-size:.68rem;cursor:pointer}.save-date{background:#0b43ff;color:white}.clear-date{background:#fff1f0;color:#b42318}.cancel-date{background:#eef2f7;color:#53627a}.card-body{padding:14px}.folio{color:#0b43ff;text-decoration:none;font-size:.72rem;font-weight:900}.equipment-link{display:block;color:#102044;text-decoration:none;margin:6px 0 3px}.equipment-link strong{font-size:1rem;line-height:1.28}.client{margin:0 0 8px;color:#50617d;font-size:.76rem}.failure{font-size:.76rem;color:#42526d;line-height:1.42;margin:0 0 14px;min-height:2.15em;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}.main-controls{display:grid;grid-template-columns:1fr .72fr;gap:14px;align-items:end}.main-controls label,.worked-time,.fixed-tech{display:flex;flex-direction:column;gap:5px}.main-controls label>span,.worked-time>span,.fixed-tech>span{font-size:.65rem;font-weight:750;color:#6a7890}.main-controls select{width:100%;min-width:0;border:1px solid #d3dce8;background:#fff;border-radius:9px;padding:9px;color:#243551;font-size:.75rem}.worked-time strong{font-size:.78rem;color:#102044;padding:8px 0}.card-footer{display:flex;align-items:flex-end;justify-content:space-between;gap:12px;border-top:1px solid #eef1f5;margin-top:12px;padding-top:11px}.fixed-tech strong{background:#edf2f8;border-radius:7px;padding:6px 9px;font-size:.72rem;color:#233653}.timer-btn{min-width:128px;border:0;border-radius:8px;padding:10px 13px;font-size:.74rem;font-weight:850;cursor:pointer}.timer-btn.start{background:#0b43ff;color:#fff}.timer-btn.pause{background:#102044;color:#fff}.timer-btn:disabled{opacity:.45}.finished-label{font-weight:850;color:#526079;background:#edf2f8;border-radius:999px;padding:7px 10px;font-size:.7rem}.empty{background:#fff;border:1px solid #e4e7ec;border-radius:14px;padding:36px;text-align:center;color:#667085}@media(max-width:1300px){.metrics{grid-template-columns:repeat(3,1fr)}.toolbar{grid-template-columns:1.4fr repeat(2,1fr)}.toolbar .search-box{grid-column:1/-1}.orders-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}@media(max-width:900px){.workshop-header{flex-direction:column}.header-actions{width:100%;justify-content:flex-start}.day-control{flex:1}.day-control label{min-width:0;flex:1}.metrics{grid-template-columns:repeat(2,1fr)}.toolbar{grid-template-columns:1fr 1fr}.orders-grid{grid-template-columns:1fr}}@media(max-width:560px){.header-actions{display:grid;grid-template-columns:1fr 1fr}.day-control{grid-column:1/-1}.calendar-action,.primary-action{justify-content:center;padding:0 9px}.metrics{grid-template-columns:1fr 1fr}.toolbar{grid-template-columns:1fr}.toolbar>*{grid-column:1!important}.priority-banner{grid-template-columns:1fr}.date-block{border-left:0;border-top:1px solid rgba(16,32,68,.1)}.date-editor{grid-template-columns:1fr 1fr}.date-editor input{grid-column:1/-1}.main-controls{grid-template-columns:1fr}.card-footer{align-items:stretch;flex-direction:column}.timer-btn{width:100%}}
+.priority-copy small{font-size:.68rem;font-weight:700;margin-top:2px}.date-block{border:0;border-left:1px solid rgba(16,32,68,.1);background:rgba(255,255,255,.35);display:grid;grid-template-columns:28px 1fr auto;align-items:center;gap:7px;text-align:left;padding:10px 12px;cursor:pointer;color:inherit}.date-icon{font-size:1.2rem}.date-block span:nth-child(2){display:flex;flex-direction:column;min-width:0}.date-block small{font-size:.63rem}.date-block strong{font-size:.69rem;line-height:1.25;margin-top:2px}.date-block b{font-size:1.25rem}.order-card-listo{border-color:#7ad9b3}.order-card-listo .priority-banner{background:linear-gradient(90deg,#dff8ed,#effcf6);color:#087a55}.order-card-listo .priority-icon{background:#12b76a;color:#fff}.order-card-listo .date-block{color:#087a55}
+.priority-card-urgente{border-color:#ff8379}.priority-card-urgente .priority-banner{background:linear-gradient(90deg,#ffd5d1,#ffe8e5);color:#bd1c12}.priority-card-urgente .priority-icon{background:#d92d20;color:#fff}.priority-card-alta{border-color:#f7bc52}.priority-card-alta .priority-banner{background:linear-gradient(90deg,#ffe8b7,#fff3d2);color:#d96b00}.priority-card-alta .priority-icon{background:#f79009;color:#fff}.priority-card-normal .priority-banner{background:#f8fafc;color:#102044}.priority-card-normal .priority-icon{background:#dce4ef;color:#34445f}.priority-card-baja .priority-banner{background:#f0faf5;color:#137a55}.priority-card-baja .priority-icon{background:#d8f2e6;color:#137a55}.date-editor{display:grid;grid-template-columns:1fr auto auto auto;gap:6px;padding:9px 12px;background:#f8fbff;border-bottom:1px solid #e0e7f0}.date-field{display:flex;flex-direction:column;gap:4px}.date-field label{font-size:.62rem;font-weight:800;color:var(--ts-muted,#64748b)}.date-editor select{border:1px solid var(--ts-border,#dbe3ee);border-radius:9px;padding:8px 9px;background:var(--ts-surface,#fff);color:var(--ts-text,#0f172a)}.date-schedule{grid-column:1/-1;color:var(--ts-muted,#64748b);font-size:.64rem;font-weight:700}.date-editor input{min-width:0;border:1px solid #cdd8e6;border-radius:8px;padding:7px 8px}.date-editor button{border:0;border-radius:8px;padding:7px 9px;font-weight:800;font-size:.68rem;cursor:pointer}.save-date{background:#0b43ff;color:white}.clear-date{background:#fff1f0;color:#b42318}.cancel-date{background:#eef2f7;color:#53627a}.card-body{padding:14px}.folio{color:#0b43ff;text-decoration:none;font-size:.72rem;font-weight:900}.equipment-link{display:block;color:#102044;text-decoration:none;margin:6px 0 3px}.equipment-link strong{font-size:1rem;line-height:1.28}.client{margin:0 0 8px;color:#50617d;font-size:.76rem}.failure{font-size:.76rem;color:#42526d;line-height:1.42;margin:0 0 14px;min-height:2.15em;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}.main-controls{display:grid;grid-template-columns:1fr .72fr;gap:14px;align-items:end}.main-controls label,.worked-time,.fixed-tech{display:flex;flex-direction:column;gap:5px}.main-controls label>span,.worked-time>span,.fixed-tech>span{font-size:.65rem;font-weight:750;color:#6a7890}.main-controls select{width:100%;min-width:0;border:1px solid #d3dce8;background:#fff;border-radius:9px;padding:9px;color:#243551;font-size:.75rem}.worked-time strong{font-size:.78rem;color:#102044;padding:8px 0}.card-footer{display:flex;align-items:flex-end;justify-content:space-between;gap:12px;border-top:1px solid #eef1f5;margin-top:12px;padding-top:11px}.fixed-tech strong{background:#edf2f8;border-radius:7px;padding:6px 9px;font-size:.72rem;color:#233653}.timer-btn{min-width:128px;border:0;border-radius:8px;padding:10px 13px;font-size:.74rem;font-weight:850;cursor:pointer}.timer-btn.start{background:#0b43ff;color:#fff}.timer-btn.pause{background:#102044;color:#fff}.timer-btn:disabled{opacity:.45}.finished-label{font-weight:850;color:#526079;background:#edf2f8;border-radius:999px;padding:7px 10px;font-size:.7rem}.empty{background:#fff;border:1px solid #e4e7ec;border-radius:14px;padding:36px;text-align:center;color:#667085}@media(max-width:1300px){.metrics{grid-template-columns:repeat(3,1fr)}.toolbar{grid-template-columns:1.4fr repeat(2,1fr)}.toolbar .search-box{grid-column:1/-1}.orders-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}@media(max-width:900px){.workshop-header{flex-direction:column}.header-actions{width:100%;justify-content:flex-start}.day-control{flex:1}.day-control label{min-width:0;flex:1}.metrics{grid-template-columns:repeat(2,1fr)}.toolbar{grid-template-columns:1fr 1fr}.orders-grid{grid-template-columns:1fr}}@media(max-width:560px){.header-actions{display:grid;grid-template-columns:1fr 1fr}.day-control{grid-column:1/-1}.calendar-action,.primary-action{justify-content:center;padding:0 9px}.metrics{grid-template-columns:1fr 1fr}.toolbar{grid-template-columns:1fr}.toolbar>*{grid-column:1!important}.priority-banner{grid-template-columns:1fr}.date-block{border-left:0;border-top:1px solid rgba(16,32,68,.1)}.date-editor{grid-template-columns:1fr 1fr}.date-editor input{grid-column:1/-1}.main-controls{grid-template-columns:1fr}.card-footer{align-items:stretch;flex-direction:column}.timer-btn{width:100%}}
 .quality-link{display:block;margin-top:10px;border:1px solid #bdd0ff;background:#f5f8ff;color:#0b43ff;border-radius:9px;padding:9px 10px;text-align:center;text-decoration:none;font-size:.72rem;font-weight:850}
 
 .evidence-modal-backdrop{position:fixed;inset:0;background:rgba(15,23,42,.58);display:grid;place-items:center;padding:20px;z-index:1000}.evidence-modal{width:min(620px,100%);background:#fff;border-radius:18px;padding:22px;box-shadow:0 24px 70px rgba(15,23,42,.28)}.evidence-modal-head{display:flex;justify-content:space-between;gap:16px;align-items:flex-start}.evidence-modal-head span{font-size:.68rem;font-weight:900;letter-spacing:.08em;color:#0b43ff}.evidence-modal-head h2{margin:4px 0 0;font-size:1.45rem}.evidence-modal-head>button{border:0;background:#eef2f7;border-radius:50%;width:34px;height:34px;font-size:1.35rem;cursor:pointer}.evidence-modal>p{color:#64748b;font-size:.82rem;line-height:1.5}.internal-photo-box{display:block;border:2px dashed #b9c8dd;border-radius:14px;overflow:hidden;background:#f8fbff;cursor:pointer;margin:16px 0}.internal-photo-box input{display:none}.internal-photo-box img{display:block;width:100%;height:260px;object-fit:cover}.internal-photo-box>div{height:190px;display:grid;place-items:center;align-content:center;gap:7px;color:#0b43ff}.internal-photo-box small{color:#64748b}.repair-description{display:flex;flex-direction:column;gap:6px}.repair-description span{font-size:.72rem;font-weight:850}.repair-description textarea{border:1px solid #d7e0eb;border-radius:10px;padding:10px;resize:vertical;font:inherit}.evidence-modal-actions{display:flex;justify-content:flex-end;gap:9px;margin-top:16px}.evidence-modal-actions button{border-radius:10px;padding:10px 14px;font-weight:850;cursor:pointer}.cancel-evidence{background:#fff;border:1px solid #d7e0eb;color:#344054}.save-evidence{border:1px solid #0b43ff;background:#0b43ff;color:#fff}.save-evidence:disabled{opacity:.5}
 
 .stage-box{display:flex;flex-direction:column;gap:5px}.stage-box span{font-size:.65rem;font-weight:750;color:#6a7890}.stage-box strong{border:1px solid #d7e0eb;background:#f8fbff;border-radius:9px;padding:9px 10px;color:#0b43ff;font-size:.78rem}.workflow-actions{display:grid;gap:8px;margin-top:10px}.workflow-primary,.workflow-secondary{border-radius:9px;padding:10px 12px;font-size:.74rem;font-weight:850;cursor:pointer}.workflow-primary{border:1px solid #0b43ff;background:#0b43ff;color:#fff}.workflow-secondary{border:1px solid #cbd5e1;background:#fff;color:#334155}.workflow-primary:disabled{opacity:.5}.repair-description input{border:1px solid #d7e0eb;border-radius:10px;padding:10px;font:inherit}.quality-link{display:block;margin-top:0!important}
+
+
+.techsoul-toast{position:fixed;right:20px;bottom:22px;z-index:1200;display:flex;align-items:center;gap:10px;max-width:min(420px,calc(100vw - 28px));padding:13px 16px;border-radius:14px;background:#101828;color:#fff;box-shadow:0 16px 38px rgba(16,24,40,.22);font-size:.82rem;font-weight:800}.toast-icon{width:24px;height:24px;display:grid;place-items:center;flex:0 0 24px;border-radius:50%;background:#12b76a;color:#fff}.toast-error .toast-icon{background:#d92d20}.toast-techsoul-enter-active,.toast-techsoul-leave-active{transition:.2s ease}.toast-techsoul-enter-from,.toast-techsoul-leave-to{opacity:0;transform:translateY(10px)}
+.techsoul-modal-backdrop{position:fixed;inset:0;z-index:1150;display:grid;place-items:center;padding:18px;background:rgba(15,23,42,.52);backdrop-filter:blur(3px)}.techsoul-modal{width:min(540px,100%);background:#fff;border:1px solid #e4e7ec;border-radius:20px;padding:22px;box-shadow:0 24px 70px rgba(16,24,40,.25);color:#102044}.techsoul-modal-head{display:flex;justify-content:space-between;align-items:flex-start;gap:14px}.techsoul-modal-head span{font-size:.68rem;font-weight:900;letter-spacing:.08em;color:#0b43ff}.techsoul-modal-head h2,.techsoul-confirm h2{margin:4px 0 0;font-size:1.35rem}.techsoul-modal-head>button{border:0;background:#eef2f7;border-radius:50%;width:34px;height:34px;font-size:1.3rem;cursor:pointer}.techsoul-modal>p{color:#667085;line-height:1.5;font-size:.84rem;margin:12px 0 16px}.techsoul-modal-field{display:flex;flex-direction:column;gap:6px}.techsoul-modal-field>span{font-size:.72rem;font-weight:850}.techsoul-modal-field textarea{width:100%;box-sizing:border-box;border:1.5px solid #d0d5dd;border-radius:12px;padding:12px;resize:vertical;font:inherit;color:#102044;outline:none}.techsoul-modal-field textarea:focus{border-color:#0b43ff;box-shadow:0 0 0 3px rgba(11,67,255,.1)}.techsoul-modal-actions{display:flex;justify-content:flex-end;gap:9px;margin-top:18px}.techsoul-modal-actions button{min-height:42px;border-radius:10px;padding:0 15px;font-weight:850;cursor:pointer}.modal-cancel{border:1px solid #d0d5dd;background:#fff;color:#344054}.modal-confirm{border:1px solid #0b43ff;background:#0b43ff;color:#fff}.modal-confirm:disabled{opacity:.45;cursor:not-allowed}.techsoul-confirm{text-align:center;max-width:440px}.confirm-icon{width:48px;height:48px;display:grid;place-items:center;margin:0 auto 10px;border-radius:50%;background:#eafaf6;color:#0b9a78;font-size:1.4rem;font-weight:950}.techsoul-confirm .techsoul-modal-actions{justify-content:center}
+@media(max-width:560px){.techsoul-toast{left:14px;right:14px;bottom:18px}.techsoul-modal-backdrop{align-items:end;padding:0}.techsoul-modal{border-radius:20px 20px 0 0;padding:20px 17px calc(18px + env(safe-area-inset-bottom))}.techsoul-modal-actions{display:grid;grid-template-columns:1fr 1fr}.techsoul-modal-actions button{width:100%}}
+
 </style>

@@ -18,16 +18,26 @@ export async function asegurarFirmaGarantiaPorOrden(ordenId) {
   if (eg) throw eg
   if (!g) return null
 
-  const { data: existente, error: ee } = await supabase
+  // Una garantía/orden debe reutilizar SIEMPRE el mismo registro remoto.
+  // Priorizamos el ya firmado; si no existe, reutilizamos el pendiente más antiguo.
+  const { data: existentes, error: ee } = await supabase
     .from('garantia_firmas_remotas')
     .select('*')
     .eq('garantia_id', g.id)
-    .is('firmado_en', null)
-    .order('id', { ascending: false })
-    .limit(1)
-    .maybeSingle()
+    .order('firmado_en', { ascending: false, nullsFirst: false })
+    .order('id', { ascending: true })
+
   if (ee) throw ee
-  if (existente) return existente
+
+  const firmado = (existentes || []).find(
+    x => x.firmado_en && x.firma_data_url && x.acepto_condiciones
+  )
+  if (firmado) return firmado
+
+  const pendiente = (existentes || []).find(x => !x.firmado_en)
+  if (pendiente) return pendiente
+
+  if ((existentes || []).length) return existentes[0]
 
   const equipo = [g.ordenes?.equipos?.marca, g.ordenes?.equipos?.modelo].filter(Boolean).join(' ') || 'Equipo'
   const payload = {
