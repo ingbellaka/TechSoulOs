@@ -198,16 +198,25 @@ async function whatsapp() {
     const nombre = String(t?.client || 'cliente').trim().split(' ')[0] || 'cliente'
     const folio = t?.folio || ''
 
-    let garantiaUrl = linkFirma.value
+    // WhatsApp debe reutilizar SIEMPRE el mismo enlace que usa el QR.
+    // No dependemos del texto exacto del estado (Listo/listo/Entregado/etc.).
+    let garantiaUrl = String(linkFirma.value || '').trim()
 
-    if (t?.kind === 'service-order' && ['Listo', 'Entregado'].includes(t?.status) && t?.orderId && !garantiaUrl) {
+    // Si el QR/enlace todavía no está cargado pero conocemos la orden,
+    // recuperamos o creamos la firma remota una sola vez.
+    if (!garantiaUrl && t?.orderId) {
       const firma = await asegurarFirmaGarantiaPorOrden(t.orderId)
       if (firma) {
-        garantiaUrl = linkFirmaGarantia(firma)
+        garantiaUrl = String(linkFirmaGarantia(firma) || '').trim()
         linkFirma.value = garantiaUrl
-        qrFirma.value = await QRCode.toDataURL(garantiaUrl, {
-          width: 260, margin: 1, errorCorrectionLevel: 'M'
-        })
+
+        if (garantiaUrl) {
+          qrFirma.value = await QRCode.toDataURL(garantiaUrl, {
+            width: 260,
+            margin: 1,
+            errorCorrectionLevel: 'M'
+          })
+        }
       }
     }
 

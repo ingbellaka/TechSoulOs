@@ -178,8 +178,6 @@ async function whatsapp() {
     return
   }
 
-  // Abrimos la pestaña inmediatamente para evitar que el navegador bloquee el popup
-  // mientras se genera y descarga el PDF.
   const waWindow = window.open('about:blank', '_blank')
   if (!waWindow) {
     alert('Permite ventanas emergentes para abrir WhatsApp.')
@@ -187,16 +185,38 @@ async function whatsapp() {
   }
 
   try {
-    await descargarPdfDigital()
     const t = props.ticket
-    const nombre = t?.client || 'cliente'
+    const nombre = String(t?.client || 'cliente').trim().split(' ')[0] || 'cliente'
     const folio = t?.folio || ''
-    const text = `Hola ${nombre}, te compartimos tu comprobante de pago${folio ? ` de la orden ${folio}` : ''}. Gracias por tu confianza en TechSoul.`
+
+    // Reutiliza exactamente el enlace público que usa el QR.
+    let garantiaUrl = String(linkFirma.value || '').trim()
+    if (!garantiaUrl && t?.kind === 'service-order' && t?.orderId) {
+      const firma = await asegurarFirmaGarantiaPorOrden(t.orderId)
+      if (firma) {
+        garantiaUrl = String(linkFirmaGarantia(firma) || '').trim()
+        linkFirma.value = garantiaUrl
+        if (garantiaUrl) {
+          qrFirma.value = await QRCode.toDataURL(garantiaUrl, {
+            width: 260,
+            margin: 1,
+            errorCorrectionLevel: 'M'
+          })
+        }
+      }
+    }
+
+    await descargarPdfDigital()
+
+    const text = garantiaUrl
+      ? `Hola ${nombre} 👋💙\n\nTu equipo ya está listo. Te compartimos tu comprobante de servicio${folio ? ` de la orden ${folio}` : ''}.\n\n*Firma tu garantía digital aquí:*\n${garantiaUrl}\n\nUna vez firmada, tu garantía quedará registrada en TechSoul.\n\n¡Gracias por tu confianza! 🛠️`
+      : `Hola ${nombre} 👋💙\n\nTe compartimos tu comprobante${folio ? ` de la orden ${folio}` : ''}.\n\n¡Gracias por tu confianza en TechSoul!`
+
     waWindow.location.href = `https://wa.me/${numero}?text=${encodeURIComponent(text)}`
   } catch (error) {
     console.error(error)
     waWindow.close()
-    alert('No se pudo generar el PDF para WhatsApp. Intenta nuevamente.')
+    alert('No se pudo preparar el ticket y la garantía para WhatsApp. Intenta nuevamente.')
   }
 }
 </script>
