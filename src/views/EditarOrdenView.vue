@@ -40,6 +40,8 @@ const estados = [
   { value: 'Esperando autorización', label: 'Esperando autorización', help: 'La cotización fue enviada y falta aprobación.' },
   { value: 'Esperando pieza', label: 'Esperando refacción', help: 'La reparación depende de una pieza o material.' },
   { value: 'En reparación', label: 'En reparación', help: 'El técnico ya está trabajando en el equipo.' },
+  { value: 'Reparado', label: 'Reparado', help: 'El trabajo técnico terminó y está pendiente de pruebas.' },
+  { value: 'En pruebas', label: 'En pruebas', help: 'El equipo está en control de calidad y validación.' },
   { value: 'Listo', label: 'Listo para entregar', help: 'La reparación terminó y el cliente puede recogerlo.' },
   { value: 'Entregado', label: 'Entregado', help: 'El equipo fue entregado al cliente.' },
   { value: 'Garantía', label: 'En garantía', help: 'El equipo regresó para revisión de garantía.' },
@@ -171,7 +173,7 @@ async function guardarCambios() {
         costo_total: Number(orden.value.costo_total || 0),
         anticipo: Number(orden.value.anticipo || 0),
         metodo_pago: orden.value.metodo_pago || 'No especificado',
-        estado: orden.value.estado,
+        estado: estadoOriginal.value,
         fecha_listo: fechaListoNueva,
         garantia_dias: Number(garantia.value.dias_garantia || 0),
         garantia_condiciones: garantia.value.condiciones,
@@ -479,4 +481,5 @@ onMounted(cargar)
 @media (max-width: 680px) {
   .ts-edit-order-page{padding:20px 14px 96px!important}.ts-edit-order-header{gap:16px!important}.ts-edit-order-header h1{font-size:2rem!important;line-height:1.05}.ts-edit-order-header p{font-size:.95rem}.ts-edit-order-header-actions{display:grid!important;grid-template-columns:1fr auto!important;gap:10px!important}.ts-edit-order-header-actions .ts-action-primary{grid-column:1;grid-row:1;min-height:52px;width:100%;order:1}.ts-edit-order-header-actions .ts-action-secondary{grid-column:2;grid-row:1;min-height:52px;width:auto!important;padding-inline:18px!important;order:2;background:transparent!important}.ts-edit-order-shell{gap:14px!important}.ts-edit-order-nav{display:flex!important;gap:8px!important;margin-inline:-14px;padding:0 14px 8px!important;overflow-x:auto!important;scroll-snap-type:x proximity;scrollbar-width:none}.ts-edit-order-nav::-webkit-scrollbar{display:none}.ts-edit-order-nav>button{min-width:142px!important;max-width:155px!important;padding:12px!important;scroll-snap-align:start}.ts-edit-order-nav>button small{display:none}.ts-edit-order-nav>button>span{width:38px!important;height:38px!important}.ts-edit-panel{padding:18px 16px!important;border-radius:18px!important}.ts-edit-panel-heading h2{font-size:1.55rem!important}.ts-edit-panel-heading p{font-size:.9rem!important;line-height:1.5}.ts-form-grid{grid-template-columns:1fr!important}.ts-edit-panel input,.ts-edit-panel select,.ts-edit-panel textarea{font-size:16px!important;min-height:48px}.ts-status-selector{grid-template-columns:1fr!important}.ts-status-selector label{padding:14px!important}.ts-schedule-editor{padding:14px!important}.ts-edit-order-footer{position:sticky!important;bottom:10px!important;z-index:5;padding:10px!important;background:var(--ts-surface)!important;border:1px solid var(--ts-border)!important;box-shadow:0 10px 30px rgba(15,23,42,.14)}.ts-edit-order-footer button{min-height:48px}.ts-edit-order-footer>span{display:none}.ts-edit-order-footer .ts-action-primary{margin-left:auto}.ts-payment-method-options{grid-template-columns:repeat(3,minmax(0,1fr))!important}.ts-payment-method-options button{min-width:0!important}.ts-finance-clean-grid{grid-template-columns:1fr!important}
 }
+.ts-status-admin-readonly{border:1px solid #dbe5f2;background:#f8fbff;border-radius:14px;padding:18px}.ts-status-admin-readonly>div{display:flex;justify-content:space-between;gap:16px;align-items:center}.ts-status-admin-readonly span{font-size:.75rem;color:#64748b;font-weight:800}.ts-status-admin-readonly strong{color:#0b43ff}.ts-status-admin-readonly p{color:#64748b;line-height:1.5;font-size:.82rem}.ts-status-admin-readonly a{display:inline-flex;background:#0b43ff;color:#fff;text-decoration:none;border-radius:9px;padding:9px 12px;font-size:.78rem;font-weight:850}
 </style>

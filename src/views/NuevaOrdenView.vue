@@ -7,9 +7,7 @@ import { useRouter } from 'vue-router'
 const router = useRouter()
 const clientes = ref([])
 const cargando = ref(false)
-const fotoArchivo = ref(null)
-const fotoPreview = ref('')
-const fotoNombre = ref('')
+const evidenciasRecepcion = ref({})
 const tarifario = ref([])
 const cargandoTarifario = ref(false)
 
@@ -22,7 +20,7 @@ const pasoActual = ref(1)
 const pasos = [
   { numero: 1, titulo: 'Cliente', subtitulo: 'Datos de contacto' },
   { numero: 2, titulo: 'Equipo', subtitulo: 'Modelo y falla' },
-  { numero: 3, titulo: 'Evidencia', subtitulo: 'Fotografía opcional' },
+  { numero: 3, titulo: 'Evidencia', subtitulo: 'Fotos obligatorias' },
   { numero: 4, titulo: 'Pruebas', subtitulo: 'Checklist rápido' },
   { numero: 5, titulo: 'Servicios', subtitulo: 'Trabajo y cobro' }
 ]
@@ -33,6 +31,30 @@ const tiposEquipo = [
   { nombre: 'Apple Watch', icono: '⌚' }, { nombre: 'Impresora', icono: '🖨️' },
   { nombre: 'PC', icono: '🖥️' }, { nombre: 'Otro', icono: '⚙️' }
 ]
+
+
+const evidenciasPorTipo = {
+  Celular: ['Frontal', 'Trasera', 'Laterales / marco', 'Cámaras'],
+  Tablet: ['Frontal', 'Trasera', 'Laterales / marco', 'Cámaras'],
+  iPad: ['Frontal', 'Trasera', 'Laterales / marco', 'Cámaras'],
+  Laptop: ['Tapa exterior', 'Pantalla y teclado', 'Parte inferior', 'Laterales y puertos'],
+  Impresora: ['Frontal', 'Trasera y conexiones', 'Bandejas / alimentación', 'Interior accesible'],
+  PC: ['Frontal', 'Trasera / conexiones', 'Lateral', 'Interior / componentes visibles'],
+  'Apple Watch': ['Pantalla', 'Parte trasera / sensores', 'Laterales / corona'],
+  Otro: ['Vista general 1', 'Vista general 2', 'Condición física']
+}
+const requisitosEvidencia = computed(() => evidenciasPorTipo[equipo.value.tipo_equipo] || evidenciasPorTipo.Otro)
+const evidenciaCompleta = computed(() => requisitosEvidencia.value.every(nombre => evidenciasRecepcion.value[nombre]?.file))
+function manejarEvidencia(event, nombre) {
+  const file = event.target.files?.[0]
+  if (!file) return
+  evidenciasRecepcion.value = { ...evidenciasRecepcion.value, [nombre]: { file, preview: URL.createObjectURL(file) } }
+}
+function quitarEvidencia(nombre) {
+  const actual = evidenciasRecepcion.value[nombre]
+  if (actual?.preview) URL.revokeObjectURL(actual.preview)
+  const copia = { ...evidenciasRecepcion.value }; delete copia[nombre]; evidenciasRecepcion.value = copia
+}
 
 const estadosChecklist = [
   { valor: 'Funciona', corto: 'Bien', icono: '✓', clase: 'status-ok' },
@@ -302,25 +324,6 @@ function seleccionarCliente() {
   }
 }
 
-function manejarFoto(event) {
-  const file = event.target.files[0]
-  if (!file) {
-    fotoArchivo.value = null
-    fotoPreview.value = ''
-    fotoNombre.value = ''
-    return
-  }
-
-  fotoArchivo.value = file
-  fotoNombre.value = file.name
-
-  const reader = new FileReader()
-  reader.onload = () => {
-    fotoPreview.value = reader.result
-  }
-  reader.readAsDataURL(file)
-}
-
 function estadoClase(estado) {
   return { 'Funciona': 'state-ok', 'No funciona': 'state-fail', 'No aplica': 'state-na' }[estado] || 'state-unknown'
 }
@@ -364,6 +367,7 @@ function validarPaso(paso) {
   if (paso === 1 && !cliente.value.cliente_id && !cliente.value.nombre.trim()) { alert('Selecciona o captura un cliente'); return false }
   if (paso === 2 && !equipo.value.modelo.trim()) { alert('Captura el modelo del equipo'); return false }
   if (paso === 2 && !orden.value.falla_reportada.trim()) { alert('Describe la falla reportada'); return false }
+  if (paso === 3 && !evidenciaCompleta.value) { alert(`Faltan fotografías obligatorias de recepción para ${equipo.value.tipo_equipo}.`); return false }
   return true
 }
 
@@ -386,6 +390,7 @@ async function crearOrden() {
   if (!cliente.value.cliente_id && !cliente.value.nombre.trim()) return alert('Selecciona o captura un cliente')
   if (!equipo.value.modelo.trim()) return alert('El modelo del equipo es obligatorio')
   if (!orden.value.falla_reportada.trim()) return alert('La falla reportada es obligatoria')
+  if (!evidenciaCompleta.value) return alert(`Completa las fotografías obligatorias de recepción para ${equipo.value.tipo_equipo}`)
   const serviciosValidos = servicios.value.filter(servicio => servicio.tipo && (servicio.tipo !== 'Otro' || servicio.descripcion.trim()))
   if (serviciosValidos.length === 0) return alert('Agrega al menos un servicio a realizar')
   if (Number(orden.value.anticipo || 0) > subtotalServicios.value) return alert('El anticipo no puede ser mayor al total')
@@ -423,18 +428,29 @@ async function crearOrden() {
     else ordenData.fecha_programada = null
     ordenData.duracion_estimada_min = ordenData.fecha_programada ? Number(ordenData.duracion_estimada_min || 30) : null
 
-    const { data: nuevaOrden, error: errorOrden } = await supabase
+    // Primero crea la orden y DESPUÉS recupera su ID por folio.
+    // Esto evita guardar evidencias con orden_id undefined/null en instalaciones
+    // donde el INSERT no devuelve la fila completa por configuración/RLS.
+    const { error: errorOrden } = await supabase
       .from('ordenes')
       .insert({ folio, cliente_id: clienteId, equipo_id: nuevoEquipo.id, ...ordenData })
-      .select()
-      .single()
 
     if (errorOrden) throw errorOrden
+
+    const { data: nuevaOrden, error: errorOrdenCreada } = await supabase
+      .from('ordenes')
+      .select('id, folio')
+      .eq('folio', folio)
+      .single()
+
+    if (errorOrdenCreada) throw errorOrdenCreada
+    if (!nuevaOrden?.id) throw new Error('La orden se creó, pero no fue posible recuperar su ID. No se guardaron evidencias.')
+    const ordenId = nuevaOrden.id
 
     const serviciosParaGuardar = servicios.value
       .filter(servicio => servicio.tipo && (servicio.tipo !== 'Otro' || servicio.descripcion.trim()))
       .map((servicio, indice) => ({
-        orden_id: nuevaOrden.id,
+        orden_id: ordenId,
         tipo_servicio: servicio.tipo === 'Otro' ? servicio.descripcion.trim() : servicio.tipo,
         descripcion: servicio.descripcion.trim(),
         precio: Number(servicio.precio || 0),
@@ -445,27 +461,29 @@ async function crearOrden() {
     const { error: errorServicios } = await supabase.from('orden_servicios').insert(serviciosParaGuardar)
     if (errorServicios) throw errorServicios
 
-    if (fotoArchivo.value) {
-      const urlFoto = await subirEvidencia(fotoArchivo.value, `orden-${nuevaOrden.id}`)
+    for (const nombre of requisitosEvidencia.value) {
+      const evidencia = evidenciasRecepcion.value[nombre]
+      if (!evidencia?.file) throw new Error(`Falta evidencia obligatoria: ${nombre}`)
+      const urlFoto = await subirEvidencia(evidencia.file, `orden-${ordenId}/recepcion`)
       const { error: errorEvidencia } = await supabase.from('evidencias').insert({
-        orden_id: nuevaOrden.id,
+        orden_id: ordenId,
         tipo: 'Recepción',
         url_imagen: urlFoto,
-        descripcion: fotoNombre.value || 'Foto de recepción'
+        descripcion: nombre
       })
       if (errorEvidencia) throw errorEvidencia
     }
 
     if (checklist.value.length > 0) {
       const { error: errorChecklist } = await supabase.from('checklist_orden').insert(
-        checklist.value.map(({ mostrarNota, ...item }) => ({ orden_id: nuevaOrden.id, ...item }))
+        checklist.value.map(({ mostrarNota, ...item }) => ({ orden_id: ordenId, ...item }))
       )
       if (errorChecklist) throw errorChecklist
     }
 
     if (orden.value.generar_garantia && Number(orden.value.garantia_dias || 0) > 0) {
       const { error: errorGarantia } = await supabase.from('garantias').insert({
-        orden_id: nuevaOrden.id,
+        orden_id: ordenId,
         tipo_servicio: descripcionServicios.value || 'Reparación',
         dias_garantia: Number(orden.value.garantia_dias),
         fecha_inicio: new Date().toISOString(),
@@ -477,7 +495,7 @@ async function crearOrden() {
 
     const { data: auth } = await supabase.auth.getUser()
     const { error: errorHistorial } = await supabase.from('orden_historial').insert({
-      orden_id: nuevaOrden.id,
+      orden_id: ordenId,
       tipo: 'creacion',
       titulo: 'Orden creada',
       descripcion: `Se recibió ${equipo.value.marca || ''} ${equipo.value.modelo}`.trim(),
@@ -493,14 +511,14 @@ async function crearOrden() {
         monto: Number(orden.value.anticipo),
         metodo_pago: orden.value.metodo_pago || 'Efectivo',
         referencia_tipo: 'orden',
-        referencia_id: nuevaOrden.id,
+        referencia_id: ordenId,
         notas: cliente.value.nombre
       })
       if (errorCaja) throw errorCaja
     }
 
     alert(`Orden creada: ${folio}`)
-    router.push(`/ordenes/${nuevaOrden.id}`)
+    router.push(`/ordenes/${ordenId}`)
   } catch (error) {
     alert(error.message)
   } finally {
@@ -610,24 +628,20 @@ onMounted(() => {
             </div>
           </section>
 
-          <section v-else-if="pasoActual === 3" key="evidencia" class="wizard-step">
-            <div class="step-heading">
-              <span class="step-kicker">Paso 3 de 5</span>
-              <h2>Evidencia de recepción</h2>
-              <p>Puedes agregar una fotografía para documentar cómo se recibió. Este paso es opcional.</p>
+          <section v-else-if="pasoActual === 3" key="evidence" class="wizard-step">
+            <div class="step-heading"><span class="step-kicker">REGISTRO VISUAL OBLIGATORIO</span><h2>Evidencia de recepción · {{ equipo.tipo_equipo }}</h2><p>Documenta cómo se recibe el equipo. No podrás crear la orden si falta una toma obligatoria.</p></div>
+            <div class="evidence-grid">
+              <article v-for="nombre in requisitosEvidencia" :key="nombre" class="evidence-slot" :class="{ complete: evidenciasRecepcion[nombre]?.file }">
+                <div class="evidence-slot-head"><strong>{{ nombre }}</strong><span>{{ evidenciasRecepcion[nombre]?.file ? '✓ Capturada' : 'Obligatoria' }}</span></div>
+                <label class="evidence-capture">
+                  <input type="file" accept="image/*" capture="environment" @change="manejarEvidencia($event, nombre)">
+                  <img v-if="evidenciasRecepcion[nombre]?.preview" :src="evidenciasRecepcion[nombre].preview" :alt="nombre">
+                  <div v-else><b>📷</b><strong>Tomar foto</strong><small>o seleccionar de galería</small></div>
+                </label>
+                <button v-if="evidenciasRecepcion[nombre]?.file" type="button" class="remove-evidence" @click="quitarEvidencia(nombre)">Reemplazar / quitar</button>
+              </article>
             </div>
-
-            <label class="camera-card" :class="{ filled: fotoPreview }">
-              <input type="file" accept="image/*" capture="environment" @change="manejarFoto">
-              <img v-if="fotoPreview" :src="fotoPreview" alt="Fotografía de recepción">
-              <div v-else class="camera-empty">
-                <span class="camera-icon">📷</span>
-                <strong>Agregar fotografía (opcional)</strong>
-                <small>También puedes elegir una imagen de tu galería</small>
-              </div>
-              <span v-if="fotoPreview" class="replace-photo">Cambiar fotografía</span>
-            </label>
-            <div class="evidence-tip"><span>🛡️</span><p><strong>Recomendación:</strong> procura que se vea la pantalla, bordes y cualquier golpe existente.</p></div>
+            <div class="evidence-tip"><span>🛡️</span><p>Estas imágenes quedarán vinculadas a la orden como evidencia de recepción. Agrega daños o condiciones especiales en Observaciones físicas.</p></div>
           </section>
 
           <section v-else-if="pasoActual === 4" key="checklist" class="wizard-step checklist-step">
@@ -840,7 +854,7 @@ onMounted(() => {
           <div :class="{ done: cliente.cliente_id || cliente.nombre.trim() }"><span>✓</span> Cliente</div>
           <div :class="{ done: equipo.modelo.trim() }"><span>✓</span> Equipo</div>
           <div :class="{ done: orden.falla_reportada.trim() }"><span>✓</span> Falla</div>
-          <div :class="{ done: fotoArchivo }"><span>✓</span> Evidencia</div>
+          <div :class="{ done: evidenciaCompleta }"><span>✓</span> Evidencia {{ Object.keys(evidenciasRecepcion).length }}/{{ requisitosEvidencia.length }}</div>
         </div>
         <div v-if="orden.falla_reportada" class="summary-issue"><span>Falla reportada</span><p>{{ orden.falla_reportada }}</p></div>
       </aside>
@@ -857,4 +871,5 @@ onMounted(() => {
 @media(max-width:680px){.reception-header{align-items:flex-start}.header-actions .btn-light{display:none}.wizard-step{padding:22px 17px;min-height:520px}.stepper{overflow-x:auto;justify-content:start;padding-bottom:3px}.two-cols,.three-cols,.money-grid,.final-review{grid-template-columns:1fr}.two-span{grid-column:auto}.summary-list{grid-template-columns:repeat(2,1fr)}.check-main{grid-template-columns:1fr 38px}.check-identity{grid-column:1/2}.status-buttons{grid-column:1/-1;grid-row:2;justify-content:space-between}.status-button{flex:1}.note-button{grid-column:2;grid-row:1}.custom-check-row{flex-direction:column}.wizard-footer{padding:12px 16px}.checklist-heading{flex-direction:column}.camera-card{min-height:260px}}
 
 .schedule-card{border:1px solid var(--ts-border,#dbe3ee);border-radius:16px;padding:18px;background:var(--ts-soft,#f8fafc);display:grid;grid-template-columns:minmax(220px,1fr) minmax(320px,1.2fr);gap:18px;align-items:end}.schedule-copy{display:flex;flex-direction:column}.schedule-copy strong{font-size:.95rem;margin:3px 0 4px}.schedule-copy small{color:var(--ts-muted,#64748b);font-size:.76rem;line-height:1.4}.schedule-fields{display:grid;grid-template-columns:1.3fr 1fr;gap:12px}@media(max-width:760px){.schedule-card,.schedule-fields{grid-template-columns:1fr}.payment-summary{grid-template-columns:1fr}.payment-method-block{grid-column:auto}.payment-method-options{grid-template-columns:1fr}}
+.evidence-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}.evidence-slot{border:1px solid var(--ts-border,#dbe3ee);border-radius:16px;padding:12px;background:#fff}.evidence-slot.complete{border-color:#86efac;background:#f8fff9}.evidence-slot-head{display:flex;justify-content:space-between;gap:10px;margin-bottom:9px}.evidence-slot-head strong{font-size:.84rem}.evidence-slot-head span{font-size:.68rem;font-weight:800;color:#b45309}.evidence-slot.complete .evidence-slot-head span{color:#15803d}.evidence-capture{display:block;min-height:150px;border:1.5px dashed #cbd5e1;border-radius:12px;overflow:hidden;cursor:pointer;background:#f8fafc}.evidence-capture input{display:none}.evidence-capture img{width:100%;height:180px;object-fit:cover}.evidence-capture>div{height:150px;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#64748b}.evidence-capture b{font-size:1.8rem}.evidence-capture strong{color:#334155;margin-top:5px}.evidence-capture small{margin-top:3px}.remove-evidence{margin-top:8px;border:0;background:transparent;color:#2563eb;font-size:.72rem;font-weight:800}@media(max-width:700px){.evidence-grid{grid-template-columns:1fr}}
 </style>

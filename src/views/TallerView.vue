@@ -1,6 +1,7 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { supabase } from '../lib/supabase'
+import { subirEvidencia } from '../lib/storage'
 
 const cargando = ref(true)
 const guardando = ref(null)
@@ -15,6 +16,14 @@ const editandoFechaId = ref(null)
 const fechaTemporalDia = ref('')
 const fechaTemporalHora = ref('10:00')
 const ahora = ref(Date.now())
+const modalEvidencia = ref(null)
+const fotoInterna = ref(null)
+const previewInterna = ref('')
+const descripcionInterna = ref('')
+const guardandoEvidencia = ref(false)
+const modalDiagnostico = ref(null)
+const diagnosticoForm = ref({ diagnostico: '', solucion: '', costo: '' })
+const guardandoDiagnostico = ref(false)
 let reloj = null
 
 const NOMBRE_TECNICO = 'Jorge Ortegón'
@@ -72,7 +81,9 @@ const estados = [
   { value: 'Diagnóstico', label: 'Diagnóstico' },
   { value: 'Esperando autorización', label: 'Esperando autorización' },
   { value: 'Esperando pieza', label: 'Esperando pieza' },
-  { value: 'En reparación', label: 'En proceso' },
+  { value: 'En reparación', label: 'En reparación' },
+  { value: 'Reparado', label: 'Reparado' },
+  { value: 'En pruebas', label: 'En pruebas' },
   { value: 'Listo', label: 'Listo' },
   { value: 'Entregado', label: 'Entregado' },
   { value: 'Garantía', label: 'Garantía' },
@@ -190,7 +201,7 @@ const ordenesVisibles = computed(() => {
 
 const resumen = computed(() => ({
   pendientes: ordenes.value.filter(o => !['Listo', 'Entregado', 'Cancelado'].includes(o.estado)).length,
-  proceso: ordenes.value.filter(o => ['Diagnóstico', 'En reparación', 'Esperando autorización', 'Esperando pieza'].includes(o.estado)).length,
+  proceso: ordenes.value.filter(o => ['Diagnóstico', 'En reparación', 'Reparado', 'En pruebas', 'Esperando autorización', 'Esperando pieza'].includes(o.estado)).length,
   listas: ordenes.value.filter(o => o.estado === 'Listo').length,
   entregadosHoy: ordenes.value.filter(o => o.estado === 'Entregado' && mismoDia(o.updated_at || o.fecha_salida || o.fecha_entrega)).length,
   citasHoy: citas.value.filter(c => mismoDia(c.inicio, hoyLocal()) && !['Cancelada', 'Cancelado'].includes(c.estado)).length,
@@ -202,7 +213,7 @@ async function cargar() {
   const [ordenesRes, citasRes] = await Promise.all([
     supabase
       .from('ordenes')
-      .select('id,folio,estado,falla_reportada,costo_total,fecha_ingreso,created_at,updated_at,fecha_programada,duracion_estimada_min,clientes(nombre,telefono),equipos(tipo_equipo,marca,modelo),orden_produccion(*)')
+      .select('id,folio,estado,falla_reportada,diagnostico,trabajo_realizado,costo_total,fecha_ingreso,created_at,updated_at,fecha_programada,duracion_estimada_min,clientes(nombre,telefono),equipos(tipo_equipo,marca,modelo),orden_produccion(*)')
       .order('fecha_ingreso', { ascending: false })
       .limit(300),
     supabase
@@ -373,8 +384,157 @@ async function pausarSilencioso(orden) {
   await guardarProduccion(orden, { corriendo: false, tiempo_acumulado_seg: acumulado, ultima_reanudacion_en: null })
 }
 
-async function cambiarEstado(orden, nuevoEstado) {
+function seleccionarFotoInterna(event) {
+  const file = event.target.files?.[0] || null
+  fotoInterna.value = file
+  if (previewInterna.value) URL.revokeObjectURL(previewInterna.value)
+  previewInterna.value = file ? URL.createObjectURL(file) : ''
+}
+
+function cerrarEvidenciaInterna() {
+  if (previewInterna.value) URL.revokeObjectURL(previewInterna.value)
+  modalEvidencia.value = null
+  fotoInterna.value = null
+  previewInterna.value = ''
+  descripcionInterna.value = ''
+}
+
+async function solicitarEvidenciaInterna(orden) {
+  const { data, error } = await supabase
+    .from('evidencias')
+    .select('id')
+    .eq('orden_id', orden.id)
+    .eq('tipo', 'Reparación interna')
+    .limit(1)
+  if (error) throw error
+  if (data?.length) return true
+  modalEvidencia.value = orden
+  return false
+}
+
+async function guardarEvidenciaInterna() {
+  const orden = modalEvidencia.value
+  if (!orden) return
+  if (!fotoInterna.value) return alert('Toma o selecciona una fotografía del interior del equipo ya reparado.')
+  if (!descripcionInterna.value.trim()) return alert('Describe brevemente el trabajo realizado antes de pasar a pruebas.')
+  guardandoEvidencia.value = true
+  try {
+    const url = await subirEvidencia(fotoInterna.value, `orden-${orden.id}/reparacion-interna`)
+    const { error } = await supabase.from('evidencias').insert({
+      orden_id: orden.id,
+      tipo: 'Reparación interna',
+      url_imagen: url,
+      descripcion: descripcionInterna.value.trim()
+    })
+    if (error) throw error
+    await supabase.from('orden_historial').insert({
+      orden_id: orden.id,
+      tipo: 'evidencia',
+      titulo: 'Evidencia interna registrada',
+      descripcion: descripcionInterna.value.trim()
+    })
+    cerrarEvidenciaInterna()
+    await cambiarEstado(orden, 'En pruebas', true)
+  } catch (error) {
+    alert(error.message)
+  } finally {
+    guardandoEvidencia.value = false
+  }
+}
+
+function abrirDiagnostico(orden) {
+  modalDiagnostico.value = orden
+  diagnosticoForm.value = {
+    diagnostico: orden.diagnostico || '',
+    solucion: orden.trabajo_realizado || '',
+    costo: Number(orden.costo_total || 0) || ''
+  }
+}
+
+function cerrarDiagnostico() {
+  modalDiagnostico.value = null
+  diagnosticoForm.value = { diagnostico: '', solucion: '', costo: '' }
+}
+
+async function guardarDiagnosticoYAutorizar() {
+  const orden = modalDiagnostico.value
+  if (!orden) return
+  const diagnostico = diagnosticoForm.value.diagnostico.trim()
+  const solucion = diagnosticoForm.value.solucion.trim()
+  const costo = Number(diagnosticoForm.value.costo || 0)
+  if (!diagnostico) return alert('Ingresa el diagnóstico técnico.')
+  if (!solucion) return alert('Ingresa la solución o reparación propuesta.')
+  if (costo < 0) return alert('Ingresa un costo válido.')
+  guardandoDiagnostico.value = true
+  try {
+    const { error } = await supabase.from('ordenes').update({ diagnostico, trabajo_realizado: solucion, costo_total: costo }).eq('id', orden.id)
+    if (error) throw error
+    orden.diagnostico = diagnostico
+    orden.trabajo_realizado = solucion
+    orden.costo_total = costo
+    cerrarDiagnostico()
+    await cambiarEstado(orden, 'Esperando autorización', true)
+  } catch (error) {
+    alert(error.message)
+  } finally {
+    guardandoDiagnostico.value = false
+  }
+}
+
+async function accionPrincipal(orden) {
+  if (guardando.value === orden.id) return
+  if (orden.estado === 'Recibido') return cambiarEstado(orden, 'Diagnóstico')
+  if (orden.estado === 'Diagnóstico') return abrirDiagnostico(orden)
+  if (orden.estado === 'Esperando autorización') return cambiarEstado(orden, 'En reparación')
+  if (orden.estado === 'Esperando pieza') return cambiarEstado(orden, 'En reparación')
+  if (orden.estado === 'En reparación') {
+    const trabajo = window.prompt('Describe el trabajo realizado antes de marcar la reparación como terminada:', orden.trabajo_realizado || '')
+    if (trabajo === null) return
+    if (!trabajo.trim()) return alert('Debes registrar el trabajo realizado.')
+    const { error } = await supabase.from('ordenes').update({ trabajo_realizado: trabajo.trim() }).eq('id', orden.id)
+    if (error) return alert(error.message)
+    orden.trabajo_realizado = trabajo.trim()
+    return cambiarEstado(orden, 'Reparado')
+  }
+  if (orden.estado === 'Reparado') return cambiarEstado(orden, 'En pruebas')
+  if (orden.estado === 'Listo') return cambiarEstado(orden, 'Entregado')
+}
+
+function etiquetaAccion(orden) {
+  const mapa = {
+    'Recibido': '🔎 Iniciar diagnóstico',
+    'Diagnóstico': '📋 Registrar diagnóstico',
+    'Esperando autorización': '🔧 Cliente autorizó · Reparar',
+    'Esperando pieza': '🔧 Refacción recibida · Reparar',
+    'En reparación': '✓ Terminar reparación',
+    'Reparado': '🧪 Pasar a pruebas',
+    'Listo': '📦 Marcar entregado'
+  }
+  return mapa[orden.estado] || ''
+}
+
+async function cambiarEstado(orden, nuevoEstado, evidenciaValidada = false) {
   if (orden.estado === nuevoEstado) return
+  if (nuevoEstado === 'Esperando autorización' && !evidenciaValidada && (!orden.diagnostico || !orden.trabajo_realizado)) { abrirDiagnostico(orden); return }
+  if (nuevoEstado === 'En pruebas' && !evidenciaValidada) {
+    try {
+      const ok = await solicitarEvidenciaInterna(orden)
+      if (!ok) return
+    } catch (error) {
+      alert(error.message)
+      return
+    }
+  }
+  if (nuevoEstado === 'Listo') {
+    const [{ data: controles, error: ec }, { data: fotos, error: ef }] = await Promise.all([
+      supabase.from('control_calidad_orden').select('estado').eq('orden_id', orden.id),
+      supabase.from('evidencias').select('tipo').eq('orden_id', orden.id).eq('tipo', 'Salida')
+    ])
+    if (ec || ef || !controles?.length || controles.some(c => c.estado === 'No probado') || !fotos?.length) {
+      alert('Antes de marcar como Listo completa el Control de calidad y la evidencia de salida.')
+      return
+    }
+  }
   guardando.value = orden.id
 
   if (['Listo', 'Entregado', 'Cancelado'].includes(nuevoEstado) && orden.produccion?.corriendo) await pausarSilencioso(orden)
@@ -389,7 +549,7 @@ async function cambiarEstado(orden, nuevoEstado) {
 
   const etapaMap = {
     'Recibido': 'por_hacer', 'Diagnóstico': 'diagnostico', 'Esperando autorización': 'diagnostico',
-    'Esperando pieza': 'reparacion', 'En reparación': 'reparacion', 'Listo': 'listo',
+    'Esperando pieza': 'reparacion', 'En reparación': 'reparacion', 'Reparado': 'reparacion', 'En pruebas': 'pruebas', 'Listo': 'listo',
     'Entregado': 'listo', 'Garantía': 'por_hacer', 'Cancelado': 'por_hacer'
   }
 
@@ -413,7 +573,6 @@ async function cambiarPrioridad(orden, prioridad) {
 async function iniciar(orden) {
   if (orden.produccion?.corriendo) return
   const iso = new Date().toISOString()
-  if (['Recibido', 'Diagnóstico'].includes(orden.estado)) await cambiarEstado(orden, 'En reparación')
 
   await guardarProduccion(orden, {
     corriendo: true,
@@ -563,12 +722,10 @@ onBeforeUnmount(() => {
           <p class="failure">▧ {{ orden.falla_reportada || 'Sin falla reportada' }}</p>
 
           <div class="main-controls">
-            <label>
-              <span>Estado</span>
-              <select :value="orden.estado" @change="cambiarEstado(orden, $event.target.value)">
-                <option v-for="e in estados" :key="e.value" :value="e.value">{{ e.label }}</option>
-              </select>
-            </label>
+            <div class="stage-box">
+              <span>Etapa actual</span>
+              <strong>{{ etiquetaEstado(orden.estado) }}</strong>
+            </div>
 
             <div class="worked-time">
               <span>Tiempo trabajado</span>
@@ -576,6 +733,11 @@ onBeforeUnmount(() => {
             </div>
           </div>
 
+          <div class="workflow-actions">
+            <button v-if="etiquetaAccion(orden)" type="button" class="workflow-primary" :disabled="guardando === orden.id" @click="accionPrincipal(orden)">{{ etiquetaAccion(orden) }}</button>
+            <button v-if="orden.estado === 'Esperando autorización'" type="button" class="workflow-secondary" @click="cambiarEstado(orden, 'Esperando pieza')">📦 Esperar refacción</button>
+            <router-link v-if="orden.estado === 'En pruebas'" :to="`/taller/${orden.id}/control`" class="quality-link">🧪 Realizar pruebas y evidencia final</router-link>
+          </div>
           <div class="card-footer">
             <div class="fixed-tech">
               <span>Técnico</span>
@@ -591,6 +753,34 @@ onBeforeUnmount(() => {
         </div>
       </article>
     </div>
+
+    <div v-if="modalDiagnostico" class="evidence-modal-backdrop" @click.self="cerrarDiagnostico">
+      <section class="evidence-modal">
+        <div class="evidence-modal-head"><div><span>DIAGNÓSTICO TÉCNICO</span><h2>Enviar a autorización</h2></div><button type="button" @click="cerrarDiagnostico">×</button></div>
+        <p>Antes de esperar la autorización del cliente, deja documentado qué se encontró y qué se propone hacer.</p>
+        <label class="repair-description"><span>Diagnóstico encontrado *</span><textarea v-model="diagnosticoForm.diagnostico" rows="3" placeholder="Ej. Consumo anormal en circuito de carga; batería degradada."></textarea></label>
+        <label class="repair-description"><span>Solución propuesta *</span><textarea v-model="diagnosticoForm.solucion" rows="3" placeholder="Ej. Sustituir batería y reparar circuito de carga."></textarea></label>
+        <label class="repair-description"><span>Costo cotizado *</span><input v-model="diagnosticoForm.costo" type="number" min="0" step="1" placeholder="0"></label>
+        <div class="evidence-modal-actions"><button type="button" class="cancel-evidence" @click="cerrarDiagnostico">Cancelar</button><button type="button" class="save-evidence" :disabled="guardandoDiagnostico" @click="guardarDiagnosticoYAutorizar">{{ guardandoDiagnostico ? 'Guardando...' : 'Guardar y esperar autorización' }}</button></div>
+      </section>
+    </div>
+
+    <div v-if="modalEvidencia" class="evidence-modal-backdrop" @click.self="cerrarEvidenciaInterna">
+      <section class="evidence-modal">
+        <div class="evidence-modal-head">
+          <div><span>EVIDENCIA DE REPARACIÓN</span><h2>Antes de pasar a pruebas</h2></div>
+          <button type="button" @click="cerrarEvidenciaInterna">×</button>
+        </div>
+        <p>Documenta cómo quedó el interior del equipo después de la reparación. Esta evidencia quedará vinculada permanentemente a la orden <strong>{{ modalEvidencia.folio }}</strong>.</p>
+        <label class="internal-photo-box">
+          <img v-if="previewInterna" :src="previewInterna" alt="Evidencia interna de reparación">
+          <div v-else><b>📷 Tomar foto del interior</b><small>Obligatoria para iniciar las pruebas</small></div>
+          <input type="file" accept="image/*" capture="environment" @change="seleccionarFotoInterna">
+        </label>
+        <label class="repair-description"><span>Trabajo realizado *</span><textarea v-model="descripcionInterna" rows="3" placeholder="Ej. Reparación de circuito de carga, reemplazo de IC y limpieza de zona intervenida."></textarea></label>
+        <div class="evidence-modal-actions"><button type="button" class="cancel-evidence" @click="cerrarEvidenciaInterna">Cancelar</button><button type="button" class="save-evidence" :disabled="guardandoEvidencia" @click="guardarEvidenciaInterna">{{ guardandoEvidencia ? 'Guardando...' : 'Guardar y pasar a pruebas' }}</button></div>
+      </section>
+    </div>
   </section>
 </template>
 
@@ -604,4 +794,9 @@ onBeforeUnmount(() => {
   letter-spacing: .01em;
 }
 .priority-copy small{font-size:.68rem;font-weight:700;margin-top:2px}.date-block{border:0;border-left:1px solid rgba(16,32,68,.1);background:rgba(255,255,255,.35);display:grid;grid-template-columns:28px 1fr auto;align-items:center;gap:7px;text-align:left;padding:10px 12px;cursor:pointer;color:inherit}.date-icon{font-size:1.2rem}.date-block span:nth-child(2){display:flex;flex-direction:column;min-width:0}.date-block small{font-size:.63rem}.date-block strong{font-size:.69rem;line-height:1.25;margin-top:2px}.date-block b{font-size:1.25rem}.priority-card-urgente{border-color:#ff8379}.priority-card-urgente .priority-banner{background:linear-gradient(90deg,#ffd5d1,#ffe8e5);color:#bd1c12}.priority-card-urgente .priority-icon{background:#d92d20;color:#fff}.priority-card-alta{border-color:#f7bc52}.priority-card-alta .priority-banner{background:linear-gradient(90deg,#ffe8b7,#fff3d2);color:#d96b00}.priority-card-alta .priority-icon{background:#f79009;color:#fff}.priority-card-normal .priority-banner{background:#f8fafc;color:#102044}.priority-card-normal .priority-icon{background:#dce4ef;color:#34445f}.priority-card-baja .priority-banner{background:#f0faf5;color:#137a55}.priority-card-baja .priority-icon{background:#d8f2e6;color:#137a55}.date-editor{display:grid;grid-template-columns:1fr auto auto auto;gap:6px;padding:9px 12px;background:#f8fbff;border-bottom:1px solid #e0e7f0}.date-field{display:flex;flex-direction:column;gap:4px}.date-field label{font-size:.62rem;font-weight:800;color:var(--ts-muted,#64748b)}.date-editor select{border:1px solid var(--ts-border,#dbe3ee);border-radius:9px;padding:8px 9px;background:var(--ts-surface,#fff);color:var(--ts-text,#0f172a)}.date-schedule{grid-column:1/-1;color:var(--ts-muted,#64748b);font-size:.64rem;font-weight:700}.date-editor input{min-width:0;border:1px solid #cdd8e6;border-radius:8px;padding:7px 8px}.date-editor button{border:0;border-radius:8px;padding:7px 9px;font-weight:800;font-size:.68rem;cursor:pointer}.save-date{background:#0b43ff;color:white}.clear-date{background:#fff1f0;color:#b42318}.cancel-date{background:#eef2f7;color:#53627a}.card-body{padding:14px}.folio{color:#0b43ff;text-decoration:none;font-size:.72rem;font-weight:900}.equipment-link{display:block;color:#102044;text-decoration:none;margin:6px 0 3px}.equipment-link strong{font-size:1rem;line-height:1.28}.client{margin:0 0 8px;color:#50617d;font-size:.76rem}.failure{font-size:.76rem;color:#42526d;line-height:1.42;margin:0 0 14px;min-height:2.15em;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}.main-controls{display:grid;grid-template-columns:1fr .72fr;gap:14px;align-items:end}.main-controls label,.worked-time,.fixed-tech{display:flex;flex-direction:column;gap:5px}.main-controls label>span,.worked-time>span,.fixed-tech>span{font-size:.65rem;font-weight:750;color:#6a7890}.main-controls select{width:100%;min-width:0;border:1px solid #d3dce8;background:#fff;border-radius:9px;padding:9px;color:#243551;font-size:.75rem}.worked-time strong{font-size:.78rem;color:#102044;padding:8px 0}.card-footer{display:flex;align-items:flex-end;justify-content:space-between;gap:12px;border-top:1px solid #eef1f5;margin-top:12px;padding-top:11px}.fixed-tech strong{background:#edf2f8;border-radius:7px;padding:6px 9px;font-size:.72rem;color:#233653}.timer-btn{min-width:128px;border:0;border-radius:8px;padding:10px 13px;font-size:.74rem;font-weight:850;cursor:pointer}.timer-btn.start{background:#0b43ff;color:#fff}.timer-btn.pause{background:#102044;color:#fff}.timer-btn:disabled{opacity:.45}.finished-label{font-weight:850;color:#526079;background:#edf2f8;border-radius:999px;padding:7px 10px;font-size:.7rem}.empty{background:#fff;border:1px solid #e4e7ec;border-radius:14px;padding:36px;text-align:center;color:#667085}@media(max-width:1300px){.metrics{grid-template-columns:repeat(3,1fr)}.toolbar{grid-template-columns:1.4fr repeat(2,1fr)}.toolbar .search-box{grid-column:1/-1}.orders-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}@media(max-width:900px){.workshop-header{flex-direction:column}.header-actions{width:100%;justify-content:flex-start}.day-control{flex:1}.day-control label{min-width:0;flex:1}.metrics{grid-template-columns:repeat(2,1fr)}.toolbar{grid-template-columns:1fr 1fr}.orders-grid{grid-template-columns:1fr}}@media(max-width:560px){.header-actions{display:grid;grid-template-columns:1fr 1fr}.day-control{grid-column:1/-1}.calendar-action,.primary-action{justify-content:center;padding:0 9px}.metrics{grid-template-columns:1fr 1fr}.toolbar{grid-template-columns:1fr}.toolbar>*{grid-column:1!important}.priority-banner{grid-template-columns:1fr}.date-block{border-left:0;border-top:1px solid rgba(16,32,68,.1)}.date-editor{grid-template-columns:1fr 1fr}.date-editor input{grid-column:1/-1}.main-controls{grid-template-columns:1fr}.card-footer{align-items:stretch;flex-direction:column}.timer-btn{width:100%}}
+.quality-link{display:block;margin-top:10px;border:1px solid #bdd0ff;background:#f5f8ff;color:#0b43ff;border-radius:9px;padding:9px 10px;text-align:center;text-decoration:none;font-size:.72rem;font-weight:850}
+
+.evidence-modal-backdrop{position:fixed;inset:0;background:rgba(15,23,42,.58);display:grid;place-items:center;padding:20px;z-index:1000}.evidence-modal{width:min(620px,100%);background:#fff;border-radius:18px;padding:22px;box-shadow:0 24px 70px rgba(15,23,42,.28)}.evidence-modal-head{display:flex;justify-content:space-between;gap:16px;align-items:flex-start}.evidence-modal-head span{font-size:.68rem;font-weight:900;letter-spacing:.08em;color:#0b43ff}.evidence-modal-head h2{margin:4px 0 0;font-size:1.45rem}.evidence-modal-head>button{border:0;background:#eef2f7;border-radius:50%;width:34px;height:34px;font-size:1.35rem;cursor:pointer}.evidence-modal>p{color:#64748b;font-size:.82rem;line-height:1.5}.internal-photo-box{display:block;border:2px dashed #b9c8dd;border-radius:14px;overflow:hidden;background:#f8fbff;cursor:pointer;margin:16px 0}.internal-photo-box input{display:none}.internal-photo-box img{display:block;width:100%;height:260px;object-fit:cover}.internal-photo-box>div{height:190px;display:grid;place-items:center;align-content:center;gap:7px;color:#0b43ff}.internal-photo-box small{color:#64748b}.repair-description{display:flex;flex-direction:column;gap:6px}.repair-description span{font-size:.72rem;font-weight:850}.repair-description textarea{border:1px solid #d7e0eb;border-radius:10px;padding:10px;resize:vertical;font:inherit}.evidence-modal-actions{display:flex;justify-content:flex-end;gap:9px;margin-top:16px}.evidence-modal-actions button{border-radius:10px;padding:10px 14px;font-weight:850;cursor:pointer}.cancel-evidence{background:#fff;border:1px solid #d7e0eb;color:#344054}.save-evidence{border:1px solid #0b43ff;background:#0b43ff;color:#fff}.save-evidence:disabled{opacity:.5}
+
+.stage-box{display:flex;flex-direction:column;gap:5px}.stage-box span{font-size:.65rem;font-weight:750;color:#6a7890}.stage-box strong{border:1px solid #d7e0eb;background:#f8fbff;border-radius:9px;padding:9px 10px;color:#0b43ff;font-size:.78rem}.workflow-actions{display:grid;gap:8px;margin-top:10px}.workflow-primary,.workflow-secondary{border-radius:9px;padding:10px 12px;font-size:.74rem;font-weight:850;cursor:pointer}.workflow-primary{border:1px solid #0b43ff;background:#0b43ff;color:#fff}.workflow-secondary{border:1px solid #cbd5e1;background:#fff;color:#334155}.workflow-primary:disabled{opacity:.5}.repair-description input{border:1px solid #d7e0eb;border-radius:10px;padding:10px;font:inherit}.quality-link{display:block;margin-top:0!important}
 </style>
