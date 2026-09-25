@@ -482,4 +482,215 @@ onMounted(cargarAgenda)
   }
 }
 
+
+
+/* =========================================================
+   FIX RESPONSIVE MÓVIL
+   Fuerza una tarjeta de ancho completo y evita que el texto
+   se comprima letra por letra dentro del timeline.
+   ========================================================= */
+@media (max-width: 760px) {
+  .agenda-board,
+  .agenda-timeline,
+  .agenda-event,
+  .agenda-card {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
+  }
+
+  .agenda-board {
+    overflow: hidden;
+  }
+
+  .board-heading {
+    padding: 16px;
+    gap: 12px;
+  }
+
+  .board-heading > div {
+    min-width: 0;
+  }
+
+  .agenda-timeline {
+    padding: 10px 14px 16px;
+  }
+
+  .agenda-event {
+    display: block !important;
+    min-height: 0;
+    padding-bottom: 12px;
+  }
+
+  .agenda-time {
+    width: 100%;
+    padding: 8px 2px 6px;
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 7px;
+    text-align: left;
+    white-space: nowrap;
+  }
+
+  .agenda-time strong,
+  .agenda-time small {
+    margin: 0;
+  }
+
+  .agenda-time small::before {
+    content: "– ";
+  }
+
+  .timeline-marker {
+    display: none !important;
+  }
+
+  .agenda-card {
+    display: block;
+    margin: 0;
+    padding: 14px;
+    overflow: hidden;
+  }
+
+  .agenda-title-row {
+    width: 100%;
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .agenda-title {
+    display: flex;
+    flex: 1 1 auto;
+    min-width: 0;
+    flex-wrap: wrap;
+    gap: 7px;
+  }
+
+  .agenda-kind,
+  .agenda-folio,
+  .duration-pill,
+  .status-pill {
+    width: auto;
+    max-width: 100%;
+    white-space: nowrap;
+    word-break: normal !important;
+    overflow-wrap: normal !important;
+  }
+
+  .duration-pill {
+    flex: 0 0 auto;
+    margin-left: auto;
+  }
+
+  .client-name,
+  .service-line,
+  .service-line b {
+    width: 100%;
+    min-width: 0;
+    white-space: normal;
+    word-break: normal !important;
+    overflow-wrap: break-word !important;
+  }
+
+  .client-name {
+    display: block;
+    margin-top: 10px;
+    font-size: 1rem;
+    line-height: 1.35;
+  }
+
+  .service-line {
+    display: block;
+    line-height: 1.45;
+    margin: 6px 0 12px;
+  }
+
+  .service-line b {
+    display: block;
+    margin-bottom: 2px;
+  }
+
+  .service-line > span {
+    display: none;
+  }
+
+  .event-footer {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+
+  .status-pill {
+    align-self: flex-start;
+  }
+
+  .agenda-row-actions {
+    width: 100%;
+    min-width: 0;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 8px;
+  }
+
+  .agenda-row-actions select {
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .agenda-delete {
+    white-space: nowrap;
+  }
+
+  .open-order {
+    width: 100%;
+    text-align: center;
+  }
+}
+
+@media (max-width: 480px) {
+  .board-heading {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .board-count {
+    align-self: flex-start;
+  }
+
+  .agenda-timeline {
+    padding: 8px 10px 14px;
+  }
+
+  .agenda-card {
+    padding: 13px 12px;
+    border-radius: 14px;
+  }
+
+  .agenda-title-row {
+    align-items: flex-start;
+  }
+
+  .duration-pill {
+    margin-left: 0;
+  }
+
+  .agenda-row-actions {
+    grid-template-columns: 1fr;
+  }
+
+  .agenda-delete,
+  .agenda-row-actions select {
+    width: 100%;
+  }
+}
+
 </style>
