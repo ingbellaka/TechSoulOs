@@ -29,6 +29,7 @@ import UsuariosView from '../views/UsuariosView.vue'
 import TarifarioView from '../views/TarifarioView.vue'
 import CotizadorView from '../views/CotizadorView.vue'
 import RentabilidadView from '../views/RentabilidadView.vue'
+import FirmaGarantiaPublicaView from '../views/FirmaGarantiaPublicaView.vue'
 
 /* Módulos desactivados por simplificación (código intacto en src/views, solo
    desconectados del router y del menú). Para reactivar alguno: descomenta su
@@ -47,6 +48,7 @@ const routes = [
   { path: '/login', name: 'login', component: LoginView, meta: { public: true, guestOnly: true } },
   { path: '/recuperar-contrasena', name: 'recuperarContrasena', component: RecuperarContrasenaView, meta: { public: true, guestOnly: true } },
   { path: '/restablecer-contrasena', name: 'restablecerContrasena', component: RestablecerContrasenaView, meta: { public: true } },
+  { path: '/firma-garantia/:token', name: 'firmaGarantiaPublica', component: FirmaGarantiaPublicaView, meta: { public: true } },
   { path: '/sin-permiso', name: 'sinPermiso', component: SinPermisoView },
   { path: '/', name: 'dashboard', component: DashboardView },
   { path: '/clientes', name: 'clientes', component: ClientesView, meta: { roles: OPERACION } },

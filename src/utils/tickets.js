@@ -86,6 +86,8 @@ export function buildTicketOrdenServicio({ orden, negocio = {}, paymentMethod = 
 
   return {
     kind: 'service-order',
+    orderId: orden?.id || null,
+    status: orden?.estado || '',
     title: 'COMPROBANTE DE PAGO',
     folio: orden?.folio || `TS-${String(orden?.id || 0).padStart(6, '0')}`,
     reference: '',

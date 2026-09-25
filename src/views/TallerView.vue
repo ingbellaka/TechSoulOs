@@ -2,6 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { supabase } from '../lib/supabase'
 import { subirEvidencia } from '../lib/storage'
+import { asegurarFirmaGarantiaPorOrden, abrirWhatsAppFirma } from '../services/garantia-firma.service'
 
 const cargando = ref(true)
 const guardando = ref(null)
@@ -561,6 +562,19 @@ async function cambiarEstado(orden, nuevoEstado, evidenciaValidada = false) {
   await registrarHistorial(orden, `Estado cambiado a ${etiquetaEstado(nuevoEstado)}`,
     `La orden cambió de ${etiquetaEstado(anterior)} a ${etiquetaEstado(nuevoEstado)} desde el Panel de Taller.`,
     { tipo: 'estado', estado_anterior: anterior, estado_nuevo: nuevoEstado })
+
+  if (nuevoEstado === 'Listo') {
+    try {
+      const firma = await asegurarFirmaGarantiaPorOrden(orden.id)
+      if (firma) {
+        const enviar = window.confirm('Equipo listo ✓\n\n¿Enviar al cliente su garantía para firma digital por WhatsApp?')
+        if (enviar) abrirWhatsAppFirma(firma)
+      }
+    } catch (e) {
+      console.warn('Firma digital de garantía:', e)
+      alert(`La orden quedó como Listo, pero no se pudo preparar la firma digital: ${e.message}`)
+    }
+  }
 }
 
 async function cambiarPrioridad(orden, prioridad) {
