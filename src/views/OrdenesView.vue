@@ -165,47 +165,35 @@ function cerrarGasto() {
 async function registrarGasto() {
   const orden = gastoModal.value
   if (!orden || guardandoGasto.value) return
-
   const concepto = String(gastoForm.value.concepto || '').trim()
-  const monto = Number(gastoForm.value.monto || 0)
+  const monto = Number(gastoForm.value.monto)
+  const metodo = gastoForm.value.metodo_pago
   errorGasto.value = ''
-
-  if (!concepto) {
-    errorGasto.value = 'Escribe el concepto del gasto.'
-    return
-  }
-  if (pagos.some(p => !p.metodo || !Number.isFinite(Number(p.monto)) || Number(p.monto) < 0 || (pagos.length > 1 && Number(p.monto) <= 0)) || !monto || monto <= 0) {
-    errorGasto.value = 'Ingresa un monto mayor a $0.00.'
-    return
-  }
-
+  if (!concepto) { errorGasto.value = 'Escribe el concepto del gasto.'; return }
+  if (!Number.isFinite(monto) || monto <= 0) { errorGasto.value = 'Ingresa un monto mayor a $0.00.'; return }
+  if (!['Efectivo', 'Transferencia', 'Tarjeta'].includes(metodo)) { errorGasto.value = 'Selecciona un método de pago válido.'; return }
   guardandoGasto.value = true
-  const notas = [orden.folio, String(gastoForm.value.notas || '').trim()].filter(Boolean).join(' · ')
-  const { error } = await supabase.from('movimientos_caja').insert({
-    tipo: 'Salida',
-    concepto,
-    monto,
-    metodo_pago: gastoForm.value.metodo_pago,
-    referencia_tipo: 'orden',
-    referencia_id: orden.id,
-    notas
-  })
-
-  if (error) {
+  try {
+    const notas = [orden.folio, String(gastoForm.value.notas || '').trim()].filter(Boolean).join(' · ')
+    const { error } = await supabase.from('movimientos_caja').insert({
+      tipo: 'Salida', concepto, monto, metodo_pago: metodo,
+      referencia_tipo: 'orden', referencia_id: orden.id, notas
+    })
+    if (error) throw error
+    // La salida ya está guardada: cierra el formulario para evitar repetirla.
+    gastoModal.value = null
+    try {
+      await registrarHistorial(orden.id, 'gasto', 'Gasto registrado', `${concepto}: ${moneda(monto)} por ${metodo}.`)
+    } catch {
+      alert('El gasto se guardó en Caja, pero no se pudo agregar al historial de la orden.')
+      return
+    }
+    alert('Gasto registrado correctamente en Caja.')
+  } catch (error) {
+    errorGasto.value = error.message || 'No se pudo registrar el gasto. Inténtalo de nuevo.'
+  } finally {
     guardandoGasto.value = false
-    errorGasto.value = error.message
-    return
   }
-
-  await registrarHistorial(
-    orden.id,
-    'gasto',
-    'Gasto registrado',
-    `${concepto}: ${moneda(monto)} por ${gastoForm.value.metodo_pago}.`
-  )
-
-  guardandoGasto.value = false
-  gastoModal.value = null
 }
 
 function abrirPago(orden) {
