@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { supabase } from '../lib/supabase'
 import { subirEvidencia } from '../lib/storage'
 import { asegurarFirmaGarantiaPorOrden, abrirWhatsAppFirma } from '../services/garantia-firma.service'
@@ -20,11 +20,86 @@ const ahora = ref(Date.now())
 const modalEvidencia = ref(null)
 const fotoInterna = ref(null)
 const previewInterna = ref('')
-const descripcionInterna = ref('')
 const guardandoEvidencia = ref(false)
 const modalDiagnostico = ref(null)
 const diagnosticoForm = ref({ diagnostico: '', solucion: '', costo: '' })
 const guardandoDiagnostico = ref(false)
+const fotosDiagnostico = ref([null, null])
+const previewsDiagnostico = ref(['', ''])
+const camaraDestino = ref(null)
+const videoCamara = ref(null)
+const errorCamara = ref('')
+const iniciandoCamara = ref(false)
+let streamCamara = null
+let solicitudCamara = 0
+
+function limpiarFotosDiagnostico() {
+  previewsDiagnostico.value.forEach(url => { if (url) URL.revokeObjectURL(url) })
+  previewsDiagnostico.value = ['', '']
+  fotosDiagnostico.value = [null, null]
+}
+
+function asignarFotoDiagnostico(file, indice) {
+  if (!file) return
+  if (!file.type.startsWith('image/')) return notificar('Selecciona una imagen.', 'error')
+  if (previewsDiagnostico.value[indice]) URL.revokeObjectURL(previewsDiagnostico.value[indice])
+  fotosDiagnostico.value[indice] = file
+  previewsDiagnostico.value[indice] = URL.createObjectURL(file)
+}
+
+function seleccionarFotoDiagnostico(event, indice) {
+  asignarFotoDiagnostico(event.target.files?.[0], indice)
+  event.target.value = ''
+}
+
+function cerrarCamara() {
+  solicitudCamara++
+  streamCamara?.getTracks().forEach(track => track.stop())
+  streamCamara = null
+  if (videoCamara.value) videoCamara.value.srcObject = null
+  camaraDestino.value = null
+  iniciandoCamara.value = false
+}
+
+async function abrirCamara(destino) {
+  cerrarCamara()
+  camaraDestino.value = destino
+  errorCamara.value = ''
+  iniciandoCamara.value = true
+  const solicitud = solicitudCamara
+  try {
+    if (!navigator.mediaDevices?.getUserMedia) throw new Error('La cámara requiere HTTPS y un navegador compatible. Puedes usar la opción de cámara o galería del dispositivo.')
+    const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' } }, audio: false })
+    if (solicitud !== solicitudCamara || !camaraDestino.value) { stream.getTracks().forEach(track => track.stop()); return }
+    streamCamara = stream
+    await nextTick()
+    if (!videoCamara.value) throw new Error('No se pudo iniciar la vista previa.')
+    videoCamara.value.srcObject = stream
+    await videoCamara.value.play()
+  } catch (error) {
+    if (solicitud !== solicitudCamara) return
+    streamCamara?.getTracks().forEach(track => track.stop())
+    streamCamara = null
+    errorCamara.value = error.name === 'NotAllowedError' ? 'Permite el acceso a la cámara para tomar la foto. También puedes usar cámara o galería del dispositivo.' : error.message
+  } finally {
+    if (solicitud === solicitudCamara) iniciandoCamara.value = false
+  }
+}
+
+async function capturarFoto() {
+  const video = videoCamara.value
+  const destino = camaraDestino.value
+  if (!video?.videoWidth || !destino) return
+  const canvas = document.createElement('canvas')
+  canvas.width = video.videoWidth; canvas.height = video.videoHeight
+  canvas.getContext('2d').drawImage(video, 0, 0)
+  const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.9))
+  if (!blob || destino !== camaraDestino.value) return
+  const file = new File([blob], `evidencia-${Date.now()}.jpg`, { type: 'image/jpeg' })
+  if (destino.tipo === 'diagnostico') asignarFotoDiagnostico(file, destino.indice)
+  else asignarFotoInterna(file)
+  cerrarCamara()
+}
 
 // UI TechSoul
 const toast = ref({ visible: false, mensaje: '', tipo: 'success' })
@@ -149,7 +224,7 @@ const estados = [
   { value: 'Recibido', label: 'Recibido' },
   { value: 'Diagnóstico', label: 'Diagnóstico' },
   { value: 'Esperando autorización', label: 'Esperando autorización' },
-  { value: 'Esperando pieza', label: 'Esperando pieza' },
+  { value: 'Esperando pieza', label: 'Esperando refacción' },
   { value: 'En reparación', label: 'En reparación' },
   { value: 'Reparado', label: 'Reparado' },
   { value: 'En pruebas', label: 'En pruebas' },
@@ -282,7 +357,7 @@ async function cargar() {
   const [ordenesRes, citasRes] = await Promise.all([
     supabase
       .from('ordenes')
-      .select('id,folio,estado,falla_reportada,diagnostico,trabajo_realizado,costo_total,fecha_ingreso,created_at,updated_at,fecha_programada,duracion_estimada_min,clientes(nombre,telefono),equipos(tipo_equipo,marca,modelo),orden_produccion(*)')
+      .select('id,folio,estado,falla_reportada,diagnostico,trabajo_realizado,costo_total,fecha_ingreso,created_at,updated_at,fecha_programada,duracion_estimada_min,clientes(nombre,telefono),equipos(tipo_equipo,marca,modelo),orden_servicios(tipo_servicio,descripcion,precio,orden_visual),orden_produccion(*)')
       .order('fecha_ingreso', { ascending: false })
       .limit(300),
     supabase
@@ -472,17 +547,25 @@ async function pausarSilencioso(orden) {
 
 function seleccionarFotoInterna(event) {
   const file = event.target.files?.[0] || null
+  if (!file) return
+  asignarFotoInterna(file)
+  event.target.value = ''
+}
+
+function asignarFotoInterna(file) {
+  if (!file?.type.startsWith('image/')) return notificar('Selecciona una imagen.', 'error')
   fotoInterna.value = file
   if (previewInterna.value) URL.revokeObjectURL(previewInterna.value)
   previewInterna.value = file ? URL.createObjectURL(file) : ''
 }
 
 function cerrarEvidenciaInterna() {
+  if (guardandoEvidencia.value) return
+  cerrarCamara()
   if (previewInterna.value) URL.revokeObjectURL(previewInterna.value)
   modalEvidencia.value = null
   fotoInterna.value = null
   previewInterna.value = ''
-  descripcionInterna.value = ''
 }
 
 async function solicitarEvidenciaInterna(orden) {
@@ -490,7 +573,7 @@ async function solicitarEvidenciaInterna(orden) {
     .from('evidencias')
     .select('id')
     .eq('orden_id', orden.id)
-    .eq('tipo', 'Reparación interna')
+    .eq('tipo', 'Blindajes antes de cierre')
     .limit(1)
   if (error) throw error
   if (data?.length) return true
@@ -500,25 +583,25 @@ async function solicitarEvidenciaInterna(orden) {
 
 async function guardarEvidenciaInterna() {
   const orden = modalEvidencia.value
-  if (!orden) return
-  if (!fotoInterna.value) return notificar('Toma o selecciona una fotografía del interior del equipo ya reparado.', 'error')
-  if (!descripcionInterna.value.trim()) return notificar('Describe brevemente el trabajo realizado antes de pasar a pruebas.', 'error')
+  if (!orden || guardandoEvidencia.value) return
+  if (!fotoInterna.value) return notificar('Toma una fotografía del interior con los blindajes colocados antes de cerrar el equipo.', 'error')
   guardandoEvidencia.value = true
   try {
     const url = await subirEvidencia(fotoInterna.value, `orden-${orden.id}/reparacion-interna`)
     const { error } = await supabase.from('evidencias').insert({
       orden_id: orden.id,
-      tipo: 'Reparación interna',
+      tipo: 'Blindajes antes de cierre',
       url_imagen: url,
-      descripcion: descripcionInterna.value.trim()
+      descripcion: 'Interior con blindajes colocados antes del cierre.'
     })
     if (error) throw error
     await supabase.from('orden_historial').insert({
       orden_id: orden.id,
       tipo: 'evidencia',
-      titulo: 'Evidencia interna registrada',
-      descripcion: descripcionInterna.value.trim()
+      titulo: 'Blindajes documentados antes del cierre',
+      descripcion: 'Se documentaron los blindajes colocados antes de cerrar el equipo.'
     })
+    guardandoEvidencia.value = false
     cerrarEvidenciaInterna()
     await cambiarEstado(orden, 'En pruebas', true)
   } catch (error) {
@@ -528,36 +611,106 @@ async function guardarEvidenciaInterna() {
   }
 }
 
+function sugerirSolucion(orden) {
+  const servicios = [...(orden.orden_servicios || [])].sort((a, b) => (a.orden_visual || 0) - (b.orden_visual || 0))
+  return servicios.map(servicio => {
+    const tipo = String(servicio.tipo_servicio || '').toLowerCase()
+    const detalle = String(servicio.descripcion || '').toLowerCase()
+    let componente = ''
+    if (/cristal.*cámara/.test(tipo)) componente = 'el cristal protector de la cámara'
+    else if (/cristal trasero/.test(detalle)) componente = 'el cristal trasero'
+    else if (/tapa/.test(tipo)) componente = 'la tapa trasera'
+    else if (/pantalla/.test(tipo)) componente = 'la pantalla'
+    else if (/batería/.test(tipo)) componente = 'la batería'
+    if (componente) return `Para darle solución al problema de su equipo, es necesario reemplazar ${componente}.`
+    if (/centro de carga/.test(tipo)) return 'Para darle solución al problema de carga de su equipo, es necesario intervenir el centro de carga conforme al diagnóstico.'
+    if (/diagnóstico/.test(tipo)) return 'Es necesario realizar pruebas en su equipo para identificar la causa del problema y definir la reparación adecuada.'
+    return `Para atender el problema de su equipo, proponemos realizar el servicio de ${servicio.tipo_servicio}.`
+  }).join('\n\n')
+}
+
+function nombreServicioCliente(servicio) {
+  const detalle = String(servicio.descripcion || '').toLowerCase()
+  if (/cristal trasero/.test(detalle)) return 'Reemplazo de cristal trasero'
+  if (/cristal de cámara|cristal.*cámara/.test(detalle)) return 'Reemplazo de cristal de cámara'
+  return servicio.tipo_servicio || 'Servicio de reparación'
+}
+
+function mensajeDiagnostico(orden) {
+  const equipo = [orden.equipos?.marca, orden.equipos?.modelo].filter(Boolean).join(' ') || 'No especificado'
+  const moneda = monto => Number(monto || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN' })
+  const servicios = [...(orden.orden_servicios || [])].sort((a, b) => (a.orden_visual || 0) - (b.orden_visual || 0))
+  const cotizacion = servicios.length ? servicios.map(servicio => [
+    `• Servicio: ${nombreServicioCliente(servicio)}`,
+    `• Precio: *${moneda(servicios.length === 1 ? orden.costo_total : servicio.precio)}*`
+  ].join('\n')).join('\n\n') : `• Precio: *${moneda(orden.costo_total)}*`
+  const diagnostico = String(orden.diagnostico || '').trim()
+  return `Hola 💙 Le compartimos el resultado de la revisión de su equipo.\n\n📱 *Equipo:* ${equipo}\n\n🔎 *Lo que encontramos:*\n${diagnostico}\n\n🛠️ *Solución propuesta:*\n${solucionParaCliente(orden)}\n\n💰 *Cotización:*\n${cotizacion}${servicios.length > 1 ? `\n\n*Total cotizado: ${moneda(orden.costo_total)}*` : ''}\n\n¿Nos autoriza a realizar el trabajo?\nQuedamos atentos a su confirmación. 💙\n\n*TechSoul*`
+}
+
+function solucionParaCliente(orden) {
+  const actual = String(orden.trabajo_realizado || '').trim()
+  const servicios = orden.orden_servicios || []
+  const resumen = servicios.map(s => String(s.descripcion || s.tipo_servicio || '').trim()).filter(Boolean).join(', ')
+  // Amplía únicamente el resumen automático; conserva el texto escrito por el técnico.
+  return (!actual || actual === resumen) ? (sugerirSolucion(orden) || actual) : actual
+}
+
 function abrirDiagnostico(orden) {
   modalDiagnostico.value = orden
+  limpiarFotosDiagnostico()
   diagnosticoForm.value = {
     diagnostico: orden.diagnostico || '',
-    solucion: orden.trabajo_realizado || '',
+    solucion: solucionParaCliente(orden),
     costo: Number(orden.costo_total || 0) || ''
   }
 }
 
+function compartirDiagnostico(orden) {
+  const telefono = String(orden.clientes?.telefono || '').replace(/\D/g, '')
+  if (!telefono) return notificar('Este cliente no tiene teléfono registrado.', 'error')
+  const numero = telefono.length === 10 ? `52${telefono}` : telefono
+  const mensaje = mensajeDiagnostico(orden)
+  window.open(`https://wa.me/${numero}?text=${encodeURIComponent(mensaje)}`, '_blank', 'noopener,noreferrer')
+}
+
 function cerrarDiagnostico() {
+  if (guardandoDiagnostico.value) return
+  cerrarCamara()
   modalDiagnostico.value = null
+  limpiarFotosDiagnostico()
   diagnosticoForm.value = { diagnostico: '', solucion: '', costo: '' }
 }
 
 async function guardarDiagnosticoYAutorizar() {
   const orden = modalDiagnostico.value
-  if (!orden) return
+  if (!orden || guardandoDiagnostico.value) return
   const diagnostico = diagnosticoForm.value.diagnostico.trim()
   const solucion = diagnosticoForm.value.solucion.trim()
   const costo = Number(diagnosticoForm.value.costo || 0)
   if (!diagnostico) return notificar('Ingresa el diagnóstico técnico.', 'error')
   if (!solucion) return notificar('Ingresa la solución o reparación propuesta.', 'error')
   if (costo < 0) return notificar('Ingresa un costo válido.', 'error')
+  if (!fotosDiagnostico.value.every(Boolean)) return notificar('Toma las dos fotografías obligatorias del diagnóstico.', 'error')
   guardandoDiagnostico.value = true
   try {
+    for (const [indice, foto] of fotosDiagnostico.value.entries()) {
+      const descripcion = `Diagnóstico · Foto ${indice + 1} obligatoria`
+      const url = await subirEvidencia(foto, `orden-${orden.id}/diagnostico`)
+      const { data: existentes, error: errorConsulta } = await supabase.from('evidencias').select('id').eq('orden_id', orden.id).eq('tipo', 'Diagnóstico').eq('descripcion', descripcion).limit(1)
+      if (errorConsulta) throw errorConsulta
+      const payload = { orden_id: orden.id, tipo: 'Diagnóstico', url_imagen: url, descripcion }
+      const resultado = existentes?.length
+        ? await supabase.from('evidencias').update(payload).eq('id', existentes[0].id)
+        : await supabase.from('evidencias').insert(payload)
+      if (resultado.error) throw resultado.error
+    }
     const { error } = await supabase.from('ordenes').update({ diagnostico, trabajo_realizado: solucion, costo_total: costo }).eq('id', orden.id)
     if (error) throw error
     orden.diagnostico = diagnostico
     orden.trabajo_realizado = solucion
     orden.costo_total = costo
+    guardandoDiagnostico.value = false
     cerrarDiagnostico()
     await cambiarEstado(orden, 'Esperando autorización', true)
   } catch (error) {
@@ -571,7 +724,6 @@ async function accionPrincipal(orden) {
   if (guardando.value === orden.id) return
   if (orden.estado === 'Recibido') return cambiarEstado(orden, 'Diagnóstico')
   if (orden.estado === 'Diagnóstico') return abrirDiagnostico(orden)
-  if (orden.estado === 'Esperando autorización') return cambiarEstado(orden, 'En reparación')
   if (orden.estado === 'Esperando pieza') return cambiarEstado(orden, 'En reparación')
   if (orden.estado === 'En reparación') {
     abrirModalTrabajo(orden)
@@ -585,7 +737,6 @@ function etiquetaAccion(orden) {
   const mapa = {
     'Recibido': '🔎 Iniciar diagnóstico',
     'Diagnóstico': '📋 Registrar diagnóstico',
-    'Esperando autorización': '🔧 Cliente autorizó · Reparar',
     'Esperando pieza': '🔧 Refacción recibida · Reparar',
     'En reparación': '✓ Terminar reparación',
     'Reparado': '🧪 Pasar a pruebas',
@@ -596,7 +747,7 @@ function etiquetaAccion(orden) {
 
 async function cambiarEstado(orden, nuevoEstado, evidenciaValidada = false) {
   if (orden.estado === nuevoEstado) return
-  if (nuevoEstado === 'Esperando autorización' && !evidenciaValidada && (!orden.diagnostico || !orden.trabajo_realizado)) { abrirDiagnostico(orden); return }
+  if (nuevoEstado === 'Esperando autorización' && !evidenciaValidada) { abrirDiagnostico(orden); return }
   if (nuevoEstado === 'En pruebas' && !evidenciaValidada) {
     try {
       const ok = await solicitarEvidenciaInterna(orden)
@@ -627,6 +778,10 @@ async function cambiarEstado(orden, nuevoEstado, evidenciaValidada = false) {
 
   orden.estado = nuevoEstado
   orden.updated_at = new Date().toISOString()
+  if (nuevoEstado === 'Diagnóstico' && !orden.produccion?.iniciado_en) {
+    const iso = new Date().toISOString()
+    await guardarProduccion(orden, { corriendo: true, iniciado_en: iso, ultima_reanudacion_en: iso })
+  }
 
   const etapaMap = {
     'Recibido': 'por_hacer', 'Diagnóstico': 'diagnostico', 'Esperando autorización': 'diagnostico',
@@ -696,6 +851,9 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(() => {
+  cerrarCamara()
+  limpiarFotosDiagnostico()
+  if (previewInterna.value) URL.revokeObjectURL(previewInterna.value)
   if (reloj) window.clearInterval(reloj)
   if (toastTimer) window.clearTimeout(toastTimer)
   if (resolverConfirmacion) resolverConfirmacion(false)
@@ -835,7 +993,8 @@ onBeforeUnmount(() => {
 
           <div class="workflow-actions">
             <button v-if="etiquetaAccion(orden)" type="button" class="workflow-primary" :disabled="guardando === orden.id" @click="accionPrincipal(orden)">{{ etiquetaAccion(orden) }}</button>
-            <button v-if="orden.estado === 'Esperando autorización'" type="button" class="workflow-secondary" @click="cambiarEstado(orden, 'Esperando pieza')">📦 Esperar refacción</button>
+            <button v-if="orden.estado === 'Esperando autorización' && orden.diagnostico" type="button" class="workflow-secondary" @click="compartirDiagnostico(orden)">↗ Enviar diagnóstico y precio</button>
+            <button v-if="['Recibido', 'Diagnóstico', 'Esperando autorización'].includes(orden.estado)" type="button" class="workflow-secondary" :disabled="guardando === orden.id" @click="cambiarEstado(orden, 'Esperando pieza')">📦 Autorizado · Esperar refacción</button>
             <router-link v-if="orden.estado === 'En pruebas'" :to="`/taller/${orden.id}/control`" class="quality-link">🧪 Realizar pruebas y evidencia final</router-link>
           </div>
           <div class="card-footer">
@@ -844,9 +1003,7 @@ onBeforeUnmount(() => {
               <strong>♟ {{ NOMBRE_TECNICO }}</strong>
             </div>
 
-            <button v-if="!orden.produccion?.corriendo && !['Listo','Entregado','Cancelado'].includes(orden.estado)"
-              type="button" class="timer-btn start" :disabled="guardando === orden.id" @click="iniciar(orden)">▶ Iniciar</button>
-            <button v-else-if="orden.produccion?.corriendo" type="button" class="timer-btn pause"
+            <button v-if="orden.produccion?.corriendo" type="button" class="timer-btn pause"
               :disabled="guardando === orden.id" @click="pausar(orden)">Ⅱ Pausar</button>
             <span v-else class="finished-label">{{ etiquetaEstado(orden.estado) }}</span>
           </div>
@@ -859,8 +1016,19 @@ onBeforeUnmount(() => {
         <div class="evidence-modal-head"><div><span>DIAGNÓSTICO TÉCNICO</span><h2>Enviar a autorización</h2></div><button type="button" @click="cerrarDiagnostico">×</button></div>
         <p>Antes de esperar la autorización del cliente, deja documentado qué se encontró y qué se propone hacer.</p>
         <label class="repair-description"><span>Diagnóstico encontrado *</span><textarea v-model="diagnosticoForm.diagnostico" rows="3" placeholder="Ej. Consumo anormal en circuito de carga; batería degradada."></textarea></label>
-        <label class="repair-description"><span>Solución propuesta *</span><textarea v-model="diagnosticoForm.solucion" rows="3" placeholder="Ej. Sustituir batería y reparar circuito de carga."></textarea></label>
+        <label class="repair-description"><span>Solución Propuesta: (Ser específico y claro para el cliente) *</span><textarea v-model="diagnosticoForm.solucion" rows="5" placeholder="Describe qué componente del equipo se reparará o reemplazará, cómo se resolverá la falla y qué funcionamiento se espera recuperar. Ej. En tu iPhone 12 Pro reemplazaremos la pantalla dañada porque presenta líneas y no responde al tacto. Después comprobaremos la imagen y la respuesta táctil."></textarea></label>
+        <p>La solución se sugiere a partir de los servicios seleccionados. Revísala y precisa el componente, la calidad de la pieza y el alcance antes de enviarla.</p>
         <label class="repair-description"><span>Costo cotizado *</span><input v-model="diagnosticoForm.costo" type="number" min="0" step="1" placeholder="0"></label>
+        <div class="diagnostic-photo-grid">
+          <article v-for="indice in [0, 1]" :key="indice" class="diagnostic-photo-slot">
+            <strong>Foto {{ indice + 1 }} del diagnóstico *</strong>
+            <img v-if="previewsDiagnostico[indice]" :src="previewsDiagnostico[indice]" :alt="`Foto ${indice + 1} del diagnóstico`">
+            <div v-else class="photo-empty">Interior del equipo · obligatoria</div>
+            <button type="button" class="photo-camera-button" :disabled="guardandoDiagnostico" @click="abrirCamara({ tipo: 'diagnostico', indice })">📷 {{ fotosDiagnostico[indice] ? 'Volver a tomar' : 'Tomar foto' }}</button>
+            <label class="photo-file-button">Cámara o galería del dispositivo<input type="file" accept="image/*" capture="environment" :disabled="guardandoDiagnostico" @change="seleccionarFotoDiagnostico($event, indice)"></label>
+          </article>
+        </div>
+        <small>{{ fotosDiagnostico.filter(Boolean).length }} / 2 fotografías capturadas. Ambas son obligatorias.</small>
         <div class="evidence-modal-actions"><button type="button" class="cancel-evidence" @click="cerrarDiagnostico">Cancelar</button><button type="button" class="save-evidence" :disabled="guardandoDiagnostico" @click="guardarDiagnosticoYAutorizar">{{ guardandoDiagnostico ? 'Guardando...' : 'Guardar y esperar autorización' }}</button></div>
       </section>
     </div>
@@ -868,17 +1036,27 @@ onBeforeUnmount(() => {
     <div v-if="modalEvidencia" class="evidence-modal-backdrop" @click.self="cerrarEvidenciaInterna">
       <section class="evidence-modal">
         <div class="evidence-modal-head">
-          <div><span>EVIDENCIA DE REPARACIÓN</span><h2>Antes de pasar a pruebas</h2></div>
+          <div><span>EVIDENCIA DE REPARACIÓN</span><h2>Blindajes antes de cerrar</h2></div>
           <button type="button" @click="cerrarEvidenciaInterna">×</button>
         </div>
-        <p>Documenta cómo quedó el interior del equipo después de la reparación. Esta evidencia quedará vinculada permanentemente a la orden <strong>{{ modalEvidencia.folio }}</strong>.</p>
+        <p>Toma una fotografía del interior con los blindajes colocados, antes de cerrar el equipo y pasar a pruebas. Esta evidencia quedará vinculada permanentemente a la orden <strong>{{ modalEvidencia.folio }}</strong>.</p>
         <label class="internal-photo-box">
           <img v-if="previewInterna" :src="previewInterna" alt="Evidencia interna de reparación">
-          <div v-else><b>📷 Tomar foto del interior</b><small>Obligatoria para iniciar las pruebas</small></div>
-          <input type="file" accept="image/*" capture="environment" @change="seleccionarFotoInterna">
+          <div v-else><b>Interior con blindajes colocados</b><small>Foto obligatoria antes de cerrar</small></div>
+          <input type="file" accept="image/*" capture="environment" :disabled="guardandoEvidencia" @change="seleccionarFotoInterna">
         </label>
-        <label class="repair-description"><span>Trabajo realizado *</span><textarea v-model="descripcionInterna" rows="3" placeholder="Ej. Reparación de circuito de carga, reemplazo de IC y limpieza de zona intervenida."></textarea></label>
+        <button type="button" class="photo-camera-button" :disabled="guardandoEvidencia" @click="abrirCamara({ tipo: 'blindajes' })">📷 {{ fotoInterna ? 'Volver a tomar foto de blindajes' : 'Tomar foto de blindajes' }}</button>
         <div class="evidence-modal-actions"><button type="button" class="cancel-evidence" @click="cerrarEvidenciaInterna">Cancelar</button><button type="button" class="save-evidence" :disabled="guardandoEvidencia" @click="guardarEvidenciaInterna">{{ guardandoEvidencia ? 'Guardando...' : 'Guardar y pasar a pruebas' }}</button></div>
+      </section>
+    </div>
+
+    <div v-if="camaraDestino" class="camera-backdrop">
+      <section class="camera-dialog" role="dialog" aria-modal="true" aria-label="Tomar evidencia">
+        <header><strong>{{ camaraDestino.tipo === 'diagnostico' ? `Foto ${camaraDestino.indice + 1} del diagnóstico` : 'Blindajes antes de cerrar' }}</strong><button type="button" @click="cerrarCamara" aria-label="Cerrar cámara">×</button></header>
+        <video ref="videoCamara" autoplay muted playsinline></video>
+        <p v-if="iniciandoCamara">Iniciando cámara…</p>
+        <p v-if="errorCamara" role="alert">{{ errorCamara }}</p>
+        <button type="button" class="photo-camera-button" :disabled="iniciandoCamara || !!errorCamara" @click="capturarFoto">📷 Capturar foto</button>
       </section>
     </div>
 
@@ -925,6 +1103,8 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
+.diagnostic-photo-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.diagnostic-photo-slot{display:grid;gap:9px;padding:12px;border:1px solid #dbe3ee;border-radius:14px}.diagnostic-photo-slot>strong{font-size:.85rem}.diagnostic-photo-slot img{width:100%;height:155px;object-fit:contain;border-radius:9px;background:#f1f5f9}.photo-empty{height:120px;display:grid;place-items:center;padding:12px;text-align:center;color:#64748b;border:1px dashed #cbd5e1;border-radius:9px;font-size:.8rem}.photo-camera-button{border:0;border-radius:10px;padding:12px;background:#0B43FF;color:#fff;font-weight:700;cursor:pointer}.photo-camera-button:disabled{opacity:.55;cursor:default}.photo-file-button{display:grid;gap:5px;color:#64748b;font-size:.75rem;overflow:hidden}.photo-file-button input{max-width:100%;font-size:.72rem}.camera-backdrop{position:fixed;inset:0;z-index:6000;background:rgba(15,23,42,.85);display:grid;place-items:center;padding:16px}.camera-dialog{width:min(640px,100%);max-height:95dvh;overflow:auto;background:white;border-radius:18px;padding:16px;display:grid;gap:12px;color:#101828}.camera-dialog header{display:flex;justify-content:space-between;align-items:center}.camera-dialog header button{border:0;background:#f1f5f9;border-radius:50%;width:36px;height:36px;font-size:24px}.camera-dialog video{width:100%;max-height:65dvh;object-fit:contain;background:#0B0F17;border-radius:10px}.evidence-modal{max-height:92dvh;overflow-y:auto}.evidence-modal-actions{position:sticky;bottom:-20px;background:#fff;padding-block:12px;z-index:1}@media(max-width:520px){.diagnostic-photo-grid{grid-template-columns:1fr}.diagnostic-photo-slot img{height:180px}}
+
 .workshop-page{padding:4px 0 36px;color:#102044}.workshop-header{display:flex;align-items:flex-start;justify-content:space-between;gap:22px;margin-bottom:20px}.eyebrow{display:block;color:#34445f;font-size:.76rem;font-weight:850;letter-spacing:.06em;text-transform:uppercase;margin-bottom:4px}.workshop-header h1{font-size:clamp(1.9rem,2.6vw,2.55rem);margin:0;font-weight:900;letter-spacing:-.045em;color:#102044}.workshop-header p{margin:6px 0 0;color:#566782;font-size:.92rem}.header-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:flex-end}.day-control{display:flex;height:44px;background:#fff;border:1px solid #dce4ef;border-radius:11px;overflow:hidden}.day-control>button{width:42px;border:0;background:#fff;color:#7b8ca7;font-size:1.45rem;cursor:pointer}.day-control>button:hover{background:#f6f9fd}.day-control label{position:relative;display:flex;align-items:center;gap:8px;padding:0 14px;border-left:1px solid #edf1f6;border-right:1px solid #edf1f6;min-width:275px;text-transform:capitalize}.day-control label span{color:#0b43ff}.day-control label strong{font-size:.82rem;white-space:nowrap}.day-control input{position:absolute;inset:0;opacity:0;cursor:pointer}.calendar-action,.primary-action{height:44px;display:flex;align-items:center;border-radius:11px;padding:0 16px;text-decoration:none;font-weight:800;font-size:.82rem;white-space:nowrap}.calendar-action{border:1px solid #bdd0ff;background:#f8fbff;color:#1749b8}.primary-action{background:#0b43ff;color:#fff;border:1px solid #0b43ff}.metrics{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:10px;margin-bottom:16px}.metrics button,.metric-link{min-width:0;display:flex;align-items:center;gap:10px;background:#fff;border:1px solid #e1e7ef;border-radius:13px;padding:12px 14px;text-align:left;color:#42526d;cursor:pointer;text-decoration:none}.metrics button:hover,.metric-link:hover{border-color:#c2cedd}.metric-icon{flex:0 0 38px;width:38px;height:38px;display:grid;place-items:center;border-radius:50%;font-size:1.15rem;font-weight:900}.metric-icon.blue{background:#eef4ff;color:#0b43ff}.metric-icon.green{background:#eafaf6;color:#0b9a78}.metric-icon.red{background:#ffe9e7;color:#d92d20}.metric-copy{display:flex;flex-direction:column;min-width:0;font-size:.73rem;white-space:nowrap}.metric-copy strong{font-size:1.4rem;line-height:1.1;color:#102044;margin-top:2px}.urgent-metric{background:#fff8f7!important;border-color:#ffb4ad!important}.urgent-metric .metric-copy{color:#d92d20}.urgent-metric .metric-copy strong{color:#d92d20}.toolbar{display:grid;grid-template-columns:minmax(280px,1.4fr) repeat(4,minmax(150px,.55fr));gap:9px;margin-bottom:18px}.search-box{display:flex;align-items:center;gap:8px;background:#fff;border:1px solid #dfe5ee;border-radius:11px;padding:0 13px}.search-box input{border:0;outline:0;width:100%;padding:11px 0;background:transparent;color:#243551}.toolbar>select,.refresh-btn{border:1px solid #dfe5ee;background:#fff;border-radius:11px;padding:0 11px;color:#344054;min-height:44px;font-size:.77rem}.refresh-btn{font-weight:800}.orders-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;align-items:start}.order-card{overflow:hidden;background:#fff;border:1px solid #dfe5ee;border-radius:14px;box-shadow:0 4px 12px rgba(16,32,68,.055);transition:.15s ease}.order-card:hover{transform:translateY(-1px);box-shadow:0 8px 22px rgba(16,32,68,.08)}.priority-banner{display:grid;grid-template-columns:1fr minmax(180px,.92fr);min-height:70px;border-bottom:1px solid rgba(16,32,68,.08)}.priority-copy{display:flex;align-items:center;gap:10px;padding:12px 14px}.priority-icon{width:36px;height:36px;display:grid;place-items:center;border-radius:50%;font-weight:950;font-size:1.1rem}.priority-copy>div{min-width:0;display:flex;flex-direction:column}.priority-copy select{appearance:none;border:0;background:transparent;outline:0;font-size:.92rem;font-weight:950;padding:0;color:inherit;max-width:155px}
 
 .priority-title {

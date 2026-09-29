@@ -9,6 +9,7 @@ import { subirEvidencia } from '../lib/storage'
 const route = useRoute()
 const orden = ref(null)
 const evidencias = ref([])
+const equiposRelacionados = ref([])
 const checklist = ref([])
 const garantia = ref(null)
 const movimientos = ref([])
@@ -131,6 +132,10 @@ async function cargarDetalle() {
   }
 
   orden.value = dataOrden
+  if (dataOrden.grupo_recepcion) {
+    const { data: grupo } = await supabase.from('ordenes').select('id,folio,estado,equipos(marca,modelo)').eq('grupo_recepcion', dataOrden.grupo_recepcion).neq('id', id)
+    equiposRelacionados.value = grupo || []
+  } else equiposRelacionados.value = []
   nombreFirmante.value = dataOrden.clientes?.nombre || ''
 
   const [{ data: fotos }, { data: checks }, { data: garantias }, { data: movs }, { data: dataFirmas }, firmaRemotaResult, historialResult, { data: dataNegocio }] = await Promise.all([
@@ -643,6 +648,12 @@ onMounted(cargarDetalle)
       </div>
     </header>
 
+    <section v-if="equiposRelacionados.length" class="ts-detail-card no-print" style="margin:12px 0">
+      <strong>Otros equipos de esta recepción</strong>
+      <div v-for="relacionado in equiposRelacionados" :key="relacionado.id" style="margin-top:8px">
+        <router-link :to="`/ordenes/${relacionado.id}`">{{ relacionado.folio }} · {{ relacionado.equipos?.marca }} {{ relacionado.equipos?.modelo }}</router-link> · {{ relacionado.estado }}
+      </div>
+    </section>
     <nav class="ts-order-tabs no-print" aria-label="Secciones de la orden">
       <button v-for="tab in [
         ['resumen','Resumen'],['historial','Historial'],['evidencias','Evidencias'],['finanzas','Finanzas'],['firma','Firma']

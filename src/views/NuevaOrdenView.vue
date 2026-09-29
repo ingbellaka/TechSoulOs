@@ -8,6 +8,8 @@ const router = useRouter()
 const clientes = ref([])
 const cargando = ref(false)
 const evidenciasRecepcion = ref({})
+const equiposPendientes = ref([])
+const pagosAnticipo = ref([{ metodo: 'Efectivo', monto: 0 }])
 const tarifario = ref([])
 const cargandoTarifario = ref(false)
 
@@ -34,9 +36,9 @@ const tiposEquipo = [
 
 
 const evidenciasPorTipo = {
-  Celular: ['Frontal', 'Trasera', 'Laterales / marco', 'Cámaras'],
-  Tablet: ['Frontal', 'Trasera', 'Laterales / marco', 'Cámaras'],
-  iPad: ['Frontal', 'Trasera', 'Laterales / marco', 'Cámaras'],
+  Celular: ['Frontal', 'Trasera', 'Lateral izquierdo', 'Lateral derecho', 'Cámaras'],
+  Tablet: ['Frontal', 'Trasera', 'Lateral izquierdo', 'Lateral derecho', 'Cámaras'],
+  iPad: ['Frontal', 'Trasera', 'Lateral izquierdo', 'Lateral derecho', 'Cámaras'],
   Laptop: ['Tapa exterior', 'Pantalla y teclado', 'Parte inferior', 'Laterales y puertos'],
   Impresora: ['Frontal', 'Trasera y conexiones', 'Bandejas / alimentación', 'Interior accesible'],
   PC: ['Frontal', 'Trasera / conexiones', 'Lateral', 'Interior / componentes visibles'],
@@ -45,6 +47,9 @@ const evidenciasPorTipo = {
 }
 const requisitosEvidencia = computed(() => evidenciasPorTipo[equipo.value.tipo_equipo] || evidenciasPorTipo.Otro)
 const evidenciaCompleta = computed(() => requisitosEvidencia.value.every(nombre => evidenciasRecepcion.value[nombre]?.file))
+const evidenciasOpcionales = computed(() => ['Celular', 'Tablet', 'iPad'].includes(equipo.value.tipo_equipo) ? ['Cámara frontal'] : [])
+const sumarPagos = pagos => pagos.reduce((total, p) => total + Math.round(Number(p.monto || 0) * 100), 0) / 100
+watch(pagosAnticipo, pagos => { orden.value.anticipo = sumarPagos(pagos) }, { deep: true })
 function manejarEvidencia(event, nombre) {
   const file = event.target.files?.[0]
   if (!file) return
@@ -386,18 +391,61 @@ function irAPaso(numero) {
   if (numero <= pasoActual.value) pasoActual.value = numero
 }
 
+function guardarEquipoPendiente() {
+  if (!validarPaso(2) || !evidenciaCompleta.value) return alert('Completa las evidencias obligatorias del equipo.')
+  if (!servicios.value.some(s => s.tipo)) return alert('Agrega un servicio para este equipo.')
+  if (pagosAnticipo.value.some(p => !p.metodo || !Number.isFinite(Number(p.monto)) || Number(p.monto) < 0 || (pagosAnticipo.value.length > 1 && Number(p.monto) <= 0))) return alert('Revisa los métodos e importes.')
+  if (Number(orden.value.anticipo || 0) > subtotalServicios.value) return alert('El anticipo excede el total.')
+  equiposPendientes.value.push({
+    equipo: { ...equipo.value }, orden: { ...orden.value },
+    evidencias: { ...evidenciasRecepcion.value },
+    checklist: checklist.value.map(c => ({ ...c })), servicios: servicios.value.map(s => ({ ...s })),
+    pagos: pagosAnticipo.value.map(p => ({ ...p }))
+  })
+  equipo.value = { tipo_equipo: 'Celular', marca: '', modelo: '', color: '', imei_serie: '', codigo_bloqueo: '', observaciones: '' }
+  orden.value = { ...orden.value, falla_reportada: '', diagnostico: '', trabajo_realizado: '', costo_total: 0, anticipo: 0, metodo_pago: 'Efectivo' }
+  evidenciasRecepcion.value = {}
+  pagosAnticipo.value = [{ metodo: 'Efectivo', monto: 0 }]
+  servicios.value = [crearServicioVacio()]
+  cargarChecklistBase()
+  pasoActual.value = 2
+  window.scrollTo({ top: 0, behavior: 'smooth' })
+}
+
 async function crearOrden() {
-  if (!cliente.value.cliente_id && !cliente.value.nombre.trim()) return alert('Selecciona o captura un cliente')
-  if (!equipo.value.modelo.trim()) return alert('El modelo del equipo es obligatorio')
-  if (!orden.value.falla_reportada.trim()) return alert('La falla reportada es obligatoria')
-  if (!evidenciaCompleta.value) return alert(`Completa las fotografías obligatorias de recepción para ${equipo.value.tipo_equipo}`)
-  const serviciosValidos = servicios.value.filter(servicio => servicio.tipo && (servicio.tipo !== 'Otro' || servicio.descripcion.trim()))
-  if (serviciosValidos.length === 0) return alert('Agrega al menos un servicio a realizar')
-  if (Number(orden.value.anticipo || 0) > subtotalServicios.value) return alert('El anticipo no puede ser mayor al total')
-
+  const lote = [...equiposPendientes.value]
+  if (equipo.value.modelo.trim()) lote.push({
+    equipo: { ...equipo.value }, orden: { ...orden.value }, evidencias: { ...evidenciasRecepcion.value },
+    checklist: checklist.value.map(c => ({ ...c })), servicios: servicios.value.map(s => ({ ...s })), pagos: pagosAnticipo.value.map(p => ({ ...p }))
+  })
+  if (!lote.length) return alert('Agrega al menos un equipo.')
+  const grupo = lote.length > 1 ? crypto.randomUUID() : null
+  const ids = []
   cargando.value = true
-
   try {
+    for (const ficha of lote) {
+      equipo.value = ficha.equipo; orden.value = ficha.orden; evidenciasRecepcion.value = ficha.evidencias
+      checklist.value = ficha.checklist; servicios.value = ficha.servicios; pagosAnticipo.value = ficha.pagos
+      ids.push(await crearOrdenIndividual(grupo))
+    }
+    equiposPendientes.value = []
+    alert(`Se crearon ${ids.length} orden(es): ${ids.map(x => x.folio).join(', ')}`)
+    router.push(`/ordenes/${ids[0].id}`)
+  } catch (error) { alert(`Se crearon ${ids.length} de ${lote.length} órdenes. Revisa los folios antes de reintentar: ${error.message}`) }
+  finally { cargando.value = false }
+}
+
+async function crearOrdenIndividual(grupo) {
+  if (!cliente.value.cliente_id && !cliente.value.nombre.trim()) throw new Error('Selecciona o captura un cliente')
+  if (!equipo.value.modelo.trim()) throw new Error('El modelo del equipo es obligatorio')
+  if (!orden.value.falla_reportada.trim()) throw new Error('La falla reportada es obligatoria')
+  if (!evidenciaCompleta.value) throw new Error(`Completa las fotografías obligatorias de recepción para ${equipo.value.tipo_equipo}`)
+  if (pagosAnticipo.value.some(p => !p.metodo || !Number.isFinite(Number(p.monto)) || Number(p.monto) < 0 || (pagosAnticipo.value.length > 1 && Number(p.monto) <= 0))) throw new Error('Revisa los importes de cada método de pago')
+  const serviciosValidos = servicios.value.filter(servicio => servicio.tipo && (servicio.tipo !== 'Otro' || servicio.descripcion.trim()))
+  if (serviciosValidos.length === 0) throw new Error('Agrega al menos un servicio a realizar')
+  if (Number(orden.value.anticipo || 0) > subtotalServicios.value) throw new Error('El anticipo no puede ser mayor al total')
+
+  {
     let clienteId = cliente.value.cliente_id
 
     if (!clienteId) {
@@ -409,6 +457,7 @@ async function crearOrden() {
 
       if (errorCliente) throw errorCliente
       clienteId = nuevoCliente.id
+      cliente.value.cliente_id = clienteId
     }
 
     const { data: nuevoEquipo, error: errorEquipo } = await supabase
@@ -433,7 +482,7 @@ async function crearOrden() {
     // donde el INSERT no devuelve la fila completa por configuración/RLS.
     const { error: errorOrden } = await supabase
       .from('ordenes')
-      .insert({ folio, cliente_id: clienteId, equipo_id: nuevoEquipo.id, ...ordenData })
+      .insert({ folio, cliente_id: clienteId, equipo_id: nuevoEquipo.id, grupo_recepcion: grupo, ...ordenData })
 
     if (errorOrden) throw errorOrden
 
@@ -461,7 +510,7 @@ async function crearOrden() {
     const { error: errorServicios } = await supabase.from('orden_servicios').insert(serviciosParaGuardar)
     if (errorServicios) throw errorServicios
 
-    for (const nombre of requisitosEvidencia.value) {
+    for (const nombre of [...requisitosEvidencia.value, ...evidenciasOpcionales.value.filter(n => evidenciasRecepcion.value[n]?.file)]) {
       const evidencia = evidenciasRecepcion.value[nombre]
       if (!evidencia?.file) throw new Error(`Falta evidencia obligatoria: ${nombre}`)
       const urlFoto = await subirEvidencia(evidencia.file, `orden-${ordenId}/recepcion`)
@@ -504,25 +553,15 @@ async function crearOrden() {
     })
     if (errorHistorial) console.warn('No se pudo registrar el historial inicial:', errorHistorial.message)
 
-    if (Number(orden.value.anticipo || 0) > 0) {
+    for (const pago of pagosAnticipo.value.filter(p => Number(p.monto) > 0)) {
       const { error: errorCaja } = await supabase.from('movimientos_caja').insert({
-        tipo: 'Entrada',
-        concepto: `Anticipo orden ${folio}`,
-        monto: Number(orden.value.anticipo),
-        metodo_pago: orden.value.metodo_pago || 'Efectivo',
-        referencia_tipo: 'orden',
-        referencia_id: ordenId,
-        notas: cliente.value.nombre
+        tipo: 'Entrada', concepto: `Anticipo orden ${folio}`,
+        monto: Math.round(Number(pago.monto) * 100) / 100, metodo_pago: pago.metodo,
+        referencia_tipo: 'orden', referencia_id: ordenId, notas: cliente.value.nombre
       })
       if (errorCaja) throw errorCaja
     }
-
-    alert(`Orden creada: ${folio}`)
-    router.push(`/ordenes/${ordenId}`)
-  } catch (error) {
-    alert(error.message)
-  } finally {
-    cargando.value = false
+    return { id: ordenId, folio, clienteId }
   }
 }
 
@@ -543,7 +582,8 @@ onMounted(() => {
       </div>
       <div class="header-actions">
         <button class="btn btn-light" type="button" @click="router.push('/ordenes')">Cancelar</button>
-        <button v-if="pasoActual === pasos.length" class="btn ts-btn-primary" type="button" :disabled="cargando" @click="crearOrden">
+        <button v-if="pasoActual === 5" type="button" class="btn btn-outline-primary" @click="guardarEquipoPendiente">+ Agregar otro equipo</button>
+            <button v-if="pasoActual === pasos.length" class="btn ts-btn-primary" type="button" :disabled="cargando" @click="crearOrden">
           {{ cargando ? 'Creando...' : 'Crear orden' }}
         </button>
       </div>
@@ -639,6 +679,13 @@ onMounted(() => {
                   <div v-else><b>📷</b><strong>Tomar foto</strong><small>o seleccionar de galería</small></div>
                 </label>
                 <button v-if="evidenciasRecepcion[nombre]?.file" type="button" class="remove-evidence" @click="quitarEvidencia(nombre)">Reemplazar / quitar</button>
+              </article>
+            </div>
+            <div v-if="evidenciasOpcionales.length" class="evidence-grid mt-3">
+              <article v-for="nombre in evidenciasOpcionales" :key="nombre" class="evidence-slot">
+                <div class="evidence-slot-head"><strong>{{ nombre }}</strong><span>Opcional</span></div>
+                <label class="evidence-capture"><input type="file" accept="image/*" capture="environment" @change="manejarEvidencia($event, nombre)"><img v-if="evidenciasRecepcion[nombre]?.preview" :src="evidenciasRecepcion[nombre].preview" :alt="nombre"><div v-else>📷 Tomar foto</div></label>
+                <button v-if="evidenciasRecepcion[nombre]?.file" type="button" @click="quitarEvidencia(nombre)">Quitar</button>
               </article>
             </div>
             <div class="evidence-tip"><span>🛡️</span><p>Estas imágenes quedarán vinculadas a la orden como evidencia de recepción. Agrega daños o condiciones especiales en Observaciones físicas.</p></div>
@@ -769,24 +816,14 @@ onMounted(() => {
                 <small>{{ servicios.length }} servicio{{ servicios.length === 1 ? '' : 's' }} agregado{{ servicios.length === 1 ? '' : 's' }}</small>
               </div>
 
-              <label class="payment-card advance-card" :class="{ disabled: subtotalServicios <= 0 }">
-                <span class="payment-card-label">Anticipo recibido</span>
-                <div class="advance-input">
-                  <span>$</span>
-                  <input v-model.number="orden.anticipo" type="number" min="0" :max="subtotalServicios" :disabled="subtotalServicios <= 0" placeholder="0" @blur="normalizarAnticipo">
+              <div class="payment-card advance-card">
+                <span class="payment-card-label">Anticipo recibido · {{ moneda(orden.anticipo) }}</span>
+                <div v-for="(pago, indice) in pagosAnticipo" :key="indice" class="split-payment-row">
+                  <select v-model="pago.metodo" aria-label="Método de pago"><option>Efectivo</option><option>Transferencia</option><option>Tarjeta</option><option>Mercado Pago</option><option>Otro</option></select>
+                  <input v-model.number="pago.monto" type="number" min="0" :max="subtotalServicios" step="0.01" aria-label="Importe">
+                  <button v-if="pagosAnticipo.length > 1" type="button" @click="pagosAnticipo.splice(indice,1)">×</button>
                 </div>
-                <small v-if="subtotalServicios <= 0">Agrega un servicio con precio para registrar un anticipo.</small>
-                <small v-else>Máximo {{ moneda(subtotalServicios) }}</small>
-              </label>
-
-              <div v-if="Number(orden.anticipo || 0) > 0" class="payment-method-block">
-                <span class="payment-card-label">Método del anticipo</span>
-                <div class="payment-method-options">
-                  <button v-for="metodo in ['Efectivo','Transferencia','Tarjeta']" :key="metodo" type="button" :class="{ active: orden.metodo_pago === metodo }" @click="orden.metodo_pago = metodo">
-                    <span class="method-icon">{{ metodo === 'Efectivo' ? '💵' : metodo === 'Transferencia' ? '🏦' : '💳' }}</span>
-                    <span>{{ metodo }}</span>
-                  </button>
-                </div>
+                <button type="button" class="btn btn-outline-primary" @click="pagosAnticipo.push({ metodo: 'Transferencia', monto: 0 })">+ Agregar método</button>
               </div>
 
               <div class="balance-card" :class="{ covered: subtotalServicios > 0 && saldo === 0 }">
@@ -835,7 +872,8 @@ onMounted(() => {
           <button class="btn btn-light" type="button" :disabled="pasoActual === 1" @click="pasoAnterior">← Anterior</button>
           <span class="mobile-step-count">{{ pasoActual }} / {{ pasos.length }}</span>
           <button v-if="pasoActual < pasos.length" class="btn ts-btn-primary" type="button" @click="pasoSiguiente">Continuar →</button>
-          <button v-else class="btn ts-btn-primary" type="button" :disabled="cargando" @click="crearOrden">{{ cargando ? 'Creando orden...' : 'Crear orden' }}</button>
+          <button v-if="pasoActual === pasos.length" type="button" class="btn btn-outline-primary" @click="guardarEquipoPendiente">+ Otro equipo</button>
+          <button v-if="pasoActual === pasos.length" class="btn ts-btn-primary" type="button" :disabled="cargando" @click="crearOrden">{{ cargando ? 'Creando orden...' : 'Crear orden' }}</button>
         </footer>
       </main>
 
@@ -863,6 +901,8 @@ onMounted(() => {
 </template>
 
 <style scoped>
+.split-payment-row{display:grid;grid-template-columns:minmax(100px,1fr) minmax(80px,1fr) 34px;gap:6px;margin:9px 0}.split-payment-row select,.split-payment-row input{min-width:0;width:100%;border:1px solid #cbd5e1;border-radius:8px;padding:8px}.split-payment-row button{border:0;border-radius:8px;background:#fee2e2}
+
 .reception-page{max-width:1420px;margin:0 auto;padding-bottom:40px}.reception-header{display:flex;justify-content:space-between;align-items:flex-end;gap:20px;margin-bottom:22px}.header-actions{display:flex;gap:10px}.eyebrow,.step-kicker{display:block;color:var(--ts-primary,#2563eb);font-size:.72rem;font-weight:850;letter-spacing:.09em;text-transform:uppercase;margin-bottom:6px}.stepper{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-bottom:22px}.stepper-item{border:0;background:transparent;display:flex;align-items:center;gap:9px;text-align:left;padding:8px;border-radius:13px;color:var(--ts-muted,#64748b)}.stepper-item:hover{background:var(--ts-soft,#f8fafc)}.step-dot{width:30px;height:30px;flex:0 0 30px;display:grid;place-items:center;border:1px solid var(--ts-border,#dbe3ee);border-radius:10px;background:var(--ts-surface,#fff);font-size:.78rem;font-weight:850}.stepper-item.active{color:var(--ts-text,#0f172a);background:rgba(37,99,235,.06)}.stepper-item.active .step-dot{background:#2563eb;border-color:#2563eb;color:#fff;box-shadow:0 6px 15px rgba(37,99,235,.25)}.stepper-item.complete .step-dot{background:#dcfce7;border-color:#bbf7d0;color:#15803d}.step-copy{display:flex;flex-direction:column;min-width:0}.step-copy strong{font-size:.78rem;white-space:nowrap}.step-copy small{font-size:.66rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.reception-layout{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:22px;align-items:start}.wizard-card{overflow:hidden}.wizard-step{min-height:500px;padding:32px}.step-heading{margin-bottom:26px}.step-heading h2{font-size:1.45rem;font-weight:850;margin:0 0 6px}.step-heading p{color:var(--ts-muted,#64748b);margin:0}.choice-tabs{display:inline-flex;padding:4px;background:var(--ts-soft,#f1f5f9);border-radius:13px;margin-bottom:24px}.choice-tabs button{border:0;background:transparent;color:var(--ts-muted,#64748b);padding:10px 16px;border-radius:10px;font-weight:750;font-size:.86rem}.choice-tabs button.active{background:var(--ts-surface,#fff);color:var(--ts-text,#0f172a);box-shadow:0 2px 8px rgba(15,23,42,.08)}.field-block{display:flex;flex-direction:column}.form-grid{display:grid;gap:16px}.two-cols{grid-template-columns:repeat(2,minmax(0,1fr))}.three-cols{grid-template-columns:repeat(3,minmax(0,1fr))}.full{grid-column:1/-1}.two-span{grid-column:span 2}.form-label{font-size:.78rem;font-weight:750;color:var(--ts-muted,#475569);margin-bottom:7px}.form-control,.form-select{border-radius:11px;min-height:44px}.selected-client{margin-top:14px;display:flex;align-items:center;gap:12px;padding:14px;border:1px solid #bfdbfe;background:#eff6ff;border-radius:14px}.client-avatar{width:40px;height:40px;display:grid;place-items:center;border-radius:12px;background:#2563eb;color:#fff;font-weight:850}.selected-client div:nth-child(2){display:flex;flex-direction:column;flex:1}.selected-client span{font-size:.8rem;color:#64748b}.selected-badge{padding:5px 9px;border-radius:999px;background:#dbeafe;color:#1d4ed8!important;font-weight:750}.device-type-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}.device-type-grid button{border:1px solid var(--ts-border,#dbe3ee);background:var(--ts-surface,#fff);border-radius:14px;padding:15px 10px;display:flex;align-items:center;justify-content:center;gap:8px;color:var(--ts-muted,#64748b)}.device-type-grid button span{font-size:1.2rem}.device-type-grid button strong{font-size:.82rem}.device-type-grid button.active{border-color:#2563eb;background:#eff6ff;color:#1d4ed8;box-shadow:0 0 0 2px rgba(37,99,235,.08)}.issue-input{min-height:105px}.details-toggle{width:100%;border:1px dashed var(--ts-border,#cbd5e1);background:transparent;border-radius:14px;padding:14px 16px;display:flex;align-items:center;justify-content:space-between;text-align:left;margin-top:18px}.details-toggle span{display:flex;flex-direction:column}.details-toggle strong{font-size:.86rem}.details-toggle small{color:var(--ts-muted,#64748b);margin-top:2px}.details-toggle b{font-size:1.2rem;color:#2563eb}.details-panel{margin-top:12px;padding:18px;background:var(--ts-soft,#f8fafc);border:1px solid var(--ts-border,#e2e8f0);border-radius:14px}.camera-card{position:relative;min-height:330px;border:2px dashed var(--ts-border,#cbd5e1);background:var(--ts-soft,#f8fafc);border-radius:20px;display:grid;place-items:center;overflow:hidden;cursor:pointer}.camera-card input{display:none}.camera-card img{width:100%;height:100%;max-height:440px;object-fit:contain;background:#0f172a}.camera-empty{text-align:center;display:flex;flex-direction:column;align-items:center}.camera-icon{font-size:2.5rem;margin-bottom:12px}.camera-empty strong{font-size:1rem}.camera-empty small{color:var(--ts-muted,#64748b);margin-top:5px}.replace-photo{position:absolute;bottom:14px;left:50%;transform:translateX(-50%);padding:8px 13px;border-radius:999px;background:rgba(15,23,42,.78);color:#fff;font-size:.78rem;font-weight:750}.evidence-tip{display:flex;gap:10px;margin-top:14px;padding:12px 14px;border-radius:13px;background:#fffbeb;color:#92400e;font-size:.82rem}.evidence-tip p{margin:0}.checklist-heading{display:flex;justify-content:space-between;gap:20px;align-items:flex-start}.legend-row{display:flex;flex-wrap:wrap;gap:14px;margin-bottom:16px;color:var(--ts-muted,#64748b);font-size:.74rem}.legend-row span{display:flex;align-items:center;gap:5px}.status-dot{width:9px;height:9px;border-radius:50%;display:inline-block}.status-dot.ok{background:#22c55e}.status-dot.fail{background:#ef4444}.status-dot.unknown{background:#f59e0b}.status-dot.na{background:#94a3b8}.smart-checklist{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.smart-check-item{border:1px solid var(--ts-border,#e2e8f0);border-radius:16px;background:var(--ts-surface,#fff);overflow:hidden;transition:.15s;box-shadow:0 1px 2px rgba(15,23,42,.04)}.smart-check-item:hover{border-color:#bfdbfe;box-shadow:0 8px 22px rgba(15,23,42,.07)}.smart-check-item.state-ok{border-color:#86efac;background:linear-gradient(90deg,rgba(34,197,94,.06),var(--ts-surface,#fff) 30%)}.smart-check-item.state-fail{border-color:#fca5a5;background:linear-gradient(90deg,rgba(239,68,68,.06),var(--ts-surface,#fff) 30%)}.smart-check-item.state-na{opacity:.78}.check-main{display:grid;grid-template-columns:minmax(190px,1fr) auto 38px;gap:12px;align-items:center;padding:13px 14px}.check-identity{display:flex;align-items:center;gap:11px;min-width:0}.check-icon{width:40px;height:40px;flex:0 0 40px;display:grid;place-items:center;border-radius:12px;background:#eff6ff;color:#1d4ed8;font-size:1.1rem;font-weight:900}.check-copy{display:flex;flex-direction:column;min-width:0}.check-copy strong{font-size:.86rem;color:var(--ts-text,#0f172a);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.check-copy small{margin-top:3px;color:var(--ts-muted,#64748b);font-size:.68rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.status-buttons{display:flex;gap:6px}.status-button{width:42px;height:38px;border:1px solid var(--ts-border,#dbe3ee);background:var(--ts-soft,#f8fafc);border-radius:10px;display:flex;flex-direction:column;align-items:center;justify-content:center;line-height:1}.status-button span{font-size:.8rem;font-weight:900}.status-button small{font-size:.52rem;margin-top:3px}.status-button.selected.status-ok{background:#dcfce7;border-color:#86efac;color:#15803d}.status-button.selected.status-fail{background:#fee2e2;border-color:#fca5a5;color:#b91c1c}.status-button.selected.status-unknown{background:#fef3c7;border-color:#fcd34d;color:#a16207}.status-button.selected.status-na{background:#e2e8f0;border-color:#cbd5e1;color:#475569}.note-button{width:34px;height:34px;border:0;border-radius:9px;background:var(--ts-soft,#f1f5f9);color:#64748b}.note-button.active{background:#dbeafe;color:#2563eb}.check-note{padding:0 12px 12px}.check-note .form-control{min-height:38px;font-size:.8rem}.custom-check-row{display:flex;gap:8px;margin-top:14px}.services-builder{display:grid;gap:14px}.tariff-search-wrap{position:relative;margin-bottom:16px}.tariff-search-control{display:flex;align-items:center;gap:8px;position:relative}.tariff-search-control .form-control{padding-left:38px;min-height:44px}.tariff-search-icon{position:absolute;left:13px;z-index:2;color:#64748b;font-size:1.1rem}.tariff-device-button{white-space:nowrap;min-height:44px}.tariff-results{position:absolute;z-index:30;top:76px;left:0;right:0;max-height:340px;overflow:auto;background:var(--ts-surface,#fff);border:1px solid var(--ts-border,#dbe3ee);border-radius:14px;box-shadow:0 18px 42px rgba(15,23,42,.16);padding:6px}.tariff-result{width:100%;border:0;background:transparent;border-radius:10px;padding:11px 12px;display:flex;align-items:center;justify-content:space-between;gap:14px;text-align:left}.tariff-result:hover{background:#eff6ff}.tariff-result-copy{display:flex;flex-direction:column;min-width:0}.tariff-result-copy strong{font-size:.84rem;color:var(--ts-text,#0f172a)}.tariff-result-copy small{margin-top:3px;color:var(--ts-muted,#64748b);font-size:.72rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.tariff-result-price{font-size:.88rem;font-weight:850;color:#1d4ed8;white-space:nowrap}.tariff-result-price.quote{color:#a16207}.tariff-empty{padding:14px;color:var(--ts-muted,#64748b);font-size:.78rem;text-align:center}.tariff-selected{margin-top:7px;color:#15803d;font-size:.72rem;font-weight:700}.service-row-card{border:1px solid var(--ts-border,#dbe3ee);border-radius:16px;padding:17px;background:var(--ts-surface,#fff);box-shadow:0 2px 10px rgba(15,23,42,.04)}.service-row-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}.service-row-head strong{font-size:.9rem}.add-service-button{justify-self:start}.money-field input[readonly]{cursor:default}
 .payment-summary{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;align-items:stretch}.payment-card,.payment-method-block,.balance-card{border:1px solid var(--ts-border,#dbe3ee);border-radius:18px;padding:18px;background:var(--ts-surface,#fff);box-shadow:0 4px 14px rgba(15,23,42,.035)}.payment-card-label,.payment-method-block>.payment-card-label,.balance-card>span{display:block;color:var(--ts-muted,#64748b);font-size:.74rem;font-weight:800;letter-spacing:.01em;margin-bottom:9px}.payment-card strong{display:block;font-size:1.55rem;line-height:1.1;color:var(--ts-text,#0f172a)}.payment-card small{display:block;margin-top:7px;color:var(--ts-muted,#64748b);font-size:.72rem}.total-card{background:linear-gradient(180deg,#fff,#f8fbff)}.advance-card{cursor:text}.advance-card.disabled{background:var(--ts-soft,#f8fafc);opacity:.75;cursor:not-allowed}.advance-input{display:flex;align-items:center;gap:7px}.advance-input>span{font-size:1.35rem;font-weight:850;color:var(--ts-text,#0f172a)}.advance-input input{width:100%;min-width:0;border:0;outline:0;background:transparent;font-size:1.55rem;font-weight:850;color:var(--ts-text,#0f172a);padding:0}.payment-method-block{grid-column:1/-1}.payment-method-options{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:9px}.payment-method-options button{min-height:46px;border:1px solid var(--ts-border,#dbe3ee);border-radius:12px;background:var(--ts-soft,#f8fafc);color:var(--ts-text,#0f172a);font-size:.78rem;font-weight:800;display:flex;align-items:center;justify-content:center;gap:7px;transition:.15s ease}.payment-method-options button:hover{border-color:#93c5fd;background:#eff6ff}.payment-method-options button.active{border-color:#2563eb;background:#eff6ff;color:#1d4ed8;box-shadow:0 0 0 2px rgba(37,99,235,.08)}.method-icon{font-size:1rem}.balance-card{background:linear-gradient(135deg,#1d4ed8,#2563eb);color:#fff;border:0;display:flex;flex-direction:column;justify-content:center}.balance-card.covered{background:linear-gradient(135deg,#15803d,#16a34a)}.balance-card>span,.balance-card small{color:rgba(255,255,255,.78)}.balance-card strong{display:block;font-size:1.65rem;line-height:1.1}.balance-card small{margin-top:7px;font-size:.72rem}.final-review{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-top:20px}.final-review div{padding:13px;border-radius:12px;background:var(--ts-soft,#f8fafc)}.final-review span{display:block;color:var(--ts-muted,#64748b);font-size:.7rem;margin-bottom:3px}.final-review strong{display:block;font-size:.82rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.wizard-footer{min-height:72px;padding:14px 24px;border-top:1px solid var(--ts-border,#e2e8f0);display:flex;align-items:center;justify-content:space-between;background:var(--ts-surface,#fff)}.mobile-step-count{font-size:.75rem;color:var(--ts-muted,#64748b)}.live-summary{position:sticky;top:88px;padding:22px;text-align:center}.summary-top{display:flex;justify-content:space-between;align-items:center}.completion-pill{padding:5px 9px;border-radius:999px;background:#dbeafe;color:#1d4ed8;font-size:.72rem;font-weight:850}.device-summary-icon{width:62px;height:62px;display:grid;place-items:center;margin:14px auto 10px;border-radius:20px;background:var(--ts-soft,#f1f5f9);font-size:1.8rem}.live-summary h3{font-size:1.1rem;font-weight:850;margin:0 0 3px}.live-summary>p{color:var(--ts-muted,#64748b);font-size:.84rem}.summary-list{margin-top:18px;text-align:left}.summary-list div{display:flex;justify-content:space-between;gap:10px;padding:10px 0;border-bottom:1px solid var(--ts-border,#e2e8f0);font-size:.82rem}.summary-list span{color:var(--ts-muted,#64748b)}.summary-balance strong{color:#2563eb;font-size:1rem}.progress-checks{display:grid;grid-template-columns:repeat(2,1fr);gap:7px;margin-top:16px;text-align:left}.progress-checks div{font-size:.72rem;color:#94a3b8}.progress-checks span{display:inline-grid;place-items:center;width:18px;height:18px;border-radius:50%;background:#e2e8f0;margin-right:4px;font-size:.6rem}.progress-checks div.done{color:var(--ts-text,#0f172a);font-weight:750}.progress-checks div.done span{background:#dcfce7;color:#15803d}.summary-issue{text-align:left;margin-top:17px;padding:12px;background:var(--ts-soft,#f8fafc);border-radius:12px}.summary-issue span{font-size:.68rem;color:var(--ts-muted,#64748b)}.summary-issue p{font-size:.76rem;margin:4px 0 0;display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;overflow:hidden}.step-fade-enter-active,.step-fade-leave-active{transition:.16s ease}.step-fade-enter-from{opacity:0;transform:translateX(12px)}.step-fade-leave-to{opacity:0;transform:translateX(-8px)}.note-slide-enter-active,.note-slide-leave-active{transition:.15s ease}.note-slide-enter-from,.note-slide-leave-to{opacity:0;transform:translateY(-4px)}
 @media(max-width:1180px){.reception-layout{grid-template-columns:1fr}.live-summary{position:static;order:-1;text-align:left}.live-summary .device-summary-icon,.live-summary h3,.live-summary>p{display:none}.summary-list{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-top:8px}.summary-list div{border:0;padding:8px;background:var(--ts-soft,#f8fafc);border-radius:10px;flex-direction:column}.progress-checks,.summary-issue{display:none}}

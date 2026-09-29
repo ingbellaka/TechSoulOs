@@ -16,7 +16,7 @@ const modalAccion = ref(null)
 const procesandoAccion = ref(false)
 const ticketActual = ref(null)
 const pagoModal = ref(null)
-const pagoForm = ref({ monto: null, metodo_pago: 'Efectivo' })
+const pagoForm = ref({ pagos: [{ metodo: 'Efectivo', monto: null }] })
 const guardandoPago = ref(false)
 const errorPago = ref('')
 const gastoModal = ref(null)
@@ -174,7 +174,7 @@ async function registrarGasto() {
     errorGasto.value = 'Escribe el concepto del gasto.'
     return
   }
-  if (!monto || monto <= 0) {
+  if (pagos.some(p => !p.metodo || !Number.isFinite(Number(p.monto)) || Number(p.monto) < 0 || (pagos.length > 1 && Number(p.monto) <= 0)) || !monto || monto <= 0) {
     errorGasto.value = 'Ingresa un monto mayor a $0.00.'
     return
   }
@@ -215,7 +215,7 @@ function abrirPago(orden) {
     return
   }
   pagoModal.value = orden
-  pagoForm.value = { monto: null, metodo_pago: 'Efectivo' }
+  pagoForm.value = { pagos: [{ metodo: 'Efectivo', monto: null }] }
   errorPago.value = ''
 }
 
@@ -227,18 +227,19 @@ function cerrarPago() {
 
 function establecerMonto(valor) {
   if (!pagoModal.value) return
-  pagoForm.value.monto = Math.min(Number(valor || 0), saldoReal(pagoModal.value))
+  pagoForm.value.pagos = [{ metodo: pagoForm.value.pagos[0]?.metodo || 'Efectivo', monto: Math.min(Number(valor || 0), saldoReal(pagoModal.value)) }]
 }
 
 async function registrarLiquidacion() {
   const orden = pagoModal.value
   if (!orden || guardandoPago.value) return
 
-  const monto = Number(pagoForm.value.monto || 0)
+  const pagos = pagoForm.value.pagos
+  const monto = pagos.reduce((s, p) => s + Math.round(Number(p.monto || 0) * 100), 0) / 100
   const saldoAntes = saldoReal(orden)
   errorPago.value = ''
 
-  if (!monto || monto <= 0) {
+  if (pagos.some(p => !p.metodo || !Number.isFinite(Number(p.monto)) || Number(p.monto) < 0 || (pagos.length > 1 && Number(p.monto) <= 0)) || !monto || monto <= 0) {
     errorPago.value = 'Ingresa un monto mayor a $0.00.'
     return
   }
@@ -263,36 +264,33 @@ async function registrarLiquidacion() {
     return
   }
 
-  const { error: errorCaja } = await supabase.from('movimientos_caja').insert({
-    tipo: 'Entrada',
-    concepto: `${clasePago} orden ${orden.folio}`,
-    monto,
-    metodo_pago: pagoForm.value.metodo_pago,
-    referencia_tipo: 'orden',
-    referencia_id: orden.id,
-    notas: orden.clientes?.nombre
-  })
-
-  if (errorCaja) {
-    // Revierte el acumulado para no dejar la orden descuadrada si falla Caja.
-    await supabase.from('ordenes').update({ anticipo: Number(orden.anticipo || 0) }).eq('id', orden.id)
-    guardandoPago.value = false
-    errorPago.value = errorCaja.message
-    return
+  const movimientosGuardados = []
+  for (const pago of pagos) {
+    const { data: movimiento, error: errorCaja } = await supabase.from('movimientos_caja').insert({
+      tipo: 'Entrada', concepto: `${clasePago} orden ${orden.folio}`,
+      monto: Math.round(Number(pago.monto) * 100) / 100, metodo_pago: pago.metodo,
+      referencia_tipo: 'orden', referencia_id: orden.id, notas: orden.clientes?.nombre
+    }).select('id').single()
+    if (errorCaja) {
+      for (const id of movimientosGuardados) await supabase.from('movimientos_caja').delete().eq('id', id)
+      await supabase.from('ordenes').update({ anticipo: Number(orden.anticipo || 0) }).eq('id', orden.id)
+      guardandoPago.value = false; errorPago.value = errorCaja.message; return
+    }
+    movimientosGuardados.push(movimiento.id)
   }
 
   await registrarHistorial(
     orden.id,
     'pago',
     `${clasePago} registrado`,
-    `Se registró ${clasePago.toLowerCase()} de ${moneda(monto)} por ${pagoForm.value.metodo_pago}. Saldo restante: ${moneda(nuevoSaldo)}.`
+    `Se registró ${clasePago.toLowerCase()} de ${moneda(monto)} por ${pagos.map(p => `${p.metodo}: ${moneda(p.monto)}`).join(' + ')}. Saldo restante: ${moneda(nuevoSaldo)}.`
   )
 
   const ordenActualizada = { ...orden, anticipo: nuevoAnticipo }
   guardandoPago.value = false
   pagoModal.value = null
   await cargarOrdenes()
-  await abrirTicketOrden(ordenActualizada, pagoForm.value.metodo_pago)
+  await abrirTicketOrden(ordenActualizada, pagos.map(p => `${p.metodo} ${moneda(p.monto)}`).join(' + '))
 }
 
 
@@ -650,13 +648,16 @@ onMounted(async () => {
             <div class="is-due"><span>Saldo pendiente</span><strong>{{ moneda(saldoReal(pagoModal)) }}</strong></div>
           </div>
 
-          <label class="ts-payment-field">
-            <span>¿Cuánto pagó el cliente?</span>
-            <div class="ts-money-input">
-              <b>$</b>
-              <input v-model.number="pagoForm.monto" type="number" min="0.01" :max="saldoReal(pagoModal)" step="0.01" inputmode="decimal" placeholder="0.00">
+          <div class="ts-payment-field">
+            <span>¿Cuánto pagó el cliente y cómo?</span>
+            <div v-for="(pago, indice) in pagoForm.pagos" :key="indice" class="split-payment-row">
+              <select v-model="pago.metodo" aria-label="Método"><option>Efectivo</option><option>Transferencia</option><option>Tarjeta</option><option>Mercado Pago</option><option>Otro</option></select>
+              <input v-model.number="pago.monto" type="number" min="0" :max="saldoReal(pagoModal)" step="0.01" aria-label="Importe">
+              <button v-if="pagoForm.pagos.length > 1" type="button" @click="pagoForm.pagos.splice(indice, 1)">×</button>
             </div>
-          </label>
+            <button type="button" class="ts-action-secondary" @click="pagoForm.pagos.push({ metodo: 'Transferencia', monto: null })">+ Agregar método</button>
+            <small>Total: {{ moneda(pagoForm.pagos.reduce((s,p)=>s+Number(p.monto||0),0)) }}</small>
+          </div>
 
           <div class="ts-quick-payments">
             <button type="button" @click="establecerMonto(500)">$500</button>
@@ -664,17 +665,9 @@ onMounted(async () => {
             <button type="button" class="is-liquidate" @click="establecerMonto(saldoReal(pagoModal))">Liquidar {{ moneda(saldoReal(pagoModal)) }}</button>
           </div>
 
-          <fieldset class="ts-payment-methods">
-            <legend>Método de pago</legend>
-            <label v-for="metodo in ['Efectivo', 'Transferencia', 'Tarjeta']" :key="metodo" :class="{ active: pagoForm.metodo_pago === metodo }">
-              <input v-model="pagoForm.metodo_pago" type="radio" name="metodo-pago" :value="metodo">
-              <span>{{ metodo }}</span>
-            </label>
-          </fieldset>
-
           <div class="ts-payment-type-preview">
             <span>Se registrará como</span>
-            <strong>{{ pagoForm.monto > 0 ? tipoPago(pagoModal, Number(pagoForm.monto)) : (Number(pagoModal.anticipo || 0) > 0 ? 'Abono' : 'Anticipo') }}</strong>
+            <strong>{{ pagoForm.pagos.some(p => Number(p.monto) > 0) ? tipoPago(pagoModal, pagoForm.pagos.reduce((s,p)=>s+Number(p.monto||0),0)) : (Number(pagoModal.anticipo || 0) > 0 ? 'Abono' : 'Anticipo') }}</strong>
           </div>
 
           <p v-if="errorPago" class="ts-payment-error">{{ errorPago }}</p>
@@ -734,6 +727,8 @@ onMounted(async () => {
 </template>
 
 <style scoped>
+.split-payment-row{display:grid;grid-template-columns:minmax(110px,1fr) minmax(90px,1fr) 34px;gap:8px;margin:9px 0}.split-payment-row select,.split-payment-row input{min-width:0;width:100%;padding:10px;border:1px solid #cbd5e1;border-radius:9px}.split-payment-row button{border:0;background:#fee2e2;border-radius:8px}
+
 .ts-ticket-order-action {
   display: inline-flex;
   align-items: center;

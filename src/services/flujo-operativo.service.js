@@ -175,3 +175,40 @@ export async function registrarAbonoVenta(venta, monto, metodoPago = 'Efectivo',
   })
   return { pagado, saldo }
 }
+
+// Registra un abono repartido y deja un movimiento de caja por método.
+export async function registrarAbonoVentaMixto(venta, pagos, notas = '') {
+  const partes = pagos.map(p => ({ metodo: clean(p.metodo), monto: Math.round(Number(p.monto) * 100) / 100 }))
+  const total = partes.reduce((sum, p) => sum + Math.round(p.monto * 100), 0) / 100
+  const saldoAnterior = Number(venta.saldo || 0)
+  const pagadoAnterior = Number(venta.pagado || 0)
+  if (!partes.length || partes.some(p => !p.metodo || p.monto <= 0 || !Number.isFinite(p.monto))) throw new Error('Cada método requiere un importe válido.')
+  if (total > saldoAnterior + 0.001) throw new Error('El abono supera el saldo pendiente.')
+  const pagado = Math.round((pagadoAnterior + total) * 100) / 100
+  const saldo = Math.max(0, Math.round((Number(venta.total || 0) - pagado) * 100) / 100)
+  const { error: errorVenta } = await supabase.from('ventas').update({
+    pagado, anticipo: pagado, saldo, estado_pago: saldo === 0 ? 'Pagado' : 'Parcial'
+  }).eq('id', venta.id)
+  if (errorVenta) throw new Error(errorVenta.message)
+  const creados = []
+  try {
+    for (const parte of partes) {
+      const { data, error } = await supabase.from('movimientos_caja').insert({
+        tipo: 'Entrada', concepto: saldo === 0 ? `Liquidación venta ${venta.folio}` : `Abono venta ${venta.folio}`,
+        monto: parte.monto, metodo_pago: parte.metodo, referencia_tipo: 'venta_abono',
+        referencia_id: `${venta.id}-${Date.now()}-${crypto.randomUUID()}`, notas
+      }).select('id').single()
+      if (error) throw error
+      creados.push(data.id)
+    }
+  } catch (error) {
+    for (const id of creados) await supabase.from('movimientos_caja').delete().eq('id', id)
+    const { error: rollbackError } = await supabase.from('ventas').update({
+      pagado: pagadoAnterior, anticipo: pagadoAnterior, saldo: saldoAnterior,
+      estado_pago: saldoAnterior === 0 ? 'Pagado' : pagadoAnterior > 0 ? 'Parcial' : 'Pendiente'
+    }).eq('id', venta.id)
+    if (rollbackError) throw new Error(`No se pudieron completar los pagos y la reversión requiere revisión: ${rollbackError.message}`)
+    throw new Error(error.message)
+  }
+  return { pagado, saldo }
+}

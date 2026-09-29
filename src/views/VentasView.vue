@@ -2,7 +2,7 @@
 import { computed, nextTick, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { supabase } from '../lib/supabase'
-import { registrarAbonoVenta } from '../services/flujo-operativo.service'
+import { registrarAbonoVentaMixto } from '../services/flujo-operativo.service'
 import { useAuthStore } from '../stores/auth'
 import TicketPreviewModal from '../components/tickets/TicketPreviewModal.vue'
 import { buildTicketVenta, normalizarSaldo } from '../utils/tickets'
@@ -10,6 +10,7 @@ import { buildTicketVenta, normalizarSaldo } from '../utils/tickets'
 const productos = ref([])
 const ventas = ref([])
 const detalles = ref([])
+const pagosPorVenta = ref({})
 const negocio = ref({})
 const busqueda = ref('')
 const estadoFiltro = ref('Todos')
@@ -18,7 +19,7 @@ const procesando = ref(false)
 const cargando = ref(true)
 const ventaAbono = ref(null)
 const ticketActual = ref(null)
-const abono = ref({ monto: 0, metodo_pago: 'Efectivo', notas: '' })
+const abono = ref({ pagos: [{ metodo: 'Efectivo', monto: 0 }], notas: '' })
 const authStore = useAuthStore()
 const route = useRoute()
 const ventaEditar = ref(null)
@@ -33,9 +34,7 @@ function nuevaVenta() {
   return {
     cliente_nombre: '',
     cliente_telefono: '',
-    metodo_pago: 'Efectivo',
-    anticipo: 0,
-    notas: '',
+    pagos: [{ metodo: 'Efectivo', monto: 0 }],
     items: []
   }
 }
@@ -69,7 +68,14 @@ function nombreTipo(tipo) {
 const productoItem = computed(() => productos.value.find(p => String(p.id) === String(item.value.producto_id)))
 const subtotalItem = computed(() => Number(item.value.cantidad || 0) * Number(item.value.precio_unitario || 0))
 const totalVenta = computed(() => form.value.items.reduce((s, renglon) => s + Number(renglon.subtotal || 0), 0))
-const anticipoAplicado = computed(() => Math.min(Math.max(Number(form.value.anticipo || 0), 0), totalVenta.value))
+const centavos = valor => Math.round(Number(valor || 0) * 100)
+const sumaPagos = pagos => pagos.reduce((s, pago) => s + centavos(pago.monto), 0) / 100
+const validarPagos = (pagos, limite) => {
+  if (pagos.some(p => !p.metodo || !Number.isFinite(Number(p.monto)) || Number(p.monto) < 0)) throw new Error('Revisa los importes y métodos de pago.')
+  if (centavos(sumaPagos(pagos)) > centavos(limite)) throw new Error('El pago no puede superar el total o saldo pendiente.')
+  if (pagos.length > 1 && pagos.some(p => centavos(p.monto) <= 0)) throw new Error('Cada método agregado debe tener un importe mayor a cero.')
+}
+const anticipoAplicado = computed(() => sumaPagos(form.value.pagos))
 const saldoVenta = computed(() => normalizarSaldo(totalVenta.value - anticipoAplicado.value))
 const productosDisponibles = computed(() => productos.value.filter(p => Number(p.stock || 0) > 0))
 const totalEdicion = computed(() => (editForm.value?.items || []).reduce((s, renglon) => s + Number(renglon.cantidad || 0) * Number(renglon.precio_unitario || 0), 0))
@@ -112,6 +118,12 @@ async function cargar() {
   }))
   detalles.value = dets || []
   negocio.value = config || {}
+  const { data: pagosIniciales } = await supabase.from('movimientos_caja')
+    .select('referencia_id,metodo_pago,monto').eq('referencia_tipo', 'venta').eq('tipo', 'Entrada')
+  pagosPorVenta.value = (pagosIniciales || []).reduce((mapa, pago) => {
+    (mapa[pago.referencia_id] ||= []).push(pago)
+    return mapa
+  }, {})
   cargando.value = false
 }
 
@@ -122,7 +134,7 @@ function cambiarTipo(tipo) {
 function seleccionarProducto() {
   const producto = productoItem.value
   if (!producto) return
-  item.value.descripcion = producto.nombre
+  item.value.descripcion = [producto.nombre, producto.compatible_con].filter(Boolean).join(' · ')
   item.value.precio_unitario = Number(producto.precio_venta || 0)
   item.value.costo_estimado = Number(producto.costo || 0)
 }
@@ -137,7 +149,7 @@ function agregarItem() {
     const producto = productoItem.value
     if (!producto) return alert('Selecciona un producto del inventario')
     if (cantidad > Number(producto.stock || 0)) return alert(`Solo hay ${producto.stock || 0} unidades disponibles`)
-    item.value.descripcion = producto.nombre
+    item.value.descripcion = [producto.nombre, producto.compatible_con].filter(Boolean).join(' · ')
   } else if (!item.value.descripcion.trim()) {
     return alert('Escribe la descripción del concepto')
   }
@@ -168,7 +180,7 @@ function estadoGeneral(items) {
 
 async function registrarVenta() {
   if (!form.value.items.length) return alert('Agrega al menos un artículo, servicio o concepto')
-  if (anticipoAplicado.value > totalVenta.value) return alert('El anticipo no puede superar el total')
+  try { validarPagos(form.value.pagos, totalVenta.value) } catch (error) { return alert(error.message) }
 
   procesando.value = true
   const pagado = anticipoAplicado.value
@@ -186,10 +198,10 @@ async function registrarVenta() {
       anticipo: pagado,
       pagado,
       saldo,
-      metodo_pago: form.value.metodo_pago,
+      metodo_pago: form.value.pagos.filter(p => centavos(p.monto) > 0).length > 1 ? 'Mixto' : (form.value.pagos.find(p => centavos(p.monto) > 0)?.metodo || 'No especificado'),
       estado_pago: saldo > 0 ? (pagado > 0 ? 'Parcial' : 'Pendiente') : 'Pagado',
       estado_entrega: estadoEntrega,
-      notas: form.value.notas.trim(),
+      notas: '',
       fecha_venta: new Date().toISOString()
     })
     .select()
@@ -253,15 +265,11 @@ async function registrarVenta() {
     }
   }
 
-  if (pagado > 0) {
+  for (const pago of form.value.pagos.filter(p => centavos(p.monto) > 0)) {
     const { error } = await supabase.from('movimientos_caja').insert({
-      tipo: 'Entrada',
-      concepto: saldo > 0 ? `Anticipo venta ${folio}` : `Venta ${folio}`,
-      monto: pagado,
-      metodo_pago: form.value.metodo_pago,
-      referencia_tipo: 'venta',
-      referencia_id: venta.id,
-      notas: form.value.notas.trim()
+      tipo: 'Entrada', concepto: saldo > 0 ? `Anticipo venta ${folio}` : `Venta ${folio}`,
+      monto: centavos(pago.monto) / 100, metodo_pago: pago.metodo,
+      referencia_tipo: 'venta', referencia_id: venta.id, notas: ''
     })
     if (error) errores.push(error.message)
   }
@@ -279,11 +287,17 @@ async function registrarVenta() {
   await cargar()
   const ventaActualizada = ventas.value.find(v => String(v.id) === String(venta.id)) || venta
   ticketActual.value = buildTicketVenta({ venta: ventaActualizada, items: itemsTicket, negocio: negocio.value })
+  ticketActual.value.paymentMethod = metodosVenta(ventaActualizada)
   if (errores.length) alert(`La venta se guardó, pero hubo operaciones pendientes: ${[...new Set(errores)].join(' · ')}`)
 }
 
 function itemsVenta(ventaId) {
   return detalles.value.filter(d => String(d.venta_id) === String(ventaId))
+}
+
+function metodosVenta(venta) {
+  const pagos = pagosPorVenta.value[venta.id] || []
+  return pagos.length ? pagos.map(p => `${p.metodo_pago} ${moneda(p.monto)}`).join(' + ') : (venta.metodo_pago || 'No especificado')
 }
 
 function abrirTicketVenta(venta) {
@@ -292,6 +306,7 @@ function abrirTicketVenta(venta) {
     items: itemsVenta(venta.id),
     negocio: negocio.value
   })
+  ticketActual.value.paymentMethod = metodosVenta(venta)
 }
 
 
@@ -336,7 +351,7 @@ function generarNotaVenta(venta) {
     <header class="header"><div class="brand">${negocio.value?.logo_url ? `<img class="brand-logo" src="${escaparHtml(negocio.value.logo_url)}" alt="Logo">` : ''}<h1>${escaparHtml(negocio.value?.nombre_negocio || 'TechSoul')}</h1><p>Especialistas en celulares</p><p>${escaparHtml(negocio.value?.direccion || '')}</p><p>${escaparHtml(negocio.value?.telefono || negocio.value?.whatsapp || '')}</p></div><div class="folio"><span>Nota de venta</span><strong>${escaparHtml(venta.folio || `V-${venta.id}`)}</strong><span class="status">${escaparHtml(estadoPago)}</span><p>${escaparHtml(fecha(venta.fecha_venta || venta.created_at))}</p></div></header>
     <section class="grid">
       <article class="card"><h2>Cliente</h2><div class="row"><span>Nombre</span><b>${escaparHtml(venta.cliente_nombre || 'Cliente de mostrador')}</b></div><div class="row"><span>Teléfono</span><b>${escaparHtml(venta.cliente_telefono || 'No registrado')}</b></div></article>
-      <article class="card"><h2>Pago</h2><div class="row"><span>Método</span><b>${escaparHtml(venta.metodo_pago || 'No registrado')}</b></div><div class="row"><span>Estado</span><b>${escaparHtml(estadoPago)}</b></div><div class="row"><span>Entrega</span><b>${escaparHtml(venta.estado_entrega || 'Entregado')}</b></div></article>
+      <article class="card"><h2>Pago</h2><div class="row"><span>Método</span><b>${escaparHtml(metodosVenta(venta))}</b></div><div class="row"><span>Estado</span><b>${escaparHtml(estadoPago)}</b></div><div class="row"><span>Entrega</span><b>${escaparHtml(venta.estado_entrega || 'Entregado')}</b></div></article>
       <article class="card wide"><h2>Detalle de venta</h2><table class="items"><thead><tr><th>Concepto</th><th>Cant.</th><th>P. unitario</th><th>Importe</th></tr></thead><tbody>${filas}</tbody></table></article>
       <article class="card wide"><h2>Resumen financiero</h2><div class="totals"><div class="total"><span>Total</span><b>${escaparHtml(moneda(venta.total))}</b></div><div class="total"><span>Pagado</span><b>${escaparHtml(moneda(pagado))}</b></div><div class="total balance"><span>Saldo pendiente</span><b>${escaparHtml(moneda(saldo))}</b></div></div></article>
       ${venta.notas ? `<article class="card wide"><h2>Observaciones</h2><div class="note">${escaparHtml(venta.notas)}</div></article>` : ''}
@@ -357,9 +372,7 @@ function abrirEditarVenta(venta) {
   editForm.value = {
     cliente_nombre: venta.cliente_nombre || '',
     cliente_telefono: venta.cliente_telefono || '',
-    metodo_pago: venta.metodo_pago || 'Efectivo',
     estado_entrega: venta.estado_entrega || 'Entregado',
-    notas: venta.notas || '',
     items: itemsVenta(venta.id).map(d => ({
       ...d,
       cantidad_original: Number(d.cantidad || 0),
@@ -437,20 +450,12 @@ async function guardarEdicionVenta() {
     const { error: errorVenta } = await supabase.from('ventas').update({
       cliente_nombre: editForm.value.cliente_nombre.trim() || 'Cliente de mostrador',
       cliente_telefono: editForm.value.cliente_telefono.trim(),
-      metodo_pago: editForm.value.metodo_pago,
       estado_entrega: editForm.value.estado_entrega,
-      notas: editForm.value.notas.trim(),
       total,
       saldo,
       estado_pago: estadoPago
     }).eq('id', ventaEditar.value.id)
     if (errorVenta) throw new Error(errorVenta.message)
-
-    // Si existe el movimiento inicial de caja de esta venta, corrige su método de pago.
-    await supabase.from('movimientos_caja')
-      .update({ metodo_pago: editForm.value.metodo_pago })
-      .eq('referencia_tipo', 'venta')
-      .eq('referencia_id', String(ventaEditar.value.id))
 
     cerrarEditarVenta()
     await cargar()
@@ -515,12 +520,15 @@ async function eliminarVenta(venta) {
 
 function abrirAbono(venta) {
   ventaAbono.value = venta
-  abono.value = { monto: Number(venta.saldo || 0), metodo_pago: venta.metodo_pago || 'Efectivo', notas: '' }
+  abono.value = { pagos: [{ metodo: 'Efectivo', monto: Number(venta.saldo || 0) }], notas: '' }
 }
 
 async function guardarAbono() {
   try {
-    await registrarAbonoVenta(ventaAbono.value, abono.value.monto, abono.value.metodo_pago, abono.value.notas)
+    validarPagos(abono.value.pagos, ventaAbono.value.saldo)
+    const pagos = abono.value.pagos.filter(p => centavos(p.monto) > 0)
+    if (!pagos.length) throw new Error('Captura un abono mayor a cero.')
+    await registrarAbonoVentaMixto(ventaAbono.value, pagos, abono.value.notas)
     ventaAbono.value = null
     await cargar()
   } catch (error) { alert(error.message) }
@@ -592,7 +600,7 @@ onMounted(async () => {
             <span>Producto de inventario *</span>
             <select v-model="item.producto_id" class="ts-filter-select ts-select-full" @change="seleccionarProducto">
               <option value="">Selecciona un producto</option>
-              <option v-for="p in productosDisponibles" :key="p.id" :value="p.id">{{ p.nombre }} · {{ p.stock }} disponibles · {{ moneda(p.precio_venta) }}</option>
+              <option v-for="p in productosDisponibles" :key="p.id" :value="p.id">{{ p.nombre }} · {{ p.compatible_con || 'Modelo sin registrar' }} · {{ p.stock }} disponibles · {{ moneda(p.precio_venta) }}</option>
             </select>
           </label>
           <label v-else class="ts-field product-field"><span>Descripción *</span><input v-model="item.descripcion" :placeholder="item.tipo === 'encargo' ? 'Ej. Pantalla Xiaomi Poco X7 Pro OLED' : 'Describe el concepto'"></label>
@@ -631,9 +639,14 @@ onMounted(async () => {
         <div class="builder-section-title"><div><span class="section-number">04</span><div><strong>Cobro</strong><small>Define cómo paga el cliente y revisa el saldo</small></div></div></div>
         <div class="checkout-layout">
           <div class="checkout-fields">
-            <label class="ts-field"><span>Método de pago</span><select v-model="form.metodo_pago" class="ts-filter-select ts-select-full"><option>Efectivo</option><option>Transferencia</option><option>Tarjeta</option><option>Mercado Pago</option></select></label>
-            <label class="ts-field"><span>Pago / anticipo</span><input v-model.number="form.anticipo" min="0" :max="totalVenta" step="0.01" type="number"></label>
-            <label class="ts-field checkout-notes"><span>Notas generales</span><textarea v-model="form.notas" rows="3" placeholder="Información opcional sobre la venta"></textarea></label>
+            <div class="split-payments"><strong>Pago / anticipo</strong>
+              <div v-for="(pago, indice) in form.pagos" :key="indice" class="split-payment-row">
+                <select v-model="pago.metodo" aria-label="Método de pago"><option>Efectivo</option><option>Transferencia</option><option>Tarjeta</option><option>Mercado Pago</option><option>Otro</option></select>
+                <input v-model.number="pago.monto" aria-label="Importe" type="number" min="0" :max="totalVenta" step="0.01">
+                <button v-if="form.pagos.length > 1" type="button" @click="form.pagos.splice(indice, 1)" aria-label="Quitar método">×</button>
+              </div>
+              <button type="button" class="ts-action-secondary" @click="form.pagos.push({ metodo: 'Transferencia', monto: 0 })">+ Agregar método</button>
+            </div>
           </div>
           <aside class="totals-card">
             <div><span>Total</span><strong>{{ moneda(totalVenta) }}</strong></div>
@@ -688,7 +701,6 @@ onMounted(async () => {
         <div class="edit-grid">
           <label><span>Cliente</span><input v-model="editForm.cliente_nombre" required></label>
           <label><span>Teléfono</span><input v-model="editForm.cliente_telefono"></label>
-          <label><span>Método de pago</span><select v-model="editForm.metodo_pago"><option>Efectivo</option><option>Transferencia</option><option>Tarjeta</option><option>Mercado Pago</option><option>Otro</option></select></label>
           <label><span>Estado de entrega</span><select v-model="editForm.estado_entrega"><option>Entregado</option><option>Entrega parcial</option><option>Pendiente de surtir</option></select></label>
         </div>
         <div class="edit-items">
@@ -700,7 +712,6 @@ onMounted(async () => {
             <strong>{{ moneda(Number(renglon.cantidad || 0) * Number(renglon.precio_unitario || 0)) }}</strong>
           </div>
         </div>
-        <label><span>Notas</span><textarea v-model="editForm.notas" rows="2"></textarea></label>
         <div class="edit-summary"><div><span>Total nuevo</span><strong>{{ moneda(totalEdicion) }}</strong></div><div><span>Ya cobrado</span><strong>{{ moneda(ventaEditar.pagado) }}</strong></div><div><span>Saldo</span><strong>{{ moneda(saldoEdicion) }}</strong></div></div>
         <small class="edit-warning">Los pagos ya registrados no se modifican desde aquí. Para cobrar más usa “Registrar abono”. Si cambias cantidades de artículos de inventario, las existencias se ajustan automáticamente.</small>
         <footer><button type="button" class="ts-action-secondary" @click="cerrarEditarVenta">Cancelar</button><button class="ts-action-primary" :disabled="procesandoEdicion">{{ procesandoEdicion ? 'Guardando…' : 'Guardar cambios' }}</button></footer>
@@ -711,8 +722,15 @@ onMounted(async () => {
       <form class="payment-modal" @submit.prevent="guardarAbono">
         <header><div><small>{{ ventaAbono.folio }}</small><h3>Registrar abono</h3></div><button type="button" @click="ventaAbono=null">×</button></header>
         <p>Saldo actual: <strong>{{ moneda(ventaAbono.saldo) }}</strong></p>
-        <label><span>Monto</span><input v-model.number="abono.monto" type="number" min="0.01" :max="ventaAbono.saldo" step="0.01" required></label>
-        <label><span>Método de pago</span><select v-model="abono.metodo_pago"><option>Efectivo</option><option>Transferencia</option><option>Tarjeta</option><option>Otro</option></select></label>
+        <div class="split-payments"><strong>Métodos e importes</strong>
+          <div v-for="(pago, indice) in abono.pagos" :key="indice" class="split-payment-row">
+            <select v-model="pago.metodo" aria-label="Método"><option>Efectivo</option><option>Transferencia</option><option>Tarjeta</option><option>Mercado Pago</option><option>Otro</option></select>
+            <input v-model.number="pago.monto" type="number" min="0" :max="ventaAbono.saldo" step="0.01" aria-label="Importe">
+            <button v-if="abono.pagos.length > 1" type="button" @click="abono.pagos.splice(indice, 1)">×</button>
+          </div>
+          <button type="button" class="ts-action-secondary" @click="abono.pagos.push({ metodo: 'Transferencia', monto: 0 })">+ Agregar método</button>
+          <small>Total del abono: {{ moneda(sumaPagos(abono.pagos)) }}</small>
+        </div>
         <label><span>Notas</span><textarea v-model="abono.notas" rows="2"></textarea></label>
         <footer><button type="button" class="ts-action-secondary" @click="ventaAbono=null">Cancelar</button><button class="ts-action-primary">Guardar abono</button></footer>
       </form>
@@ -722,6 +740,8 @@ onMounted(async () => {
 </template>
 
 <style scoped>
+.split-payments{display:grid;gap:10px;grid-column:1/-1}.split-payment-row{display:grid;grid-template-columns:minmax(120px,1fr) minmax(100px,1fr) 38px;gap:8px;align-items:center}.split-payment-row select,.split-payment-row input{width:100%;min-width:0;padding:10px;border:1px solid #d0d5dd;border-radius:9px}.split-payment-row button{border:0;background:#fee2e2;color:#991b1b;border-radius:8px;min-height:40px}.edit-sale-modal{max-height:92vh;overflow-y:auto}.edit-sale-modal footer{position:sticky;bottom:-22px;background:#fff;padding:12px 0;z-index:2}
+
 /* TechSoul OS · Ventas responsive */
 .ts-module-page{width:100%;max-width:1480px;margin:0 auto;padding-inline:clamp(14px,2vw,28px);box-sizing:border-box;overflow-x:hidden}
 .venta-builder{display:grid;gap:20px;max-width:1180px;width:100%;margin-inline:auto}
