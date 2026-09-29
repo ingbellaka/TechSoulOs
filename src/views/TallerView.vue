@@ -671,7 +671,17 @@ function compartirDiagnostico(orden) {
   if (!telefono) return notificar('Este cliente no tiene teléfono registrado.', 'error')
   const numero = telefono.length === 10 ? `52${telefono}` : telefono
   const mensaje = mensajeDiagnostico(orden)
-  window.open(`https://wa.me/${numero}?text=${encodeURIComponent(mensaje)}`, '_blank', 'noopener,noreferrer')
+  const parametros = new URLSearchParams({ phone: numero, text: mensaje })
+  window.open(`https://api.whatsapp.com/send?${parametros.toString()}`, '_blank', 'noopener,noreferrer')
+}
+
+async function copiarDiagnostico(orden) {
+  try {
+    await navigator.clipboard.writeText(mensajeDiagnostico(orden))
+    notificar('Mensaje copiado. Pégalo en WhatsApp para conservar los emojis.', 'success')
+  } catch {
+    notificar('No se pudo copiar. Permite el acceso al portapapeles e inténtalo de nuevo.', 'error')
+  }
 }
 
 function cerrarDiagnostico() {
@@ -994,6 +1004,7 @@ onBeforeUnmount(() => {
           <div class="workflow-actions">
             <button v-if="etiquetaAccion(orden)" type="button" class="workflow-primary" :disabled="guardando === orden.id" @click="accionPrincipal(orden)">{{ etiquetaAccion(orden) }}</button>
             <button v-if="orden.estado === 'Esperando autorización' && orden.diagnostico" type="button" class="workflow-secondary" @click="compartirDiagnostico(orden)">↗ Enviar diagnóstico y precio</button>
+            <button v-if="orden.estado === 'Esperando autorización' && orden.diagnostico" type="button" class="workflow-secondary" @click="copiarDiagnostico(orden)">Copiar mensaje</button>
             <button v-if="['Recibido', 'Diagnóstico', 'Esperando autorización'].includes(orden.estado)" type="button" class="workflow-secondary" :disabled="guardando === orden.id" @click="cambiarEstado(orden, 'Esperando pieza')">📦 Autorizado · Esperar refacción</button>
             <router-link v-if="orden.estado === 'En pruebas'" :to="`/taller/${orden.id}/control`" class="quality-link">🧪 Realizar pruebas y evidencia final</router-link>
           </div>
