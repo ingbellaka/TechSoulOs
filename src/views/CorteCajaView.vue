@@ -3,6 +3,9 @@ import { computed, onMounted, ref } from 'vue'
 import { supabase } from '../lib/supabase'
 
 const fechaSeleccionada = ref(new Date().toISOString().slice(0,10))
+const saldoInicial = ref(0)
+const origenSaldo = ref('')
+const errorSaldo = ref(false)
 const movimientos = ref([])
 const cargando = ref(false)
 const guardando = ref(false)
@@ -27,7 +30,7 @@ const resumen = computed(()=>{
   const tarjetaEntradas=suma('Tarjeta','Entrada'), tarjetaSalidas=suma('Tarjeta','Salida')
   const comision=tarjetaEntradas*(Number(comisionTarjetaPct.value||0)/100)
   return {
-    efectivoEntradas, efectivoSalidas, efectivoNeto:efectivoEntradas-efectivoSalidas,
+    efectivoEntradas, efectivoSalidas, efectivoNeto:saldoInicial.value+efectivoEntradas-efectivoSalidas,
     transferenciaEntradas, transferenciaSalidas, transferenciaNeto:transferenciaEntradas-transferenciaSalidas,
     tarjetaEntradas, tarjetaSalidas, comision, tarjetaNeto:tarjetaEntradas-tarjetaSalidas-comision,
     totalCobrado:efectivoEntradas+transferenciaEntradas+tarjetaEntradas
@@ -36,23 +39,52 @@ const resumen = computed(()=>{
 const diferencia = computed(()=> efectivoContado.value===null||efectivoContado.value==='' ? null : Number(efectivoContado.value)-resumen.value.efectivoNeto)
 const estadoEmpate = computed(()=>{if(diferencia.value===null)return 'pendiente'; if(Math.abs(diferencia.value)<0.01)return 'ok'; return diferencia.value>0?'sobrante':'faltante'})
 
+async function calcularSaldoInicial(desde) {
+  const { data: anterior, error } = await supabase.from('cortes_caja').select('*').lt('fecha',fechaSeleccionada.value).order('fecha',{ascending:false}).limit(1).maybeSingle()
+  if (error) throw error
+  let saldo = anterior ? Number(anterior.efectivo_contado || 0) : 0
+  // El contado corresponde al momento de cierre; incluye movimientos posteriores al cierre.
+  const limite = anterior ? (anterior.cerrado_en || rangoDia(anterior.fecha)[1]) : null
+  let pagina = 0
+  while (true) {
+    let consulta = supabase.from('movimientos_caja').select('id,tipo,monto,metodo_pago,fecha_movimiento').lt('fecha_movimiento',desde).order('fecha_movimiento',{ascending:true}).order('id',{ascending:true}).range(pagina*1000,pagina*1000+999)
+    if (limite) consulta = consulta.gte('fecha_movimiento',limite)
+    const { data, error: errorMov } = await consulta
+    if (errorMov) throw errorMov
+    for (const movimiento of data || []) {
+      if (normalizarMetodo(movimiento.metodo_pago)==='Efectivo') saldo += (movimiento.tipo==='Entrada'?1:movimiento.tipo==='Salida'?-1:0)*Number(movimiento.monto || 0)
+    }
+    if (!data || data.length < 1000) break
+    pagina++
+  }
+  saldoInicial.value = saldo
+  origenSaldo.value = anterior ? `Saldo arrastrado del corte del ${anterior.fecha}, ajustado por movimientos posteriores.` : 'Saldo acumulado de los movimientos anteriores; aún no existe un corte previo.'
+}
+
 async function cargar(){
   cargando.value=true
+  errorSaldo.value=false
   const [desde,hasta]=rangoDia(fechaSeleccionada.value)
-  const [movRes,corteRes]=await Promise.all([
-    supabase.from('movimientos_caja').select('*').gte('fecha_movimiento',desde).lt('fecha_movimiento',hasta).order('fecha_movimiento',{ascending:true}),
-    supabase.from('cortes_caja').select('*').eq('fecha',fechaSeleccionada.value).maybeSingle()
-  ])
-  if(movRes.error) alert(movRes.error.message)
-  if(corteRes.error) console.warn(corteRes.error.message)
-  movimientos.value=movRes.data||[]
-  corteGuardado.value=corteRes.data||null
-  if(corteGuardado.value){efectivoContado.value=Number(corteGuardado.value.efectivo_contado);observaciones.value=corteGuardado.value.observaciones||''}
-  else {efectivoContado.value=null;observaciones.value=''}
-  cargando.value=false
+  try {
+    const [movRes,corteRes]=await Promise.all([
+      supabase.from('movimientos_caja').select('*').gte('fecha_movimiento',desde).lt('fecha_movimiento',hasta).order('fecha_movimiento',{ascending:true}),
+      supabase.from('cortes_caja').select('*').eq('fecha',fechaSeleccionada.value).maybeSingle(),
+      calcularSaldoInicial(desde)
+    ])
+    if(movRes.error) throw movRes.error
+    if(corteRes.error) throw corteRes.error
+    movimientos.value=movRes.data||[]
+    corteGuardado.value=corteRes.data||null
+    if(corteGuardado.value){efectivoContado.value=Number(corteGuardado.value.efectivo_contado);observaciones.value=corteGuardado.value.observaciones||''}
+    else {efectivoContado.value=null;observaciones.value=''}
+  } catch (error) {
+    errorSaldo.value=true
+    alert(`No se pudo calcular el corte completo: ${error.message}`)
+  } finally { cargando.value=false }
 }
 
 async function cerrarCorte(){
+  if(cargando.value || errorSaldo.value) return alert('Recarga el corte antes de guardarlo; falta verificar el saldo anterior.')
   if(efectivoContado.value===null||efectivoContado.value==='') return alert('Captura cuánto efectivo contaste antes de cerrar el corte.')
   guardando.value=true
   const {data:auth}=await supabase.auth.getUser()
@@ -64,7 +96,7 @@ async function cerrarCorte(){
     transferencia_entradas:r.transferenciaEntradas, transferencia_salidas:r.transferenciaSalidas,
     tarjeta_entradas:r.tarjetaEntradas, tarjeta_salidas:r.tarjetaSalidas, tarjeta_comision_estimada:r.comision,
     total_cobrado:r.totalCobrado, observaciones:observaciones.value.trim(),
-    detalle:{comision_tarjeta_pct:Number(comisionTarjetaPct.value||0),movimientos:movimientos.value.map(m=>({id:m.id,tipo:m.tipo,concepto:m.concepto,monto:m.monto,metodo_pago:m.metodo_pago,fecha_movimiento:m.fecha_movimiento}))},
+    detalle:{saldo_inicial:saldoInicial.value,comision_tarjeta_pct:Number(comisionTarjetaPct.value||0),movimientos:movimientos.value.map(m=>({id:m.id,tipo:m.tipo,concepto:m.concepto,monto:m.monto,metodo_pago:m.metodo_pago,fecha_movimiento:m.fecha_movimiento}))},
     cerrado_por:auth.user?.id||null,cerrado_en:new Date().toISOString()
   }
   const {error}=await supabase.from('cortes_caja').upsert(payload,{onConflict:'fecha'})
@@ -99,7 +131,7 @@ onMounted(cargar)
       <article class="summary-card">
         <span>Efectivo</span>
         <strong>{{ moneda(resumen.efectivoNeto) }}</strong>
-        <small>Entradas {{ moneda(resumen.efectivoEntradas) }} · Salidas {{ moneda(resumen.efectivoSalidas) }}</small>
+        <small>Saldo anterior {{ moneda(saldoInicial) }} · Entradas {{ moneda(resumen.efectivoEntradas) }} · Salidas {{ moneda(resumen.efectivoSalidas) }}</small>
       </article>
       <article class="summary-card">
         <span>Transferencia</span>
@@ -150,7 +182,7 @@ onMounted(cargar)
         <div class="finance-copy">
           <span>Efectivo esperado</span>
           <strong>{{ moneda(resumen.efectivoNeto) }}</strong>
-          <small>{{ moneda(resumen.efectivoEntradas) }} entradas · {{ moneda(resumen.efectivoSalidas) }} salidas</small>
+          <small>Saldo anterior {{ moneda(saldoInicial) }} · {{ moneda(resumen.efectivoEntradas) }} entradas · {{ moneda(resumen.efectivoSalidas) }} salidas</small>
         </div>
       </article>
 
@@ -181,8 +213,8 @@ onMounted(cargar)
       <div class="validation-header">
         <div>
           <span class="section-kicker">Validación</span>
-          <h2>¿Empata el efectivo?</h2>
-          <p>Según los movimientos de hoy deberían existir <strong>{{ moneda(resumen.efectivoNeto) }}</strong> en efectivo.</p>
+          <h2>¿Empata el efectivo?</h2><p>{{ origenSaldo }}</p>
+          <p>Con el saldo anterior y los movimientos del día deberían existir <strong>{{ moneda(resumen.efectivoNeto) }}</strong> en efectivo.</p>
         </div>
         <div class="validation-status" :class="estadoEmpate">
           <span>Estado</span>
