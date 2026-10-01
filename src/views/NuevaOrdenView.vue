@@ -2,13 +2,20 @@
 import { ref, onMounted, computed, watch } from 'vue'
 import { supabase } from '../lib/supabase'
 import { subirEvidencia } from '../lib/storage'
-import { useRouter } from 'vue-router'
+import { useRouter, useRoute } from 'vue-router'
+import { calcularDescuentoOrden } from '../utils/descuento-orden'
+import { resolverClienteAgenda } from '../services/agenda-clientes.service'
 
 const router = useRouter()
+const route = useRoute()
+const citaOrigen = ref(null)
+const cargandoCita = ref(false)
+const errorCita = ref('')
 const clientes = ref([])
 const cargando = ref(false)
 const evidenciasRecepcion = ref({})
 const equiposPendientes = ref([])
+const descuento = ref({ tipo: 'importe', valor: 0, motivo: '' })
 const pagosAnticipo = ref([{ metodo: 'Efectivo', monto: 0 }])
 const tarifario = ref([])
 const cargandoTarifario = ref(false)
@@ -211,12 +218,14 @@ function eliminarServicio(indice) {
 }
 
 const subtotalServicios = computed(() => servicios.value.reduce((total, servicio) => total + Number(servicio.precio || 0), 0))
+const calculoDescuento = computed(() => calcularDescuentoOrden(subtotalServicios.value, descuento.value))
+const totalConDescuento = computed(() => calculoDescuento.value.total)
 const descripcionServicios = computed(() => servicios.value
   .filter(servicio => servicio.tipo || servicio.descripcion)
   .map(servicio => servicio.descripcion?.trim() || servicio.tipo)
   .join(', '))
 
-watch(subtotalServicios, total => {
+watch(totalConDescuento, total => {
   orden.value.costo_total = total
 }, { immediate: true })
 
@@ -243,19 +252,17 @@ const checklistResumen = computed(() => {
 })
 
 const saldo = computed(() => Math.max(0, Number(orden.value.costo_total || 0) - Number(orden.value.anticipo || 0)))
-const anticipoExcedeTotal = computed(() => Number(orden.value.anticipo || 0) > Number(subtotalServicios.value || 0))
+const anticipoExcedeTotal = computed(() => Number(orden.value.anticipo || 0) > Number(totalConDescuento.value || 0))
 
 function normalizarAnticipo() {
-  const total = Number(subtotalServicios.value || 0)
+  const total = Number(totalConDescuento.value || 0)
   let valor = Number(orden.value.anticipo || 0)
   if (!Number.isFinite(valor) || valor < 0) valor = 0
   if (valor > total) valor = total
   orden.value.anticipo = valor
 }
 
-watch(subtotalServicios, total => {
-  if (Number(orden.value.anticipo || 0) > Number(total || 0)) orden.value.anticipo = Number(total || 0)
-})
+// Conserva el anticipo capturado: avisa si excede el total, sin modificar pagos recibidos.
 const progreso = computed(() => {
   let completados = 0
   if ((cliente.value.cliente_id || cliente.value.nombre.trim())) completados++
@@ -395,9 +402,10 @@ function guardarEquipoPendiente() {
   if (!validarPaso(2) || !evidenciaCompleta.value) return alert('Completa las evidencias obligatorias del equipo.')
   if (!servicios.value.some(s => s.tipo)) return alert('Agrega un servicio para este equipo.')
   if (pagosAnticipo.value.some(p => !p.metodo || !Number.isFinite(Number(p.monto)) || Number(p.monto) < 0 || (pagosAnticipo.value.length > 1 && Number(p.monto) <= 0))) return alert('Revisa los métodos e importes.')
-  if (Number(orden.value.anticipo || 0) > subtotalServicios.value) return alert('El anticipo excede el total.')
+  if (calculoDescuento.value.error) return alert(calculoDescuento.value.error)
+  if (Number(orden.value.anticipo || 0) > totalConDescuento.value) return alert('El anticipo excede el total.')
   equiposPendientes.value.push({
-    equipo: { ...equipo.value }, orden: { ...orden.value },
+    equipo: { ...equipo.value }, orden: { ...orden.value }, descuento: { ...descuento.value },
     evidencias: { ...evidenciasRecepcion.value },
     checklist: checklist.value.map(c => ({ ...c })), servicios: servicios.value.map(s => ({ ...s })),
     pagos: pagosAnticipo.value.map(p => ({ ...p }))
@@ -405,6 +413,7 @@ function guardarEquipoPendiente() {
   equipo.value = { tipo_equipo: 'Celular', marca: '', modelo: '', color: '', imei_serie: '', codigo_bloqueo: '', observaciones: '' }
   orden.value = { ...orden.value, falla_reportada: '', diagnostico: '', trabajo_realizado: '', costo_total: 0, anticipo: 0, metodo_pago: 'Efectivo' }
   evidenciasRecepcion.value = {}
+  descuento.value = { tipo: 'importe', valor: 0, motivo: '' }
   pagosAnticipo.value = [{ metodo: 'Efectivo', monto: 0 }]
   servicios.value = [crearServicioVacio()]
   cargarChecklistBase()
@@ -413,17 +422,27 @@ function guardarEquipoPendiente() {
 }
 
 async function crearOrden() {
+  if (cargando.value || cargandoCita.value) return
+  if (route.query.cita && (errorCita.value || !citaOrigen.value)) return alert('No se pudo cargar la cita. Recarga antes de crear la orden.')
+  if (citaOrigen.value?.orden_id) return router.push(`/ordenes/${citaOrigen.value.orden_id}`)
   const lote = [...equiposPendientes.value]
   if (equipo.value.modelo.trim()) lote.push({
-    equipo: { ...equipo.value }, orden: { ...orden.value }, evidencias: { ...evidenciasRecepcion.value },
+    equipo: { ...equipo.value }, orden: { ...orden.value }, descuento: { ...descuento.value }, evidencias: { ...evidenciasRecepcion.value },
     checklist: checklist.value.map(c => ({ ...c })), servicios: servicios.value.map(s => ({ ...s })), pagos: pagosAnticipo.value.map(p => ({ ...p }))
   })
   if (!lote.length) return alert('Agrega al menos un equipo.')
+  if (citaOrigen.value && lote.length > 1) return alert('Para esta cita crea una orden para su equipo. Recibe los equipos adicionales por separado.')
   const grupo = lote.length > 1 ? crypto.randomUUID() : null
   const ids = []
   cargando.value = true
   try {
+    if (citaOrigen.value) {
+      const {data: actual,error} = await supabase.from('citas_agenda').select('orden_id').eq('id',citaOrigen.value.id).single()
+      if(error) throw error
+      if(actual.orden_id) { await router.replace(`/ordenes/${actual.orden_id}`); return }
+    }
     for (const ficha of lote) {
+      descuento.value = ficha.descuento || { tipo: 'importe', valor: 0, motivo: '' }
       equipo.value = ficha.equipo; orden.value = ficha.orden; evidenciasRecepcion.value = ficha.evidencias
       checklist.value = ficha.checklist; servicios.value = ficha.servicios; pagosAnticipo.value = ficha.pagos
       ids.push(await crearOrdenIndividual(grupo))
@@ -443,7 +462,8 @@ async function crearOrdenIndividual(grupo) {
   if (pagosAnticipo.value.some(p => !p.metodo || !Number.isFinite(Number(p.monto)) || Number(p.monto) < 0 || (pagosAnticipo.value.length > 1 && Number(p.monto) <= 0))) throw new Error('Revisa los importes de cada método de pago')
   const serviciosValidos = servicios.value.filter(servicio => servicio.tipo && (servicio.tipo !== 'Otro' || servicio.descripcion.trim()))
   if (serviciosValidos.length === 0) throw new Error('Agrega al menos un servicio a realizar')
-  if (Number(orden.value.anticipo || 0) > subtotalServicios.value) throw new Error('El anticipo no puede ser mayor al total')
+  if (calculoDescuento.value.error) throw new Error(calculoDescuento.value.error)
+  if (Number(orden.value.anticipo || 0) > totalConDescuento.value) throw new Error('El anticipo no puede ser mayor al total')
 
   {
     let clienteId = cliente.value.cliente_id
@@ -470,7 +490,7 @@ async function crearOrdenIndividual(grupo) {
 
     const folio = await generarFolio()
     const { generar_garantia, ...ordenData } = orden.value
-    ordenData.costo_total = subtotalServicios.value
+    ordenData.costo_total = totalConDescuento.value
     ordenData.trabajo_realizado = descripcionServicios.value
 
     if (ordenData.fecha_programada) ordenData.fecha_programada = new Date(ordenData.fecha_programada).toISOString()
@@ -495,6 +515,12 @@ async function crearOrdenIndividual(grupo) {
     if (errorOrdenCreada) throw errorOrdenCreada
     if (!nuevaOrden?.id) throw new Error('La orden se creó, pero no fue posible recuperar su ID. No se guardaron evidencias.')
     const ordenId = nuevaOrden.id
+    if (citaOrigen.value) {
+      // Una vez creada, conserva el ID incluso si falla un paso posterior.
+      citaOrigen.value.orden_id = ordenId
+      const {data: vinculada,error: errorVinculo} = await supabase.from('citas_agenda').update({orden_id:ordenId,cliente_id:clienteId,estado:'Recibido'}).eq('id',citaOrigen.value.id).is('orden_id',null).select('id').maybeSingle()
+      if(errorVinculo || !vinculada) throw errorVinculo || new Error(`La orden ${folio} se creó, pero la cita ya fue vinculada en otra sesión. Revisa Agenda antes de continuar.`)
+    }
 
     const serviciosParaGuardar = servicios.value
       .filter(servicio => servicio.tipo && (servicio.tipo !== 'Otro' || servicio.descripcion.trim()))
@@ -547,7 +573,7 @@ async function crearOrdenIndividual(grupo) {
       orden_id: ordenId,
       tipo: 'creacion',
       titulo: 'Orden creada',
-      descripcion: `Se recibió ${equipo.value.marca || ''} ${equipo.value.modelo}`.trim(),
+      descripcion: `Se recibió ${equipo.value.marca || ''} ${equipo.value.modelo}`.trim() + (calculoDescuento.value.monto > 0 ? `\nSubtotal: ${moneda(subtotalServicios.value)}. Descuento: ${moneda(calculoDescuento.value.monto)}${descuento.value.tipo === 'porcentaje' ? ` (${descuento.value.valor}%)` : ''}. Total: ${moneda(totalConDescuento.value)}.${descuento.value.motivo.trim() ? ` Motivo: ${descuento.value.motivo.trim()}` : ''}` : ''),
       estado_nuevo: nuevaOrden.estado,
       usuario_id: auth.user?.id || null
     })
@@ -565,8 +591,38 @@ async function crearOrdenIndividual(grupo) {
   }
 }
 
-onMounted(() => {
-  cargarDatos()
+async function cargarCitaOrigen() {
+  if (!route.query.cita) return
+  cargandoCita.value = true
+  try {
+    const { data: cita, error } = await supabase.from('citas_agenda').select('*').eq('id',route.query.cita).single()
+    if (error) throw error
+    if (cita.orden_id) { await router.replace(`/ordenes/${cita.orden_id}`); return }
+    if (['Cancelada','No asistió'].includes(cita.estado)) throw new Error('La cita está cancelada o marcada como no asistida.')
+    const c = await resolverClienteAgenda(cita)
+    if (!cita.cliente_id) {
+      const { data, error: errorVinculo } = await supabase.from('citas_agenda').update({cliente_id:c.id}).eq('id',cita.id).select('id').single()
+      if (errorVinculo || !data) throw errorVinculo || new Error('No se pudo vincular el cliente a la cita.')
+    }
+    citaOrigen.value = { ...cita, cliente_id: c.id }
+    if (!clientes.value.some(x => x.id === c.id)) clientes.value.push(c)
+    clienteExistente.value = true
+    cliente.value = { cliente_id:c.id, nombre:c.nombre, telefono:c.telefono || '', whatsapp:c.whatsapp || '' }
+    equipo.value.modelo = cita.equipo || ''
+    equipo.value.marca = /iphone|ipad|macbook/i.test(cita.equipo || '') ? 'Apple' : ''
+    servicios.value = [{...crearServicioVacio(),tipo:'Otro',descripcion:cita.servicio || '',precio:0}]
+    const fecha = new Date(cita.inicio)
+    const pad = n => String(n).padStart(2,'0')
+    orden.value.fecha_programada = `${fecha.getFullYear()}-${pad(fecha.getMonth()+1)}-${pad(fecha.getDate())}T${pad(fecha.getHours())}:${pad(fecha.getMinutes())}`
+    orden.value.duracion_estimada_min = cita.duracion_min || 30
+    orden.value.notas = cita.notas || ''
+  } catch (error) { errorCita.value = error.message; alert(error.message) }
+  finally { cargandoCita.value = false }
+}
+
+onMounted(async () => {
+  await cargarDatos()
+  await cargarCitaOrigen()
   cargarTarifario()
   cargarChecklistBase()
 })
@@ -574,6 +630,9 @@ onMounted(() => {
 
 <template>
   <div class="ts-page reception-page">
+    <p v-if="cargandoCita">Cargando datos de la cita…</p>
+    <p v-if="citaOrigen">Orden desde Agenda: {{ citaOrigen.nombre_cliente }} · {{ citaOrigen.equipo }} · {{ citaOrigen.servicio }}. Completa recepción, fotos y precio antes de guardar.</p>
+    <p v-if="errorCita" role="alert">{{ errorCita }}</p>
     <header class="reception-header">
       <div>
         <span class="eyebrow">Recepción rápida</span>
@@ -809,10 +868,22 @@ onMounted(() => {
               <button type="button" class="btn btn-outline-primary add-service-button" @click="agregarServicio">+ Agregar otro servicio</button>
             </div>
 
+            <div class="discount-panel mt-4">
+              <h3>Descuento de la orden</h3>
+              <p>Se aplica al subtotal de todos los servicios de este equipo.</p>
+              <div class="form-grid three-cols">
+                <label class="field-block"><span class="form-label">Tipo de descuento</span><select v-model="descuento.tipo" class="form-select" @change="descuento.valor = 0"><option value="importe">Importe ($)</option><option value="porcentaje">Porcentaje (%)</option></select></label>
+                <label class="field-block"><span class="form-label">{{ descuento.tipo === 'porcentaje' ? 'Porcentaje' : 'Importe' }}</span><input v-model.number="descuento.valor" type="number" min="0" :max="descuento.tipo === 'porcentaje' ? 100 : subtotalServicios" step="0.01" class="form-control" placeholder="0"></label>
+                <label class="field-block"><span class="form-label">Motivo (opcional)</span><input v-model="descuento.motivo" maxlength="200" class="form-control" placeholder="Ej. Precio especial por paquete"></label>
+              </div>
+              <div class="discount-breakdown"><span>Subtotal: <b>{{ moneda(subtotalServicios) }}</b></span><span>Descuento: <b>−{{ moneda(calculoDescuento.monto) }}</b></span><span>Total final: <b>{{ moneda(totalConDescuento) }}</b></span></div>
+              <p v-if="calculoDescuento.error" role="alert" class="text-danger">{{ calculoDescuento.error }}</p>
+            </div>
+
             <div class="payment-summary mt-4">
               <div class="payment-card total-card">
-                <span class="payment-card-label">Total de servicios</span>
-                <strong>{{ moneda(subtotalServicios) }}</strong>
+                <span class="payment-card-label">Total con descuento</span>
+                <strong>{{ moneda(totalConDescuento) }}</strong>
                 <small>{{ servicios.length }} servicio{{ servicios.length === 1 ? '' : 's' }} agregado{{ servicios.length === 1 ? '' : 's' }}</small>
               </div>
 
@@ -820,7 +891,7 @@ onMounted(() => {
                 <span class="payment-card-label">Anticipo recibido · {{ moneda(orden.anticipo) }}</span>
                 <div v-for="(pago, indice) in pagosAnticipo" :key="indice" class="split-payment-row">
                   <select v-model="pago.metodo" aria-label="Método de pago"><option>Efectivo</option><option>Transferencia</option><option>Tarjeta</option><option>Mercado Pago</option><option>Otro</option></select>
-                  <input v-model.number="pago.monto" type="number" min="0" :max="subtotalServicios" step="0.01" aria-label="Importe">
+                  <input v-model.number="pago.monto" type="number" min="0" :max="totalConDescuento" step="0.01" aria-label="Importe">
                   <button v-if="pagosAnticipo.length > 1" type="button" @click="pagosAnticipo.splice(indice,1)">×</button>
                 </div>
                 <button type="button" class="btn btn-outline-primary" @click="pagosAnticipo.push({ metodo: 'Transferencia', monto: 0 })">+ Agregar método</button>
@@ -884,7 +955,9 @@ onMounted(() => {
         <p>{{ cliente.nombre || 'Cliente por seleccionar' }}</p>
         <div class="summary-list">
           <div><span>Tipo</span><strong>{{ equipo.tipo_equipo }}</strong></div>
-          <div><span>Total</span><strong>{{ moneda(orden.costo_total) }}</strong></div>
+          <div><span>Subtotal</span><strong>{{ moneda(subtotalServicios) }}</strong></div>
+          <div v-if="calculoDescuento.monto"><span>Descuento</span><strong>−{{ moneda(calculoDescuento.monto) }}</strong></div>
+          <div><span>Total</span><strong>{{ moneda(totalConDescuento) }}</strong></div>
           <div><span>Anticipo</span><strong>{{ moneda(orden.anticipo) }}</strong></div>
           <div class="summary-balance"><span>Saldo</span><strong>{{ moneda(saldo) }}</strong></div>
         </div>
@@ -901,6 +974,8 @@ onMounted(() => {
 </template>
 
 <style scoped>
+.discount-panel{padding:20px;border:1px solid #dbe3ee;border-radius:16px;background:#f8faff}.discount-panel h3{font-size:1.1rem;margin:0 0 6px}.discount-panel p{color:#64748b}.discount-breakdown{display:flex;gap:16px;flex-wrap:wrap;margin-top:16px}.discount-breakdown span:last-child{color:#0b43ff}@media(max-width:600px){.discount-panel{padding:14px}.discount-breakdown{flex-direction:column;gap:8px}}
+
 .split-payment-row{display:grid;grid-template-columns:minmax(100px,1fr) minmax(80px,1fr) 34px;gap:6px;margin:9px 0}.split-payment-row select,.split-payment-row input{min-width:0;width:100%;border:1px solid #cbd5e1;border-radius:8px;padding:8px}.split-payment-row button{border:0;border-radius:8px;background:#fee2e2}
 
 .reception-page{max-width:1420px;margin:0 auto;padding-bottom:40px}.reception-header{display:flex;justify-content:space-between;align-items:flex-end;gap:20px;margin-bottom:22px}.header-actions{display:flex;gap:10px}.eyebrow,.step-kicker{display:block;color:var(--ts-primary,#2563eb);font-size:.72rem;font-weight:850;letter-spacing:.09em;text-transform:uppercase;margin-bottom:6px}.stepper{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-bottom:22px}.stepper-item{border:0;background:transparent;display:flex;align-items:center;gap:9px;text-align:left;padding:8px;border-radius:13px;color:var(--ts-muted,#64748b)}.stepper-item:hover{background:var(--ts-soft,#f8fafc)}.step-dot{width:30px;height:30px;flex:0 0 30px;display:grid;place-items:center;border:1px solid var(--ts-border,#dbe3ee);border-radius:10px;background:var(--ts-surface,#fff);font-size:.78rem;font-weight:850}.stepper-item.active{color:var(--ts-text,#0f172a);background:rgba(37,99,235,.06)}.stepper-item.active .step-dot{background:#2563eb;border-color:#2563eb;color:#fff;box-shadow:0 6px 15px rgba(37,99,235,.25)}.stepper-item.complete .step-dot{background:#dcfce7;border-color:#bbf7d0;color:#15803d}.step-copy{display:flex;flex-direction:column;min-width:0}.step-copy strong{font-size:.78rem;white-space:nowrap}.step-copy small{font-size:.66rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.reception-layout{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:22px;align-items:start}.wizard-card{overflow:hidden}.wizard-step{min-height:500px;padding:32px}.step-heading{margin-bottom:26px}.step-heading h2{font-size:1.45rem;font-weight:850;margin:0 0 6px}.step-heading p{color:var(--ts-muted,#64748b);margin:0}.choice-tabs{display:inline-flex;padding:4px;background:var(--ts-soft,#f1f5f9);border-radius:13px;margin-bottom:24px}.choice-tabs button{border:0;background:transparent;color:var(--ts-muted,#64748b);padding:10px 16px;border-radius:10px;font-weight:750;font-size:.86rem}.choice-tabs button.active{background:var(--ts-surface,#fff);color:var(--ts-text,#0f172a);box-shadow:0 2px 8px rgba(15,23,42,.08)}.field-block{display:flex;flex-direction:column}.form-grid{display:grid;gap:16px}.two-cols{grid-template-columns:repeat(2,minmax(0,1fr))}.three-cols{grid-template-columns:repeat(3,minmax(0,1fr))}.full{grid-column:1/-1}.two-span{grid-column:span 2}.form-label{font-size:.78rem;font-weight:750;color:var(--ts-muted,#475569);margin-bottom:7px}.form-control,.form-select{border-radius:11px;min-height:44px}.selected-client{margin-top:14px;display:flex;align-items:center;gap:12px;padding:14px;border:1px solid #bfdbfe;background:#eff6ff;border-radius:14px}.client-avatar{width:40px;height:40px;display:grid;place-items:center;border-radius:12px;background:#2563eb;color:#fff;font-weight:850}.selected-client div:nth-child(2){display:flex;flex-direction:column;flex:1}.selected-client span{font-size:.8rem;color:#64748b}.selected-badge{padding:5px 9px;border-radius:999px;background:#dbeafe;color:#1d4ed8!important;font-weight:750}.device-type-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}.device-type-grid button{border:1px solid var(--ts-border,#dbe3ee);background:var(--ts-surface,#fff);border-radius:14px;padding:15px 10px;display:flex;align-items:center;justify-content:center;gap:8px;color:var(--ts-muted,#64748b)}.device-type-grid button span{font-size:1.2rem}.device-type-grid button strong{font-size:.82rem}.device-type-grid button.active{border-color:#2563eb;background:#eff6ff;color:#1d4ed8;box-shadow:0 0 0 2px rgba(37,99,235,.08)}.issue-input{min-height:105px}.details-toggle{width:100%;border:1px dashed var(--ts-border,#cbd5e1);background:transparent;border-radius:14px;padding:14px 16px;display:flex;align-items:center;justify-content:space-between;text-align:left;margin-top:18px}.details-toggle span{display:flex;flex-direction:column}.details-toggle strong{font-size:.86rem}.details-toggle small{color:var(--ts-muted,#64748b);margin-top:2px}.details-toggle b{font-size:1.2rem;color:#2563eb}.details-panel{margin-top:12px;padding:18px;background:var(--ts-soft,#f8fafc);border:1px solid var(--ts-border,#e2e8f0);border-radius:14px}.camera-card{position:relative;min-height:330px;border:2px dashed var(--ts-border,#cbd5e1);background:var(--ts-soft,#f8fafc);border-radius:20px;display:grid;place-items:center;overflow:hidden;cursor:pointer}.camera-card input{display:none}.camera-card img{width:100%;height:100%;max-height:440px;object-fit:contain;background:#0f172a}.camera-empty{text-align:center;display:flex;flex-direction:column;align-items:center}.camera-icon{font-size:2.5rem;margin-bottom:12px}.camera-empty strong{font-size:1rem}.camera-empty small{color:var(--ts-muted,#64748b);margin-top:5px}.replace-photo{position:absolute;bottom:14px;left:50%;transform:translateX(-50%);padding:8px 13px;border-radius:999px;background:rgba(15,23,42,.78);color:#fff;font-size:.78rem;font-weight:750}.evidence-tip{display:flex;gap:10px;margin-top:14px;padding:12px 14px;border-radius:13px;background:#fffbeb;color:#92400e;font-size:.82rem}.evidence-tip p{margin:0}.checklist-heading{display:flex;justify-content:space-between;gap:20px;align-items:flex-start}.legend-row{display:flex;flex-wrap:wrap;gap:14px;margin-bottom:16px;color:var(--ts-muted,#64748b);font-size:.74rem}.legend-row span{display:flex;align-items:center;gap:5px}.status-dot{width:9px;height:9px;border-radius:50%;display:inline-block}.status-dot.ok{background:#22c55e}.status-dot.fail{background:#ef4444}.status-dot.unknown{background:#f59e0b}.status-dot.na{background:#94a3b8}.smart-checklist{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.smart-check-item{border:1px solid var(--ts-border,#e2e8f0);border-radius:16px;background:var(--ts-surface,#fff);overflow:hidden;transition:.15s;box-shadow:0 1px 2px rgba(15,23,42,.04)}.smart-check-item:hover{border-color:#bfdbfe;box-shadow:0 8px 22px rgba(15,23,42,.07)}.smart-check-item.state-ok{border-color:#86efac;background:linear-gradient(90deg,rgba(34,197,94,.06),var(--ts-surface,#fff) 30%)}.smart-check-item.state-fail{border-color:#fca5a5;background:linear-gradient(90deg,rgba(239,68,68,.06),var(--ts-surface,#fff) 30%)}.smart-check-item.state-na{opacity:.78}.check-main{display:grid;grid-template-columns:minmax(190px,1fr) auto 38px;gap:12px;align-items:center;padding:13px 14px}.check-identity{display:flex;align-items:center;gap:11px;min-width:0}.check-icon{width:40px;height:40px;flex:0 0 40px;display:grid;place-items:center;border-radius:12px;background:#eff6ff;color:#1d4ed8;font-size:1.1rem;font-weight:900}.check-copy{display:flex;flex-direction:column;min-width:0}.check-copy strong{font-size:.86rem;color:var(--ts-text,#0f172a);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.check-copy small{margin-top:3px;color:var(--ts-muted,#64748b);font-size:.68rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.status-buttons{display:flex;gap:6px}.status-button{width:42px;height:38px;border:1px solid var(--ts-border,#dbe3ee);background:var(--ts-soft,#f8fafc);border-radius:10px;display:flex;flex-direction:column;align-items:center;justify-content:center;line-height:1}.status-button span{font-size:.8rem;font-weight:900}.status-button small{font-size:.52rem;margin-top:3px}.status-button.selected.status-ok{background:#dcfce7;border-color:#86efac;color:#15803d}.status-button.selected.status-fail{background:#fee2e2;border-color:#fca5a5;color:#b91c1c}.status-button.selected.status-unknown{background:#fef3c7;border-color:#fcd34d;color:#a16207}.status-button.selected.status-na{background:#e2e8f0;border-color:#cbd5e1;color:#475569}.note-button{width:34px;height:34px;border:0;border-radius:9px;background:var(--ts-soft,#f1f5f9);color:#64748b}.note-button.active{background:#dbeafe;color:#2563eb}.check-note{padding:0 12px 12px}.check-note .form-control{min-height:38px;font-size:.8rem}.custom-check-row{display:flex;gap:8px;margin-top:14px}.services-builder{display:grid;gap:14px}.tariff-search-wrap{position:relative;margin-bottom:16px}.tariff-search-control{display:flex;align-items:center;gap:8px;position:relative}.tariff-search-control .form-control{padding-left:38px;min-height:44px}.tariff-search-icon{position:absolute;left:13px;z-index:2;color:#64748b;font-size:1.1rem}.tariff-device-button{white-space:nowrap;min-height:44px}.tariff-results{position:absolute;z-index:30;top:76px;left:0;right:0;max-height:340px;overflow:auto;background:var(--ts-surface,#fff);border:1px solid var(--ts-border,#dbe3ee);border-radius:14px;box-shadow:0 18px 42px rgba(15,23,42,.16);padding:6px}.tariff-result{width:100%;border:0;background:transparent;border-radius:10px;padding:11px 12px;display:flex;align-items:center;justify-content:space-between;gap:14px;text-align:left}.tariff-result:hover{background:#eff6ff}.tariff-result-copy{display:flex;flex-direction:column;min-width:0}.tariff-result-copy strong{font-size:.84rem;color:var(--ts-text,#0f172a)}.tariff-result-copy small{margin-top:3px;color:var(--ts-muted,#64748b);font-size:.72rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.tariff-result-price{font-size:.88rem;font-weight:850;color:#1d4ed8;white-space:nowrap}.tariff-result-price.quote{color:#a16207}.tariff-empty{padding:14px;color:var(--ts-muted,#64748b);font-size:.78rem;text-align:center}.tariff-selected{margin-top:7px;color:#15803d;font-size:.72rem;font-weight:700}.service-row-card{border:1px solid var(--ts-border,#dbe3ee);border-radius:16px;padding:17px;background:var(--ts-surface,#fff);box-shadow:0 2px 10px rgba(15,23,42,.04)}.service-row-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}.service-row-head strong{font-size:.9rem}.add-service-button{justify-self:start}.money-field input[readonly]{cursor:default}

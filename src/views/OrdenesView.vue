@@ -37,6 +37,8 @@ const estados = [
   'Listo',
   'Entregado',
   'Garantía',
+  'Pendiente de devolución',
+  'Devuelto sin reparación',
   'Cancelado'
 ]
 
@@ -60,7 +62,7 @@ const ordenesFiltradas = computed(() => {
 })
 
 const resumen = computed(() => ({
-  activas: ordenes.value.filter((orden) => !['Entregado', 'Cancelado'].includes(orden.estado)).length,
+  activas: ordenes.value.filter((orden) => !['Entregado', 'Cancelado', 'Devuelto sin reparación'].includes(orden.estado)).length,
   listas: ordenes.value.filter((orden) => orden.estado === 'Listo').length,
   esperando: ordenes.value.filter((orden) => ['Esperando autorización', 'Esperando pieza'].includes(orden.estado)).length,
   porCobrar: ordenes.value.reduce((total, orden) => total + saldoReal(orden), 0)
@@ -137,6 +139,7 @@ async function cargarOrdenes() {
 
 async function actualizarEstado(orden) {
   const estadoAnterior = orden._estadoAnterior || 'Recibido'
+  if (['Pendiente de devolución', 'Devuelto sin reparación'].includes(orden.estado) || ['Pendiente de devolución', 'Devuelto sin reparación'].includes(estadoAnterior)) { orden.estado = estadoAnterior; return alert('Registra el motivo y la devolución desde Taller.') }
   const { error } = await supabase.from('ordenes').update({ estado: orden.estado }).eq('id', orden.id)
   if (error) return alert(error.message)
   await registrarHistorial(
@@ -479,8 +482,8 @@ onMounted(async () => {
 
           <label class="ts-order-status-control">
             <span>Actualizar estado</span>
-            <select v-model="orden.estado" @change="actualizarEstado(orden)">
-              <option v-for="estado in estados.slice(1)" :key="estado">{{ estado }}</option>
+            <select v-model="orden.estado" :disabled="['Pendiente de devolución', 'Devuelto sin reparación'].includes(orden.estado)" @change="actualizarEstado(orden)">
+              <option v-for="estado in estados.slice(1)" :key="estado" :disabled="['Pendiente de devolución', 'Devuelto sin reparación'].includes(estado)">{{ estado }}</option>
             </select>
           </label>
 

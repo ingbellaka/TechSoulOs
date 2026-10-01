@@ -79,7 +79,7 @@ const porcentajePagado = computed(() => {
 })
 
 const diasEnEspera = computed(() => {
-  if (!orden.value?.fecha_listo || orden.value.estado === 'Entregado') return 0
+  if (!orden.value?.fecha_listo || ['Entregado', 'Devuelto sin reparación'].includes(orden.value.estado)) return 0
   const ms = Date.now() - new Date(orden.value.fecha_listo).getTime()
   return Math.max(0, Math.floor(ms / (1000 * 60 * 60 * 24)))
 })
@@ -340,17 +340,19 @@ function clasificarEvidenciasPdf() {
   }
 
   for (const foto of evidencias.value) {
-    const texto = `${foto.tipo || ''} ${foto.descripcion || ''}`.toLowerCase()
-    if (['recepcion', 'recepción', 'ingreso', 'antes'].some((k) => texto.includes(k))) grupos.recepcion.push(foto)
-    else if (['proceso', 'reparacion', 'reparación', 'diagnostico', 'diagnóstico', 'desarm'].some((k) => texto.includes(k))) grupos.proceso.push(foto)
-    else if (['entrega', 'final', 'resultado', 'despues', 'después', 'salida'].some((k) => texto.includes(k))) grupos.final.push(foto)
+    const tipo = String(foto.tipo || '').toLowerCase()
+    const texto = `${tipo} ${foto.descripcion || ''}`.toLowerCase()
+    // Antes del cierre documenta el resultado de la reparación, no el ingreso.
+    if (texto.includes('blindaje') || texto.includes('antes de cierre') || texto.includes('antes del cierre')) grupos.final.push(foto)
+    else if (['entrega', 'final', 'resultado', 'despues', 'después', 'salida'].some(k => tipo.includes(k))) grupos.final.push(foto)
+    else if (['proceso', 'reparacion', 'reparación', 'diagnostico', 'diagnóstico', 'desarm'].some(k => tipo.includes(k))) grupos.proceso.push(foto)
+    else if (['recepcion', 'recepción', 'ingreso', 'antes'].some(k => tipo.includes(k))) grupos.recepcion.push(foto)
+    else if (['entrega', 'final', 'resultado', 'despues', 'después', 'salida'].some(k => texto.includes(k))) grupos.final.push(foto)
+    else if (['proceso', 'reparacion', 'reparación', 'diagnostico', 'diagnóstico', 'desarm'].some(k => texto.includes(k))) grupos.proceso.push(foto)
+    else if (['recepcion', 'recepción', 'ingreso'].some(k => texto.includes(k))) grupos.recepcion.push(foto)
     else grupos.otras.push(foto)
   }
-
-  // Si las evidencias antiguas no tienen categoría, las distribuimos visualmente sin modificar la BD.
-  if (!grupos.recepcion.length && grupos.otras.length) grupos.recepcion.push(...grupos.otras.splice(0, Math.min(3, grupos.otras.length)))
-  if (!grupos.proceso.length && grupos.otras.length > 3) grupos.proceso.push(...grupos.otras.splice(0, Math.min(3, grupos.otras.length)))
-  if (!grupos.final.length && grupos.otras.length) grupos.final.push(...grupos.otras.splice(-Math.min(3, grupos.otras.length)))
+  // Sin una etapa conocida, conservar como otras evidencias en lugar de inventarla.
 
   return grupos
 }
@@ -361,7 +363,7 @@ function evidenciaGrupoHtml(titulo, fotos, numeroRef) {
     <section class="evidence-group">
       <div class="evidence-band">${escaparHtml(titulo)}</div>
       <div class="photo-grid">
-        ${fotos.slice(0, 9).map((foto) => `
+        ${fotos.map((foto) => `
           <figure>
             <img src="${escaparHtml(foto.url_imagen || '')}" alt="${escaparHtml(foto.descripcion || foto.tipo || 'Evidencia')}">
             <figcaption>${numeroRef.valor++}. ${escaparHtml(foto.descripcion || foto.tipo || 'Evidencia')}</figcaption>
@@ -388,16 +390,24 @@ function generarPdfOrden() {
   const total = Number(o.costo_total || 0)
   const saldo = Math.max(0, total - pagado)
   const servicio = valorPrimero(o.servicio, o.tipo_servicio, garantia.value?.tipo_servicio, o.falla_reportada, 'Servicio técnico')
-  const descripcionServicio = valorPrimero(o.trabajo_realizado, o.diagnostico, o.falla_reportada, 'Pendiente de descripción')
-  const garantiaDias = Number(garantia.value?.dias_garantia || 0)
+  const descripcionServicio = o.motivo_no_reparacion ? `${o.estado}: ${o.motivo_no_reparacion}` : valorPrimero(o.trabajo_realizado, o.diagnostico, o.falla_reportada, 'Pendiente de descripción')
+  const garantiaDias = o.motivo_no_reparacion ? 0 : Number(garantia.value?.dias_garantia || 0)
   const folioGarantia = valorPrimero(firmaGarantiaRemota.value?.folio_garantia, garantia.value?.folio, garantia.value?.id ? `GAR-${String(garantia.value.id).padStart(4, '0')}` : '')
-  const fechaEntrega = valorPrimero(o.fecha_entrega, o.entregado_en, o.fecha_listo)
+  const fechaEntrega = valorPrimero(o.fecha_devolucion, o.fecha_entrega, o.entregado_en, o.fecha_listo)
   const responsable = valorPrimero(negocio.value?.responsable_nombre, o.tecnico, 'TechSoul')
   const firmaResponsable = valorPrimero(negocio.value?.firma_url)
   const tokenSeguimiento = valorPrimero(o.token_publico, o.token_seguimiento, o.public_token)
   const seguimientoUrl = tokenSeguimiento ? `${window.location.origin}/seguimiento/${encodeURIComponent(tokenSeguimiento)}` : ''
   const qrUrl = seguimientoUrl ? `https://api.qrserver.com/v1/create-qr-code/?size=220x220&margin=0&data=${encodeURIComponent(seguimientoUrl)}` : ''
   const numeroRef = { valor: 1 }
+  const paginasEvidencia = []
+  for (const [titulo, fotos] of [['RECEPCIÓN', grupos.recepcion], ['PROCESO', grupos.proceso], ['RESULTADO FINAL', grupos.final], ['OTRAS EVIDENCIAS', grupos.otras]]) {
+    for (let i = 0; i < fotos.length; i += 4) {
+      paginasEvidencia.push({ titulo: i ? `${titulo} (CONTINUACIÓN)` : titulo, fotos: fotos.slice(i, i + 4) })
+    }
+  }
+  if (!paginasEvidencia.length) paginasEvidencia.push({ titulo: '', fotos: [] })
+  const totalPaginas = 3 + paginasEvidencia.length
 
   const popup = window.open('', '_blank')
   if (!popup) {
@@ -419,8 +429,8 @@ function generarPdfOrden() {
 
   const footer = (pagina) => `
     <footer class="pdf-footer">
-      <div class="trust"><span>◉ Local establecido</span><span>◷ ${garantiaDias || 3} ${garantiaDias === 1 ? 'día' : garantiaDias ? 'días de garantía' : 'meses de garantía'}</span><span>◉ Atención rápida</span><span>◈ Calidad premium</span></div>
-      <div class="footer-bottom"><span>⌖ TechSoul &nbsp; | &nbsp; ${escaparHtml(negocio.value?.direccion || 'Blvd. Jardín de las Orquídeas 2584-B, Santa Fe, Culiacán')}</span><b>Pág. ${pagina} de 4</b></div>
+      <div class="trust"><span>◉ Local establecido</span><span>◷ ${o.motivo_no_reparacion ? 'Servicio no completado' : `${garantiaDias || 3} ${garantiaDias === 1 ? 'día' : garantiaDias ? 'días de garantía' : 'meses de garantía'}`}</span><span>◉ Atención rápida</span><span>◈ Calidad premium</span></div>
+      <div class="footer-bottom"><span>⌖ TechSoul &nbsp; | &nbsp; ${escaparHtml(negocio.value?.direccion || 'Blvd. Jardín de las Orquídeas 2584-B, Santa Fe, Culiacán')}</span><b>Pág. ${pagina} de ${totalPaginas}</b></div>
     </footer>`
 
   const html = `<!doctype html>
@@ -440,7 +450,7 @@ html,body{margin:0;padding:0;background:#d9dde4;font-family:Arial,Helvetica,sans
 .brand-name{font-size:31px;line-height:.95;font-weight:950;letter-spacing:-1.8px;color:#0b2b66}.brand-sub{font-size:9px;margin-top:3px;color:#243b63}
 .order-lockup{text-align:right}.order-lockup>b{display:block;color:#0b2b66;font-size:9px}.order-lockup>strong{display:inline-block;margin-top:4px;background:var(--blue);color:white;border-radius:6px;padding:5px 10px;font-size:11px;box-shadow:0 3px 7px rgba(11,67,255,.18)}
 .intro-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:3mm}.meta-box{display:flex;gap:7px;align-items:center;border:1px solid var(--line);border-radius:7px;padding:7px 9px}.meta-box i{font-style:normal;color:#0b2b66;font-size:15px}.meta-box small{display:block;color:var(--muted);font-size:7.5px}.meta-box b{font-size:9px}
-.section{margin:0 0 3.2mm}.section-title{height:8mm;display:flex;align-items:center;background:linear-gradient(90deg,var(--blue) 0 39%,#edf4fc 39%);border-radius:4px;color:white;font-size:9px;font-weight:900;letter-spacing:.025em;padding:0 7px;text-transform:uppercase}.section-title.short{background:linear-gradient(90deg,var(--blue) 0 28%,#edf4fc 28%)}.section-title.tiny{background:linear-gradient(90deg,var(--blue) 0 23%,#edf4fc 23%)}
+.section{margin:0 0 3.2mm}.section-title{height:8mm;display:flex;align-items:center;background:var(--blue);border-radius:4px;color:white;font-size:9px;font-weight:900;letter-spacing:.025em;padding:0 7px;text-transform:uppercase}.section-title.short{background:var(--blue)}.section-title.tiny{background:var(--blue)}
 .info-card{border:1px solid var(--line);border-radius:7px;overflow:hidden}.client-grid{display:grid;grid-template-columns:1fr 1fr 1.35fr}.client-cell{padding:7px 10px;border-right:1px solid var(--line)}.client-cell:last-child{border-right:0}.client-cell small{display:block;color:var(--muted);font-size:7.5px}.client-cell b{display:block;margin-top:1px;font-size:9px;overflow-wrap:anywhere}
 .device-grid{display:grid;grid-template-columns:31% 69%;min-height:44mm}.device-photo{display:flex;align-items:center;justify-content:center;border-right:1px solid var(--line);background:#fbfdff}.device-photo img{width:88%;height:39mm;object-fit:contain}.device-placeholder{font-size:9px;color:#98a2b3;text-align:center}.data-table,.compact-table{width:100%;border-collapse:collapse}.data-table th,.data-table td,.compact-table th,.compact-table td{border-bottom:1px solid var(--line);padding:5px 8px;text-align:left}.data-table tr:last-child th,.data-table tr:last-child td,.compact-table tr:last-child td{border-bottom:0}.data-table th{width:35%;font-weight:500;color:#344765}.data-table td{font-weight:750}.service-table th,.service-table td{padding:6px 8px;border-right:1px solid var(--line)}.service-table th:last-child,.service-table td:last-child{border-right:0}.service-table thead{background:#edf4fc}.service-table th{font-size:8px}.service-table td:last-child,.service-table th:last-child{text-align:right;width:21%;font-weight:800}
 .status-grid{display:grid;grid-template-columns:1fr 1fr;border:1px solid var(--line);border-radius:7px;padding:6px 9px;gap:0 16px}.status-item{display:grid;grid-template-columns:1fr auto;gap:5px;padding:4px 0;border-bottom:1px solid #edf1f6}.status-item:nth-last-child(-n+2){border-bottom:0}.status-item span{font-weight:650}.status-item b{font-size:8px}.status-item .ok{color:var(--green)}.status-item .bad{color:var(--red)}
@@ -450,7 +460,8 @@ html,body{margin:0;padding:0;background:#d9dde4;font-family:Arial,Helvetica,sans
 .finance-table td:first-child{font-weight:650}.finance-table td:last-child{text-align:right;font-weight:800}.finance-table tr.total-row{background:#edf4fc;color:#0b2b66;font-size:10px}.finance-table tr.total-row td{font-weight:900}
 .warranty-table th{width:31%;font-weight:750}.warranty-table td{font-weight:500}
 .signature-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}.signature-card{height:50mm;border:1px solid var(--line);border-radius:7px;padding:8px 10px;display:flex;flex-direction:column}.signature-card h3{margin:0;font-size:8px;color:#344765;text-transform:uppercase}.signature-area{flex:1;display:flex;align-items:flex-end;justify-content:center;padding:5px}.signature-area img{max-width:85%;max-height:26mm;object-fit:contain}.signature-line{border-top:1px solid #536781;text-align:center;padding-top:4px;font-size:7.5px}.signature-pending{color:#98a2b3;font-size:8px;align-self:center;margin:auto}
-.evidence-band{height:7mm;background:linear-gradient(90deg,#eaf2fb 0 100%);border-left:5px solid var(--blue);border-radius:4px;padding:5px 7px;color:#0b2b66;font-weight:900;font-size:9px;margin-bottom:3mm}.evidence-group{margin-bottom:4mm}.photo-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.photo-grid figure{margin:0}.photo-grid img{width:100%;height:46mm;object-fit:cover;border-radius:5px;border:1px solid #cdd8e6;background:#f5f7fa}.photo-grid figcaption{font-size:7.5px;margin-top:3px;color:#263c5e}.empty-evidence{height:165mm;border:1px dashed #cbd5e1;border-radius:8px;display:grid;place-items:center;color:#94a3b8}
+.evidence-page .section-title{background:var(--blue)}
+.evidence-band{height:7mm;background:linear-gradient(90deg,#eaf2fb 0 100%);border-left:5px solid var(--blue);border-radius:4px;padding:5px 7px;color:#0b2b66;font-weight:900;font-size:9px;margin-bottom:3mm}.evidence-group{margin-bottom:4mm}.photo-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:5mm}.photo-grid figure{margin:0;break-inside:avoid;page-break-inside:avoid;min-width:0}.photo-grid img{width:100%;height:80mm;object-fit:contain;border-radius:5px;border:1px solid #cdd8e6;background:#f5f7fa}.photo-grid figcaption{font-size:9px;line-height:1.35;margin-top:4px;color:#263c5e;overflow-wrap:anywhere}.empty-evidence{height:165mm;border:1px dashed #cbd5e1;border-radius:8px;display:grid;place-items:center;color:#94a3b8}
 .conditions-box{border:1px solid var(--line);border-radius:8px;padding:10px 12px}.conditions-box ol{margin:0;padding-left:18px}.conditions-box li{margin:0 0 7px}.qr-panel{width:145mm;margin:12mm auto 0;background:linear-gradient(135deg,#f1f7ff,#e4f0ff);border-radius:12px;min-height:62mm;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:8mm}.qr-panel img{width:32mm;height:32mm;background:white;padding:3px}.qr-panel h3{font-size:13px;color:#0b2b66;margin:5px 0 2px}.qr-panel p{font-size:8px;color:#445b7a;margin:0;max-width:85mm}.folio-qr-fallback{width:32mm;height:32mm;background:white;border:2px solid #0b2b66;display:grid;place-items:center;padding:4px;font-weight:900;color:#0b2b66;text-align:center}.closing-brand{text-align:center;margin-top:13mm}.closing-brand .brand-name{font-size:34px}.closing-brand .brand-sub{font-size:10px}
 .page1 .section{margin-bottom:2.6mm}.page1 .pdf-header{margin-bottom:2.4mm}.page1 .section-title{height:7mm}.page1 .device-grid{min-height:39mm}.page1 .device-photo img{height:34mm}.page1 .text-box{min-height:11mm}
 .no-print-toolbar{position:fixed;left:14px;right:14px;bottom:14px;display:flex;gap:8px;z-index:9999}.no-print-toolbar button{border-radius:10px;padding:12px 14px;font-weight:800;cursor:pointer}.back-btn{flex:1;border:1px solid #d0d5dd;background:white;color:#344054}.print-btn{flex:2;border:0;background:var(--blue);color:white}
@@ -507,12 +518,12 @@ ${header(1)}
 
 <div class="section">
   <div class="section-title tiny">5. DIAGNÓSTICO</div>
-  <div class="text-box">${escaparHtml(o.diagnostico || o.falla_reportada || 'Pendiente')}</div>
+  <div class="text-box">${escaparHtml([o.diagnostico || o.falla_reportada || 'Pendiente', o.motivo_no_reparacion, o.explicacion_no_reparacion].filter(Boolean).join('\n\n'))}</div>
 </div>
 
 <div class="section">
   <div class="section-title tiny">6. OBSERVACIONES</div>
-  <div class="text-box">${escaparHtml(valorPrimero(o.observaciones, o.notas, o.accesorios ? `Accesorios recibidos: ${o.accesorios}` : '', 'Sin observaciones adicionales'))}</div>
+  <div class="text-box">${escaparHtml([valorPrimero(o.observaciones, o.notas, o.accesorios ? `Accesorios recibidos: ${o.accesorios}` : ''), o.notas_devolucion].filter(Boolean).join('\n\n') || 'Sin observaciones adicionales')}</div>
 </div>
 ${footer(1)}
 </section>
@@ -538,20 +549,20 @@ ${header(2)}
 
 <div class="section">
   <div class="section-title tiny">9. GARANTÍA</div>
-  <div class="info-card"><table class="data-table warranty-table"><tbody>
+  ${o.motivo_no_reparacion ? `<div class="text-box">Servicio no completado. No se emite garantía de reparación por este cierre.\nMotivo: ${escaparHtml(o.motivo_no_reparacion)}</div>` : `<div class="info-card"><table class="data-table warranty-table"><tbody>
     <tr><th>Folio de garantía</th><td>${escaparHtml(folioGarantia || 'Pendiente')}</td></tr>
     <tr><th>Duración</th><td>${garantiaDias ? `${garantiaDias} días` : 'No especificada'}</td></tr>
     <tr><th>Cobertura</th><td>${escaparHtml(valorPrimero(garantia.value?.condiciones, 'Trabajo o pieza indicada en esta orden'))}</td></tr>
     <tr><th>No cubre</th><td>Golpes, humedad, mal uso, manipulación por terceros o fallas ajenas al trabajo realizado.</td></tr>
-  </tbody></table></div>
+  </tbody></table></div>`}
 </div>
 
 <div class="section">
   <div class="section-title tiny">10. FIRMAS</div>
   <div class="signature-grid">
     <div class="signature-card">
-      <h3>Firma digital de garantía</h3>
-      <div class="signature-area">${firma && (firma.firma_data_url || firma.firma_base64) ? `<img src="${firma.firma_data_url || firma.firma_base64}" alt="Firma digital">` : '<span class="signature-pending">Firma digital pendiente</span>'}</div>
+      <h3>${o.motivo_no_reparacion ? 'Registro de devolución sin reparación' : 'Firma digital de garantía'}</h3>
+      <div class="signature-area">${firma && (firma.firma_data_url || firma.firma_base64) ? `<img src="${firma.firma_data_url || firma.firma_base64}" alt="Firma digital">` : `<span class="signature-pending">${o.motivo_no_reparacion ? 'Devuelto / pendiente de devolución sin reparación' : 'Firma digital pendiente'}</span>`}</div>
       <div class="signature-line">${escaparHtml(valorPrimero(firma?.firmante_nombre, firma?.nombre_firmante, cliente.nombre, 'Cliente'))}</div>
     </div>
     <div class="signature-card">
@@ -564,26 +575,20 @@ ${header(2)}
 ${footer(2)}
 </section>
 
-<section class="page">
-${header(3)}
-<div class="section">
-  <div class="section-title short">11. EVIDENCIAS DEL EQUIPO</div>
-</div>
-${evidencias.value.length ? `
-  ${evidenciaGrupoHtml('RECEPCIÓN', grupos.recepcion, numeroRef)}
-  ${evidenciaGrupoHtml('PROCESO', grupos.proceso, numeroRef)}
-  ${evidenciaGrupoHtml('RESULTADO FINAL', grupos.final, numeroRef)}
-  ${evidenciaGrupoHtml('OTRAS EVIDENCIAS', grupos.otras, numeroRef)}
-` : '<div class="empty-evidence">Esta orden todavía no tiene evidencias fotográficas.</div>'}
-${footer(3)}
-</section>
+${paginasEvidencia.map((pagina, indice) => `
+<section class="page evidence-page">
+${header(indice + 3)}
+<div class="section"><div class="section-title short">11. EVIDENCIAS DEL EQUIPO</div></div>
+${pagina.fotos.length ? evidenciaGrupoHtml(pagina.titulo, pagina.fotos, numeroRef) : '<div class="empty-evidence">Esta orden todavía no tiene evidencias fotográficas.</div>'}
+${footer(indice + 3)}
+</section>`).join('')}
 
 <section class="page">
-${header(4)}
+${header(totalPaginas)}
 <div class="section">
   <div class="section-title short">12. CONDICIONES DEL SERVICIO</div>
   <div class="conditions-box">
-    <ol>
+    ${o.motivo_no_reparacion ? `<p>Esta orden se cerró o está pendiente de devolución sin reparación. No se emite garantía por un trabajo no realizado.</p><p>${escaparHtml(o.explicacion_no_reparacion || '')}</p><p>${escaparHtml(o.notas_devolucion || 'El acuerdo de cobros y anticipos está pendiente de registrar al devolver el equipo.')}</p>` : `<ol>
       <li>La garantía cubre exclusivamente el trabajo o la pieza indicada en esta orden durante la vigencia registrada.</li>
       <li>No cubre golpes, humedad, mal uso, manipulación por terceros ni fallas ajenas al trabajo realizado.</li>
       <li>En caso de modificación o intervención por terceros, la garantía puede perder validez.</li>
@@ -591,7 +596,7 @@ ${header(4)}
       <li>Equipos no recogidos después de ${escaparHtml(diasGraciaAlmacenamiento.value)} días de esa notificación generarán una cuota de almacenamiento de ${escaparHtml(moneda(Number(negocio.value?.cuota_almacenamiento_dia || 0)))} por día adicional.</li>
       <li>La entrega del equipo está sujeta a que el saldo se encuentre completamente liquidado.</li>
       <li>La firma digital registrada en TechSoul OS representa la aceptación de las condiciones de servicio y garantía asociadas a esta orden.</li>
-    </ol>
+    </ol>`}
   </div>
 </div>
 
@@ -605,12 +610,12 @@ ${header(4)}
   <div class="brand-name">TechSoul</div>
   <div class="brand-sub">Servicio Técnico Especializado</div>
 </div>
-${footer(4)}
+${footer(totalPaginas)}
 </section>
 
 <div class="no-print-toolbar">
   <button class="back-btn" onclick="if(window.opener){window.close()}else{history.back()}">← Regresar</button>
-  <button class="print-btn" onclick="window.print()">Guardar como PDF / Imprimir</button>
+  <button class="print-btn" onclick="Promise.all(Array.from(document.images, img => img.decode ? img.decode().catch(() => {}) : Promise.resolve())).then(() => window.print())">Guardar como PDF / Imprimir</button>
 </div>
 </body></html>`
 
@@ -653,6 +658,12 @@ onMounted(cargarDetalle)
       <div v-for="relacionado in equiposRelacionados" :key="relacionado.id" style="margin-top:8px">
         <router-link :to="`/ordenes/${relacionado.id}`">{{ relacionado.folio }} · {{ relacionado.equipos?.marca }} {{ relacionado.equipos?.modelo }}</router-link> · {{ relacionado.estado }}
       </div>
+    </section>
+    <section v-if="orden?.motivo_no_reparacion" class="ts-detail-card" style="margin:12px 0;padding:18px;background:#fff7ed">
+      <strong>{{ orden.estado }} · {{ orden.motivo_no_reparacion }}</strong>
+      <p style="white-space:pre-wrap">{{ orden.explicacion_no_reparacion }}</p>
+      <p v-if="orden.notas_devolucion" style="white-space:pre-wrap">Devolución: {{ orden.notas_devolucion }}</p>
+      <small v-if="orden.fecha_devolucion">Devuelto: {{ fecha(orden.fecha_devolucion) }}</small>
     </section>
     <nav class="ts-order-tabs no-print" aria-label="Secciones de la orden">
       <button v-for="tab in [
@@ -742,7 +753,7 @@ onMounted(cargarDetalle)
           </dl>
         </article>
 
-        <article class="ts-detail-card" v-if="orden.fecha_listo && orden.estado !== 'Entregado'" :style="diasConCargo > 0 ? 'border-color:#f2b8b5;background:#fff8f7' : ''">
+        <article class="ts-detail-card" v-if="orden.fecha_listo && !['Entregado', 'Devuelto sin reparación'].includes(orden.estado)" :style="diasConCargo > 0 ? 'border-color:#f2b8b5;background:#fff8f7' : ''">
           <span class="ts-detail-label">Tiempo en espera</span>
           <div class="ts-payment-detail-total"><span>Días desde que se avisó</span><strong>{{ diasEnEspera }}</strong></div>
           <p v-if="diasConCargo > 0" style="color:#b42318;font-weight:600;margin-top:6px">⚠ Ya generó {{ moneda(cargoAlmacenamiento) }} de almacenamiento ({{ diasConCargo }} día{{ diasConCargo === 1 ? '' : 's' }} extra)</p>

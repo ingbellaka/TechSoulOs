@@ -6,8 +6,11 @@ import { registrarAbonoVentaMixto } from '../services/flujo-operativo.service'
 import { useAuthStore } from '../stores/auth'
 import TicketPreviewModal from '../components/tickets/TicketPreviewModal.vue'
 import { buildTicketVenta, normalizarSaldo } from '../utils/tickets'
+import { buscarProductosVenta, modeloProductoVenta } from '../utils/busqueda-productos'
 
 const productos = ref([])
+const busquedaProducto = ref('')
+const inputBusquedaProducto = ref(null)
 const ventas = ref([])
 const detalles = ref([])
 const pagosPorVenta = ref({})
@@ -77,7 +80,7 @@ const validarPagos = (pagos, limite) => {
 }
 const anticipoAplicado = computed(() => sumaPagos(form.value.pagos))
 const saldoVenta = computed(() => normalizarSaldo(totalVenta.value - anticipoAplicado.value))
-const productosDisponibles = computed(() => productos.value.filter(p => Number(p.stock || 0) > 0))
+const productosEncontrados = computed(() => buscarProductosVenta(productos.value, busquedaProducto.value))
 const totalEdicion = computed(() => (editForm.value?.items || []).reduce((s, renglon) => s + Number(renglon.cantidad || 0) * Number(renglon.precio_unitario || 0), 0))
 const saldoEdicion = computed(() => normalizarSaldo(totalEdicion.value - Number(ventaEditar.value?.pagado || 0)))
 
@@ -127,7 +130,23 @@ async function cargar() {
   cargando.value = false
 }
 
+async function elegirProductoVenta(producto) {
+  item.value.producto_id = producto.id
+  seleccionarProducto()
+  busquedaProducto.value = ''
+}
+async function cambiarProductoVenta() {
+  item.value.producto_id = ''
+  item.value.descripcion = ''
+  item.value.precio_unitario = 0
+  item.value.costo_estimado = 0
+  busquedaProducto.value = ''
+  await nextTick()
+  inputBusquedaProducto.value?.focus()
+}
+
 function cambiarTipo(tipo) {
+  busquedaProducto.value = ''
   item.value = nuevoItem(tipo)
 }
 
@@ -165,6 +184,7 @@ function agregarItem() {
     estado_entrega: estado
   })
   item.value = nuevoItem(item.value.tipo)
+  busquedaProducto.value = ''
 }
 
 function quitarItem(id) {
@@ -283,6 +303,7 @@ async function registrarVenta() {
   procesando.value = false
   form.value = nuevaVenta()
   item.value = nuevoItem()
+  busquedaProducto.value = ''
   mostrarVenta.value = false
   await cargar()
   const ventaActualizada = ventas.value.find(v => String(v.id) === String(venta.id)) || venta
@@ -596,13 +617,27 @@ onMounted(async () => {
         </div>
 
         <div class="item-editor">
-          <label v-if="item.tipo === 'inventario'" class="ts-field product-field">
-            <span>Producto de inventario *</span>
-            <select v-model="item.producto_id" class="ts-filter-select ts-select-full" @change="seleccionarProducto">
-              <option value="">Selecciona un producto</option>
-              <option v-for="p in productosDisponibles" :key="p.id" :value="p.id">{{ p.nombre }} · {{ p.compatible_con || 'Modelo sin registrar' }} · {{ p.stock }} disponibles · {{ moneda(p.precio_venta) }}</option>
-            </select>
-          </label>
+          <div v-if="item.tipo === 'inventario'" class="ts-field product-field product-search">
+            <label for="buscar-producto-venta">Buscar producto de inventario *</label>
+            <input id="buscar-producto-venta" ref="inputBusquedaProducto" v-model="busquedaProducto" type="search" autocomplete="off" placeholder="Ej. funda iPhone 13, pantalla Samsung o código" aria-describedby="ayuda-buscar-producto">
+            <small id="ayuda-buscar-producto">Busca por nombre, modelo o código y elige un resultado.</small>
+            <div v-if="productoItem" class="selected-sale-product">
+              <div><strong>{{ productoItem.nombre }}</strong><small>{{ modeloProductoVenta(productoItem) }} · {{ productoItem.stock }} disponibles · {{ moneda(productoItem.precio_venta) }}</small></div>
+              <button type="button" @click="cambiarProductoVenta">Cambiar</button>
+            </div>
+            <template v-if="busquedaProducto.trim() || !productoItem">
+              <small role="status" aria-live="polite">{{ productosEncontrados.length }} productos disponibles{{ productosEncontrados.length > 40 ? ' · Escribe más detalles para reducir los resultados' : '' }}</small>
+              <ul v-if="productosEncontrados.length" class="sale-product-results" aria-label="Resultados de productos">
+                <li v-for="p in productosEncontrados.slice(0, 40)" :key="p.id">
+                  <button type="button" :aria-pressed="String(item.producto_id) === String(p.id)" @click="elegirProductoVenta(p)">
+                    <span><strong>{{ p.nombre }}</strong><small>{{ modeloProductoVenta(p) }}</small><small>{{ p.stock }} disponibles{{ p.sku || p.codigo ? ' · Código: ' + (p.sku || p.codigo) : '' }}</small></span>
+                    <b>{{ moneda(p.precio_venta) }}</b>
+                  </button>
+                </li>
+              </ul>
+              <p v-else class="sale-product-empty">{{ busquedaProducto.trim() ? 'No hay productos con existencias que coincidan con tu búsqueda.' : 'No hay productos con existencias disponibles.' }}</p>
+            </template>
+          </div>
           <label v-else class="ts-field product-field"><span>Descripción *</span><input v-model="item.descripcion" :placeholder="item.tipo === 'encargo' ? 'Ej. Pantalla Xiaomi Poco X7 Pro OLED' : 'Describe el concepto'"></label>
 
           <div class="item-numbers">
@@ -740,6 +775,8 @@ onMounted(async () => {
 </template>
 
 <style scoped>
+.product-search{gap:8px}.product-search>label{font-weight:750}.product-search>small{color:#64748b}.sale-product-results{list-style:none;padding:0;margin:0;max-height:270px;overflow-y:auto;border:1px solid #dbe3ee;border-radius:12px}.sale-product-results li+li{border-top:1px solid #e2e8f0}.sale-product-results button{display:flex;align-items:center;justify-content:space-between;gap:12px;width:100%;padding:12px;border:0;background:white;text-align:left;cursor:pointer;color:#13233f}.sale-product-results button:hover,.sale-product-results button:focus-visible{background:#eef4ff;outline:2px solid #0b43ff;outline-offset:-2px}.sale-product-results span,.selected-sale-product>div{display:grid;gap:4px;min-width:0}.sale-product-results small,.selected-sale-product small{color:#64748b;white-space:normal;overflow-wrap:anywhere}.sale-product-results strong{overflow-wrap:anywhere}.sale-product-results b{color:#0b43ff;white-space:nowrap}.selected-sale-product{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px;background:#eef4ff;border:1px solid #b8cdff;border-radius:12px}.selected-sale-product button{border:1px solid #0b43ff;background:white;color:#0b43ff;padding:8px 10px;border-radius:8px;cursor:pointer}.sale-product-empty{padding:12px;background:#f8fafc;border-radius:10px;color:#64748b}@media(max-width:600px){.product-search input{font-size:16px}.sale-product-results button{min-height:60px}.selected-sale-product{align-items:flex-start}}
+
 .split-payments{display:grid;gap:10px;grid-column:1/-1}.split-payment-row{display:grid;grid-template-columns:minmax(120px,1fr) minmax(100px,1fr) 38px;gap:8px;align-items:center}.split-payment-row select,.split-payment-row input{width:100%;min-width:0;padding:10px;border:1px solid #d0d5dd;border-radius:9px}.split-payment-row button{border:0;background:#fee2e2;color:#991b1b;border-radius:8px;min-height:40px}.edit-sale-modal{max-height:92vh;overflow-y:auto}.edit-sale-modal footer{position:sticky;bottom:-22px;background:#fff;padding:12px 0;z-index:2}
 
 /* TechSoul OS · Ventas responsive */

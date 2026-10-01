@@ -2,10 +2,12 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { supabase } from '../lib/supabase'
+import { pruebasAprobadas } from '../utils/flujo-taller'
 import { subirEvidencia } from '../lib/storage'
 
 const route=useRoute(), router=useRouter()
 const orden=ref(null), evidencias=ref([]), controles=ref([]), guardando=ref(false), fotosSalida=ref({})
+const liberando = ref(false)
 const estados=[['Funciona','Bien'],['No funciona','Falla'],['No probado','Pend.'],['No aplica','N/A']]
 const pruebas={
  Celular:['Enciende','Pantalla / imagen','Touch','Cámaras','Micrófono','Bocinas','WiFi','Bluetooth','Carga','Señal','Face ID / Touch ID','Botones','Sensores','Temperatura','Reinicios / estabilidad','Falla original resuelta'],
@@ -23,9 +25,9 @@ const requisitosSalida=computed(()=>salida[tipo.value]||salida.Otro)
 const recepcion=computed(()=>evidencias.value.filter(e=>e.tipo==='Recepción'))
 const reparacionInterna=computed(()=>evidencias.value.filter(e=>['Reparación interna','Blindajes antes de cierre'].includes(e.tipo)))
 const salidaGuardada=computed(()=>evidencias.value.filter(e=>e.tipo==='Salida'))
-const checksCompletos=computed(()=>controles.value.length>0 && controles.value.every(c=>c.estado && c.estado!=='No probado'))
+const checksCompletos=computed(()=>pruebasAprobadas(controles.value))
 const fotosCompletas=computed(()=>requisitosSalida.value.every(n=>salidaGuardada.value.some(e=>e.descripcion===n)||fotosSalida.value[n]?.file))
-const listo=computed(()=>checksCompletos.value&&fotosCompletas.value)
+const listo=computed(()=>orden.value?.estado === 'En pruebas' && checksCompletos.value && fotosCompletas.value && reparacionInterna.value.length > 0)
 
 async function cargar(){
  const id=route.params.id
@@ -39,9 +41,24 @@ async function cargar(){
  controles.value=(pruebas[tipo.value]||pruebas.Otro).map(item=>existentes.get(item)||{orden_id:Number(id),item,estado:'No probado',notas:''})
 }
 function foto(ev,n){const f=ev.target.files?.[0];if(!f)return;fotosSalida.value={...fotosSalida.value,[n]:{file:f,preview:URL.createObjectURL(f)}}}
-async function guardarPruebas(){guardando.value=true;try{for(const c of controles.value){const payload={orden_id:Number(route.params.id),item:c.item,estado:c.estado,notas:c.notas||''};const {error}=await supabase.from('control_calidad_orden').upsert(payload,{onConflict:'orden_id,item'});if(error)throw error}alert('Checklist de pruebas guardado')}catch(e){alert(e.message)}finally{guardando.value=false}}
-async function guardarFotos(){guardando.value=true;try{for(const n of requisitosSalida.value){const f=fotosSalida.value[n]?.file;if(!f||salidaGuardada.value.some(e=>e.descripcion===n))continue;const url=await subirEvidencia(f,`orden-${route.params.id}/salida`);const {error}=await supabase.from('evidencias').insert({orden_id:Number(route.params.id),tipo:'Salida',url_imagen:url,descripcion:n});if(error)throw error}await cargar();alert('Evidencia de salida guardada')}catch(e){alert(e.message)}finally{guardando.value=false}}
-async function marcarListo(){await guardarPruebas();await guardarFotos();await cargar();if(!listo.value)return alert('Completa todas las pruebas y fotografías de salida antes de liberar el equipo.');const anterior=orden.value.estado;const {error}=await supabase.from('ordenes').update({estado:'Listo',fecha_listo:new Date().toISOString()}).eq('id',orden.value.id);if(error)return alert(error.message);await supabase.from('orden_historial').insert({orden_id:orden.value.id,tipo:'calidad',titulo:'Control de calidad aprobado',descripcion:'Checklist final y evidencia de salida completos. Equipo liberado para entrega.',estado_anterior:anterior,estado_nuevo:'Listo'});router.push('/taller')}
+async function guardarPruebas(){guardando.value=true;try{for(const c of controles.value){const payload={orden_id:Number(route.params.id),item:c.item,estado:c.estado,notas:c.notas||''};const {error}=await supabase.from('control_calidad_orden').upsert(payload,{onConflict:'orden_id,item'});if(error)throw error}alert('Checklist de pruebas guardado');return true}catch(e){alert(e.message);return false}finally{guardando.value=false}}
+async function guardarFotos(){guardando.value=true;try{for(const n of requisitosSalida.value){const f=fotosSalida.value[n]?.file;if(!f||salidaGuardada.value.some(e=>e.descripcion===n))continue;const url=await subirEvidencia(f,`orden-${route.params.id}/salida`);const {error}=await supabase.from('evidencias').insert({orden_id:Number(route.params.id),tipo:'Salida',url_imagen:url,descripcion:n});if(error)throw error}await cargar();alert('Evidencia de salida guardada');return true}catch(e){alert(e.message);return false}finally{guardando.value=false}}
+async function marcarListo() {
+ if (guardando.value || liberando.value) return
+ liberando.value = true
+ try {
+  if (!await guardarPruebas() || !await guardarFotos()) return
+  await cargar()
+  const fotosPersistidas = requisitosSalida.value.every(n => salidaGuardada.value.some(e => e.descripcion === n))
+  if (!listo.value || !fotosPersistidas) return alert('Para liberar el equipo debe estar En pruebas, tener evidencia interna y fotografías finales guardadas, y todas las pruebas en Bien o N/A.')
+  const anterior = orden.value.estado
+  const { data, error } = await supabase.from('ordenes').update({estado:'Listo',fecha_listo:new Date().toISOString()}).eq('id',orden.value.id).eq('estado','En pruebas').select('id').single()
+  if (error || !data) return alert(error?.message || 'La orden cambió en otro dispositivo. Recarga antes de liberarla.')
+  await supabase.from('orden_historial').insert({orden_id:orden.value.id,tipo:'calidad',titulo:'Control de calidad aprobado',descripcion:'Pruebas aprobadas y evidencia de salida completa. Equipo liberado para entrega.',estado_anterior:anterior,estado_nuevo:'Listo'})
+  router.push('/taller')
+ } catch (error) { alert(error.message) }
+ finally { liberando.value = false }
+}
 onMounted(cargar)
 </script>
 <template><section v-if="orden" class="qc-page">
@@ -51,6 +68,6 @@ onMounted(cargar)
  <article class="panel"><div class="title"><div><span>02 · EVIDENCIA DE REPARACIÓN</span><h2>Interior y blindajes antes del cierre</h2><p>Evidencia del interior tomada antes de cerrar el equipo e iniciar las pruebas.</p></div></div><div v-if="reparacionInterna.length" class="photos"><figure v-for="e in reparacionInterna" :key="e.id"><img :src="e.url_imagen"><figcaption>{{e.descripcion || 'Reparación interna'}}</figcaption></figure></div><p v-else class="missing-internal">⚠ Aún no existe evidencia interna de la reparación.</p></article>
  <article class="panel"><div class="title"><div><span>03 · VALIDACIÓN FUNCIONAL</span><h2>Checklist final · {{tipo}}</h2><p>Marca cada punto. “Pend.” no permite liberar el equipo.</p></div><button @click="guardarPruebas" :disabled="guardando">Guardar pruebas</button></div><div class="checks"><div v-for="c in controles" :key="c.item" class="check"><strong>{{c.item}}</strong><div class="opts"><button v-for="e in estados" :key="e[0]" :class="{sel:c.estado===e[0]}" @click="c.estado=e[0]">{{e[1]}}</button></div><input v-model="c.notas" placeholder="Observación opcional"></div></div></article>
  <article class="panel"><div class="title"><div><span>04 · EVIDENCIA DE SALIDA</span><h2>Así se entrega</h2><p>Fotografías obligatorias según el tipo de equipo.</p></div><button @click="guardarFotos" :disabled="guardando">Guardar fotos</button></div><div class="photos slots"><div v-for="n in requisitosSalida" :key="n" class="slot"><strong>{{n}}</strong><img v-if="salidaGuardada.find(e=>e.descripcion===n)?.url_imagen" :src="salidaGuardada.find(e=>e.descripcion===n).url_imagen"><img v-else-if="fotosSalida[n]?.preview" :src="fotosSalida[n].preview"><label v-else>📷 Tomar foto<input type="file" accept="image/*" capture="environment" @change="foto($event,n)"></label></div></div></article>
- <div class="release"><div><strong>Liberación del equipo</strong><p>Para pasar a “Listo para entregar” deben estar completas las pruebas y la evidencia de salida.</p></div><button :disabled="!listo||guardando" @click="marcarListo">✓ Liberar como listo para entregar</button></div>
+ <div class="release"><div><strong>Liberación del equipo</strong><p>Para pasar a “Listo para entregar” todas las pruebas deben estar en Bien o N/A y las evidencias completas. Una falla o prueba pendiente impide liberar el equipo.</p></div><button :disabled="!listo||guardando||liberando" @click="marcarListo">✓ Liberar como listo para entregar</button></div>
 </section></template>
 <style scoped>.qc-page{max-width:1320px;margin:auto;padding:12px 0 50px;color:#102044}header{display:flex;justify-content:space-between;gap:20px;margin-bottom:18px}header span,.title span{font-size:.7rem;font-weight:900;letter-spacing:.08em;color:#0b43ff}h1{font-size:2.35rem;margin:5px 0}header p,.title p,.release p{color:#64748b;margin:3px 0}.back{border:0;background:transparent;padding:0 0 10px;color:#53627a;font-weight:800}.state{height:max-content;background:#e8f0ff;color:#0b43ff;border-radius:999px;padding:8px 13px;font-weight:850}.summary{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px}.summary b{background:white;border:1px solid #e2e8f0;padding:14px;border-radius:12px;font-size:.78rem}.summary .ok{background:#ecfdf3;color:#15803d;border-color:#bbf7d0}.panel{background:#fff;border:1px solid #e1e7ef;border-radius:18px;padding:22px;margin-bottom:16px}.title{display:flex;justify-content:space-between;gap:16px;align-items:center;margin-bottom:16px}.title h2{margin:4px 0;font-size:1.35rem}.title button,.release button{border:0;border-radius:10px;background:#0b43ff;color:white;padding:11px 15px;font-weight:850}.photos{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}.photos figure,.slot{margin:0;border:1px solid #e2e8f0;border-radius:12px;overflow:hidden;background:#f8fafc}.photos img,.slot img{width:100%;height:160px;object-fit:cover}.photos figcaption,.slot strong{display:block;padding:9px;font-size:.72rem}.checks{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}.check{border:1px solid #e2e8f0;border-radius:12px;padding:11px}.check strong{display:block;margin-bottom:8px;font-size:.8rem}.opts{display:flex;gap:5px}.opts button{flex:1;border:1px solid #dbe3ee;background:#f8fafc;border-radius:8px;padding:7px 4px;font-size:.68rem}.opts button.sel{background:#dbeafe;border-color:#60a5fa;color:#1d4ed8;font-weight:900}.check input{width:100%;margin-top:7px;border:1px solid #e2e8f0;border-radius:8px;padding:7px;font-size:.7rem}.slot label{height:160px;display:grid;place-items:center;color:#0b43ff;font-weight:850;cursor:pointer}.slot label input{display:none}.release{display:flex;justify-content:space-between;align-items:center;gap:20px;background:#102044;color:#fff;border-radius:16px;padding:20px}.release button:disabled{opacity:.4;cursor:not-allowed}@media(max-width:850px){.summary,.photos,.checks{grid-template-columns:1fr 1fr}}@media(max-width:560px){.summary,.photos,.checks{grid-template-columns:1fr}.release,header,.title{flex-direction:column;align-items:stretch}.title button{width:100%}.panel{padding:16px}.title h2{font-size:1.2rem}}.missing-internal{border:1px dashed #f59e0b;background:#fffbeb;color:#92400e;border-radius:10px;padding:12px;font-size:.78rem}</style>

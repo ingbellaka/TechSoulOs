@@ -54,7 +54,7 @@ function produccionDe(orden) {
 }
 
 function prioridadEfectiva(orden) {
-  if (['Entregado', 'Cancelado'].includes(orden.estado)) return 'normal'
+  if (['Entregado', 'Cancelado', 'Devuelto sin reparación'].includes(orden.estado)) return 'normal'
   const fecha = orden.fecha_programada
   if (fecha) {
     const d = new Date(fecha)
@@ -102,7 +102,7 @@ function normalizarMetodo(valor) {
   return 'Otro'
 }
 
-const activas = computed(() => ordenes.value.filter(o => !['Entregado', 'Cancelado'].includes(o.estado)))
+const activas = computed(() => ordenes.value.filter(o => !['Entregado', 'Cancelado', 'Devuelto sin reparación'].includes(o.estado)))
 const pendientes = computed(() => activas.value.filter(o => !['Diagnóstico', 'En reparación', 'Listo'].includes(o.estado)).length)
 const enProceso = computed(() => activas.value.filter(o => ['Diagnóstico', 'En reparación'].includes(o.estado)).length)
 const listas = computed(() => ordenes.value.filter(o => o.estado === 'Listo').length)
@@ -125,7 +125,7 @@ const agendaHoy = computed(() => {
   )
 
   const ordenesProgramadas = ordenes.value
-    .filter(o => mismoDia(o.fecha_programada) && !ordenesConCita.has(Number(o.id)) && !['Entregado', 'Cancelado'].includes(o.estado))
+    .filter(o => mismoDia(o.fecha_programada) && !ordenesConCita.has(Number(o.id)) && !['Entregado', 'Cancelado', 'Devuelto sin reparación'].includes(o.estado))
     .map(o => ({
       id: `o-${o.id}`,
       inicio: o.fecha_programada,

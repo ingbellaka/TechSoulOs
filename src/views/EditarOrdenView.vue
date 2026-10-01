@@ -2,12 +2,20 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { supabase } from '../lib/supabase'
+import { normalizarTelefono, validarContacto } from '../utils/validaciones-formulario'
+import { listarClientesAgenda } from '../services/agenda-clientes.service'
 
 const route = useRoute()
 const router = useRouter()
 
 const orden = ref(null)
 const equipo = ref(null)
+const clienteForm = ref({ nombre: '', telefono: '', whatsapp: '' })
+const clientesDisponibles = ref([])
+const clienteSeleccionado = ref('')
+const modoCliente = ref('corregir')
+const guardandoCliente = ref(false)
+const otrasOrdenesCliente = ref(0)
 const garantia = ref(null)
 const configuracionGarantias = ref([])
 const cargando = ref(false)
@@ -45,6 +53,8 @@ const estados = [
   { value: 'Listo', label: 'Listo para entregar', help: 'La reparación terminó y el cliente puede recogerlo.' },
   { value: 'Entregado', label: 'Entregado', help: 'El equipo fue entregado al cliente.' },
   { value: 'Garantía', label: 'En garantía', help: 'El equipo regresó para revisión de garantía.' },
+  { value: 'Pendiente de devolución', label: 'Pendiente de devolución', help: 'Registra el cierre desde Taller.' },
+  { value: 'Devuelto sin reparación', label: 'Devuelto sin reparación', help: 'Equipo devuelto sin completar el servicio.' },
   { value: 'Cancelado', label: 'Cancelado', help: 'La orden queda archivada sin eliminarse.' }
 ]
 
@@ -72,7 +82,7 @@ async function cargar() {
 
   const { data, error } = await supabase
     .from('ordenes')
-    .select('*, equipos(*)')
+    .select('*, equipos(*), clientes(*)')
     .eq('id', id)
     .single()
 
@@ -82,6 +92,15 @@ async function cargar() {
   }
 
   orden.value = data
+  clienteForm.value = { nombre: data.clientes?.nombre || '', telefono: normalizarTelefono(data.clientes?.telefono), whatsapp: normalizarTelefono(data.clientes?.whatsapp) }
+  clienteSeleccionado.value = data.cliente_id
+  try {
+    clientesDisponibles.value = await listarClientesAgenda()
+    const { count, error: errorConteo } = await supabase.from('ordenes').select('id', { count: 'exact', head: true }).eq('cliente_id', data.cliente_id).neq('id', data.id)
+    if (errorConteo) throw errorConteo
+    otrasOrdenesCliente.value = count || 0
+  } catch (error) { mostrarAviso('error', 'No se pudieron cargar las relaciones del cliente', error.message) }
+
   orden.value.fecha_programada = aInputLocal(data.fecha_programada)
   orden.value.duracion_estimada_min = Number(data.duracion_estimada_min || 30)
   equipo.value = data.equipos
@@ -130,7 +149,47 @@ async function registrarHistorial(tipo, titulo, descripcion, estadoAnterior = nu
   }
 }
 
+async function guardarClienteOrden() {
+  if (guardandoCliente.value || cargando.value) return
+  if (modoCliente.value === 'corregir') {
+    const errorContacto = validarContacto(clienteForm.value)
+    if (errorContacto) return mostrarAviso('error', 'Revisa los datos del cliente', errorContacto)
+  } else if (!clienteSeleccionado.value) return mostrarAviso('error', 'Selecciona el cliente correcto')
+  guardandoCliente.value = true
+  try {
+    const anterior = { ...orden.value.clientes }
+    const idAnterior = orden.value.cliente_id
+    let actual
+    if (modoCliente.value === 'corregir') {
+      const continuar = await pedirConfirmacion({ titulo: 'Corregir ficha del cliente', mensaje: `Esta ficha está asociada a esta orden y a ${otrasOrdenesCliente.value} órdenes adicionales.`, detalle: 'El nombre y los números se actualizarán en todas ellas. Si elegiste otra persona por error, usa Cambiar cliente de esta orden.' })
+      if (!continuar) return
+      const payload = { nombre: clienteForm.value.nombre.trim(), telefono: normalizarTelefono(clienteForm.value.telefono), whatsapp: normalizarTelefono(clienteForm.value.whatsapp) || null }
+      const { data, error } = await supabase.from('clientes').update(payload).eq('id', idAnterior).select('id,nombre,telefono,whatsapp').single()
+      if (error) throw error
+      actual = data
+    } else {
+      const { data: persona, error: errorPersona } = await supabase.from('clientes').select('id,nombre,telefono,whatsapp').eq('id', clienteSeleccionado.value).single()
+      if (errorPersona) throw errorPersona
+      const { data, error } = await supabase.from('ordenes').update({ cliente_id: persona.id }).eq('id', orden.value.id).eq('cliente_id', idAnterior).select('id').single()
+      if (error || !data) throw error || new Error('La orden cambió en otro dispositivo. Recarga antes de corregirla.')
+      actual = persona
+    }
+    orden.value.cliente_id = actual.id
+    orden.value.clientes = actual
+    clienteForm.value = { nombre: actual.nombre, telefono: normalizarTelefono(actual.telefono), whatsapp: normalizarTelefono(actual.whatsapp) }
+    await registrarHistorial('cliente', modoCliente.value === 'corregir' ? 'Datos del cliente corregidos' : 'Cliente de la orden corregido', `Antes: ${anterior.nombre || ''} · ${anterior.telefono || ''}. Después: ${actual.nombre} · ${actual.telefono || ''}. Cliente ${idAnterior} → ${actual.id}.`)
+    const citaQuery = supabase.from('citas_agenda').update({ cliente_id: actual.id, nombre_cliente: actual.nombre, telefono: actual.telefono || actual.whatsapp || '' })
+    const { error: errorCita } = modoCliente.value === 'corregir' ? await citaQuery.eq('cliente_id', actual.id) : await citaQuery.eq('orden_id', orden.value.id)
+    const { count } = await supabase.from('ordenes').select('id', { count: 'exact', head: true }).eq('cliente_id', actual.id).neq('id', orden.value.id)
+    otrasOrdenesCliente.value = count || 0
+    if (errorCita) mostrarAviso('error', 'Cliente guardado; cita pendiente de actualizar', errorCita.message)
+    else mostrarAviso('success', 'Datos del cliente guardados', 'El PDF y WhatsApp usarán los datos corregidos al volver a abrir la orden.')
+  } catch (error) { mostrarAviso('error', 'No se pudo completar la corrección', error.message) }
+  finally { guardandoCliente.value = false }
+}
+
 async function guardarCambios() {
+  if (seccion.value === 'cliente') return guardarClienteOrden()
   if (!orden.value.falla_reportada?.trim()) {
     seccion.value = 'servicio'
     mostrarAviso('error', 'Falta la falla reportada', 'Escribe lo que indicó el cliente antes de guardar.')
@@ -203,7 +262,7 @@ async function guardarCambios() {
 
     if (errorEquipo) throw errorEquipo
 
-    if (garantia.value.id) {
+    if (!orden.value.motivo_no_reparacion && garantia.value.id) {
       const payloadGarantia = {
         tipo_servicio: garantia.value.tipo_servicio,
         dias_garantia: Number(garantia.value.dias_garantia || 0),
@@ -219,7 +278,7 @@ async function guardarCambios() {
         .update(payloadGarantia)
         .eq('id', garantia.value.id)
       if (errorGarantia) throw errorGarantia
-    } else if (Number(garantia.value.dias_garantia || 0) > 0) {
+    } else if (!orden.value.motivo_no_reparacion && Number(garantia.value.dias_garantia || 0) > 0) {
       const payloadGarantia = { ...garantia.value }
       if (pasaAListoPorPrimeraVez) payloadGarantia.fecha_inicio = fechaListoNueva
       const { error: errorGarantia } = await supabase.from('garantias').insert(payloadGarantia)
@@ -294,7 +353,7 @@ onMounted(cargar)
       </div>
       <div class="ts-edit-order-header-actions">
         <router-link :to="`/ordenes/${orden.id}`" class="ts-action-secondary">Cancelar</router-link>
-        <button type="button" class="ts-action-primary" :disabled="cargando" @click="guardarCambios">
+        <button type="button" class="ts-action-primary" :disabled="cargando || guardandoCliente" @click="guardarCambios">
           {{ cargando ? 'Guardando...' : 'Guardar cambios' }}
         </button>
       </div>
@@ -302,6 +361,7 @@ onMounted(cargar)
 
     <div class="ts-edit-order-shell">
       <aside class="ts-edit-order-nav">
+        <button :class="{ active: seccion === 'cliente' }" @click="seccion = 'cliente'"><span>CL</span><div><strong>Cliente</strong><small>Corregir nombre y números</small></div></button>
         <button :class="{ active: seccion === 'equipo' }" @click="seccion = 'equipo'"><span>01</span><div><strong>Equipo</strong><small>Datos e identificación</small></div></button>
         <button :class="{ active: seccion === 'servicio' }" @click="seccion = 'servicio'"><span>02</span><div><strong>Servicio</strong><small>Falla y diagnóstico</small></div></button>
         <button :class="{ active: seccion === 'estado' }" @click="seccion = 'estado'"><span>03</span><div><strong>Estado</strong><small>Flujo de reparación</small></div></button>
@@ -317,7 +377,21 @@ onMounted(cargar)
       </aside>
 
       <main class="ts-edit-order-content">
-        <section v-if="seccion === 'equipo'" class="ts-edit-panel">
+        <section v-if="seccion === 'cliente'" class="ts-edit-panel">
+          <div class="ts-panel-heading"><h2>Corregir cliente de la orden</h2><p>Selecciona si el error está en sus datos o si asignaste a otra persona.</p></div>
+          <div class="ts-form-stack">
+            <label><span>Tipo de corrección</span><select v-model="modoCliente"><option value="corregir">Corregir nombre o número del cliente actual</option><option value="cambiar">Cambiar cliente de esta orden</option></select></label>
+            <template v-if="modoCliente === 'corregir'">
+              <p>La ficha se comparte con {{ otrasOrdenesCliente }} órdenes adicionales. Al guardar se actualizarán sus datos en todas ellas.</p>
+              <label><span>Nombre *</span><input v-model="clienteForm.nombre" type="text"></label>
+              <label><span>Teléfono * · 10 dígitos</span><input v-model="clienteForm.telefono" type="tel" inputmode="numeric" @input="clienteForm.telefono = normalizarTelefono($event.target.value)"></label>
+              <label><span>WhatsApp opcional · 10 dígitos</span><input v-model="clienteForm.whatsapp" type="tel" inputmode="numeric" @input="clienteForm.whatsapp = normalizarTelefono($event.target.value)"></label>
+            </template>
+            <label v-else><span>Cliente correcto *</span><select v-model="clienteSeleccionado"><option value="">Selecciona un cliente</option><option v-for="c in clientesDisponibles" :key="c.id" :value="c.id">{{ c.nombre }} · {{ c.telefono || c.whatsapp }}</option></select><small>Solo se cambia el cliente asignado a esta orden y a su cita vinculada. Si es nuevo, créalo primero en Clientes.</small></label>
+            <button type="button" class="ts-action-primary" :disabled="guardandoCliente" @click="guardarClienteOrden">{{ guardandoCliente ? 'Guardando...' : 'Guardar corrección del cliente' }}</button>
+          </div>
+        </section>
+        <section v-else-if="seccion === 'equipo'" class="ts-edit-panel">
           <div class="ts-edit-panel-heading"><span>Información del dispositivo</span><h2>Equipo recibido</h2><p>Actualiza los datos físicos y de identificación del equipo.</p></div>
           <div class="ts-form-grid">
             <label><span>Tipo de equipo</span><select v-model="equipo.tipo_equipo"><option>Celular</option><option>Laptop</option><option>Tablet</option><option>iPad</option><option>Apple Watch</option><option>Impresora</option><option>PC</option><option>Consola</option><option>Otro</option></select></label>
@@ -351,7 +425,7 @@ onMounted(cargar)
           <div class="ts-edit-panel-heading"><span>Flujo operativo</span><h2>Estado de la reparación</h2><p>Selecciona el punto real en el que se encuentra la orden.</p></div>
           <div class="ts-status-selector">
             <label v-for="item in estados" :key="item.value" :class="{ selected: orden.estado === item.value }">
-              <input v-model="orden.estado" type="radio" :value="item.value">
+              <input v-model="orden.estado" type="radio" :value="item.value" :disabled="['Pendiente de devolución', 'Devuelto sin reparación'].includes(item.value) || ['Pendiente de devolución', 'Devuelto sin reparación'].includes(estadoOriginal)">
               <span class="ts-status-selector-dot"></span>
               <div><strong>{{ item.label }}</strong><small>{{ item.help }}</small></div>
               <b>✓</b>
@@ -419,10 +493,10 @@ onMounted(cargar)
         </section>
 
         <footer class="ts-edit-order-footer">
-          <button v-if="seccion !== 'equipo'" type="button" class="ts-action-secondary" @click="seccion = ['equipo','servicio','estado','finanzas','garantia'][Math.max(0, ['equipo','servicio','estado','finanzas','garantia'].indexOf(seccion)-1)]">Anterior</button>
+          <button v-if="seccion !== 'equipo' && seccion !== 'cliente'" type="button" class="ts-action-secondary" @click="seccion = ['equipo','servicio','estado','finanzas','garantia'][Math.max(0, ['equipo','servicio','estado','finanzas','garantia'].indexOf(seccion)-1)]">Anterior</button>
           <span></span>
-          <button v-if="seccion !== 'garantia'" type="button" class="ts-action-primary" @click="seccion = ['equipo','servicio','estado','finanzas','garantia'][Math.min(4, ['equipo','servicio','estado','finanzas','garantia'].indexOf(seccion)+1)]">Continuar</button>
-          <button v-else type="button" class="ts-action-primary" :disabled="cargando" @click="guardarCambios">{{ cargando ? 'Guardando...' : 'Guardar cambios' }}</button>
+          <button v-if="seccion !== 'garantia' && seccion !== 'cliente'" type="button" class="ts-action-primary" @click="seccion = ['equipo','servicio','estado','finanzas','garantia'][Math.min(4, ['equipo','servicio','estado','finanzas','garantia'].indexOf(seccion)+1)]">Continuar</button>
+          <button v-else type="button" class="ts-action-primary" :disabled="cargando || guardandoCliente" @click="guardarCambios">{{ cargando ? 'Guardando...' : 'Guardar cambios' }}</button>
         </footer>
       </main>
     </div>
