@@ -1,11 +1,62 @@
 <script setup>
-import { computed, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { computed, ref, onMounted } from 'vue'
+import { useRouter, useRoute } from 'vue-router'
+import { supabase } from '../lib/supabase'
+import { useAuthStore } from '../stores/auth'
+import { loadCalculator, saveCalculatorSettings, saveCalculatorQuote, addQuoteToOrder } from '../services/calculador.service'
 import { calculateQuote, getPricingSettings, savePricingSettings, getQuotes, saveQuotes, getRates, saveRates, money } from '../lib/pricing'
-const router=useRouter(); const settings=ref(getPricingSettings()); const quotes=ref(getQuotes()); const form=ref({marca:'Samsung',modelo:'',servicio:'Pantalla',calidad:'',costo_pieza:0,envio:0,riesgo:'medio',cliente:'',precio_final:0}); const showSettings=ref(false)
+const router=useRouter(), route=useRoute(), auth=useAuthStore(); const settings=ref(getPricingSettings()); const quotes=ref([]); const form=ref({marca:'Samsung',modelo:'',servicio:'Pantalla',calidad:'',costo_pieza:0,envio:0,riesgo:'medio',cliente:'',precio_final:0}); const showSettings=ref(false)
+const order=ref(null), busy=ref(false), error=ref(''), notice=ref(''), ready=ref(false)
+const legacyQuotes=ref(getQuotes())
+const canConfigure=computed(()=>auth.can(['admin','recepcion']))
 const result=computed(()=>calculateQuote(form.value,settings.value)); const finalPrice=computed(()=>Number(form.value.precio_final||result.value.recommended)); const finalMargin=computed(()=>finalPrice.value?((finalPrice.value-result.value.realCost)/finalPrice.value)*100:0)
-function saveSettings(){ savePricingSettings(settings.value); alert('Configuración guardada') }
-function saveQuote(){ if(!form.value.modelo||!form.value.costo_pieza) return alert('Captura modelo y costo de pieza'); const q={...form.value,...result.value,precio_final:finalPrice.value,margen_final:finalMargin.value,id:crypto.randomUUID(),creado_en:new Date().toISOString()}; quotes.value=saveQuotes([q,...quotes.value]); alert('Cotización guardada') }
+function validate(){
+  if(!ready.value) throw new Error('Espera a que cargue la configuración compartida.')
+  if(!form.value.modelo.trim() || !form.value.servicio.trim()) throw new Error('Captura modelo y servicio.')
+  if([form.value.costo_pieza,form.value.envio].some(v=>!Number.isFinite(Number(v)) || Number(v)<0) || !Number.isFinite(finalPrice.value) || finalPrice.value<=0) throw new Error('Revisa costos y precio final.')
+}
+async function saveSettings(){
+  error.value='';busy.value=true
+  try {
+    const values=[settings.value.costo_operativo_inicial,settings.value.reserva_garantia,...Object.values(settings.value.riesgo)]
+    if(values.some(v=>!Number.isFinite(Number(v))||Number(v)<0) || !(Number(settings.value.redondeo)>0) || !(settings.value.margen_minimo>=0 && settings.value.margen_minimo<=settings.value.margen_recomendado && settings.value.margen_recomendado<100)) throw new Error('Revisa costos, redondeo y márgenes; el recomendado debe ser mayor o igual al mínimo y menor a 100%.')
+    await saveCalculatorSettings(settings.value);savePricingSettings(settings.value);notice.value='Configuración compartida guardada.'
+  } catch(e){error.value=e.message} finally{busy.value=false}
+}
+function snapshot(){validate();return {...form.value,...result.value,precio_final:Math.round(finalPrice.value*100)/100,margen_final:finalMargin.value,id:crypto.randomUUID(),creado_en:new Date().toISOString()}}
+async function saveQuote(){
+  if(busy.value)return;busy.value=true;error.value=''
+  try{const q=snapshot();await saveCalculatorQuote(q);quotes.value.unshift(q);notice.value='Cotización guardada y disponible en otros dispositivos.';return q}
+  catch(e){error.value=e.message}finally{busy.value=false}
+}
+async function useInOrder(){
+  if(busy.value)return;error.value=''
+  if(route.query.orden && !order.value){error.value='No se pudo cargar la orden.';return}
+  if(order.value && !confirm(`Agregar ${form.value.servicio} por ${money(finalPrice.value)} a ${order.value.folio}. Se sumará al total actual de ${money(order.value.costo_total)}.`))return
+  busy.value=true
+  try{
+    const q=snapshot();await saveCalculatorQuote(q);quotes.value.unshift(q)
+    if(order.value){await addQuoteToOrder(order.value,q.id);await router.push(`/ordenes/${order.value.id}`)}
+    else{sessionStorage.setItem('techsoul_quote_draft',JSON.stringify(q));await router.push('/nueva-orden?cotizacion=1')}
+  }catch(e){error.value=e.message}finally{busy.value=false}
+}
+async function importLegacy(){
+  if(busy.value)return;busy.value=true;error.value=''
+  try{
+    for(const q of legacyQuotes.value){if(!quotes.value.some(x=>x.id===q.id)){await saveCalculatorQuote(q);quotes.value.push(q)}}
+    legacyQuotes.value=[];saveQuotes([]);notice.value='Historial anterior importado.'
+  }catch(e){error.value=e.message}finally{busy.value=false}
+}
+onMounted(async()=>{
+  try{
+    const data=await loadCalculator();settings.value=data.settings;quotes.value=data.quotes
+    if(route.query.orden){
+      const {data:o,error:e}=await supabase.from('ordenes').select('*,equipos(*)').eq('id',route.query.orden).single()
+      if(e)throw e;order.value=o;form.value.marca=o.equipos?.marca||'';form.value.modelo=o.equipos?.modelo||''
+    }
+    ready.value=true
+  }catch(e){error.value=`No se pudo cargar el calculador: ${e.message}`}
+})
 
 function addInventoryPart(){
   if(!form.value.modelo || !form.value.costo_pieza) return alert('Captura modelo y costo de pieza')
@@ -20,8 +71,10 @@ function addInventoryPart(){
 }
 function addRate(){ const rates=getRates(); rates.unshift({id:crypto.randomUUID(),marca:form.value.marca,modelo:form.value.modelo,servicio:form.value.servicio,calidad:form.value.calidad,precio_publico:finalPrice.value,precio_minimo:result.value.minimum,costo_actual:Number(form.value.costo_pieza),activo:true,origen:'Cotizador',actualizado_en:new Date().toISOString()}); saveRates(rates); alert('Precio agregado al tarifario') }
 </script>
-<template><section class="ts-module-page"><header class="ts-module-header"><div><span class="ts-eyebrow">Reparaciones especiales</span><h2>Cotizador inteligente</h2><p>Para Android, tablets o trabajos que todavía no tienen precio establecido.</p></div><button class="ts-action-secondary" @click="showSettings=!showSettings">{{showSettings?'Ocultar':'Configurar cálculo'}}</button></header>
-<article v-if="showSettings" class="ts-panel ts-form-panel"><div class="ts-panel-heading"><div><span class="ts-panel-kicker">Reglas del negocio</span><h3>Cálculo rentable y estable</h3></div><button class="ts-action-primary" @click="saveSettings">Guardar configuración</button></div><div class="ts-smart-form"><label class="ts-field"><span>Operación por reparación</span><input v-model.number="settings.costo_operativo_inicial" type="number"></label><label class="ts-field"><span>Margen mínimo %</span><input v-model.number="settings.margen_minimo" type="number"></label><label class="ts-field"><span>Margen recomendado %</span><input v-model.number="settings.margen_recomendado" type="number"></label><label class="ts-field"><span>Reserva de garantía %</span><input v-model.number="settings.reserva_garantia" type="number"></label><label class="ts-field"><span>Redondear a</span><input v-model.number="settings.redondeo" type="number"></label><label class="ts-field"><span>Riesgo bajo</span><input v-model.number="settings.riesgo.bajo" type="number"></label><label class="ts-field"><span>Riesgo medio</span><input v-model.number="settings.riesgo.medio" type="number"></label><label class="ts-field"><span>Riesgo alto</span><input v-model.number="settings.riesgo.alto" type="number"></label><label class="ts-field"><span>Riesgo muy alto</span><input v-model.number="settings.riesgo.muy_alto" type="number"></label></div></article>
+<template><section class="ts-module-page"><header class="ts-module-header"><div><span class="ts-eyebrow">Reparaciones especiales</span><h2>Cotizador inteligente</h2><p>Para Android, tablets o trabajos que todavía no tienen precio establecido.</p></div><button v-if="canConfigure" class="ts-action-secondary" @click="showSettings=!showSettings">{{showSettings?'Ocultar':'Configurar cálculo'}}</button></header>
+<p v-if="error" role="alert" class="calculator-error">{{error}}</p><p v-if="notice" role="status">{{notice}}</p><div v-if="order" class="ts-panel p-3">Agregando servicio a <strong>{{order.folio}}</strong> · Total actual {{money(order.costo_total)}}. El precio cotizado se sumará al total.</div><button v-if="legacyQuotes.length" class="ts-action-secondary" :disabled="busy||!ready" @click="importLegacy">Importar {{legacyQuotes.length}} cotizaciones de este navegador</button><article v-if="showSettings && canConfigure" class="ts-panel ts-form-panel"><div class="ts-panel-heading"><div><span class="ts-panel-kicker">Reglas del negocio</span><h3>Cálculo rentable y estable</h3></div><button class="ts-action-primary" :disabled="busy||!ready" @click="saveSettings">Guardar configuración</button></div><div class="ts-smart-form"><label class="ts-field"><span>Operación por reparación</span><input v-model.number="settings.costo_operativo_inicial" type="number"></label><label class="ts-field"><span>Margen mínimo %</span><input v-model.number="settings.margen_minimo" type="number"></label><label class="ts-field"><span>Margen recomendado %</span><input v-model.number="settings.margen_recomendado" type="number"></label><label class="ts-field"><span>Reserva de garantía %</span><input v-model.number="settings.reserva_garantia" type="number"></label><label class="ts-field"><span>Redondear a</span><input v-model.number="settings.redondeo" type="number"></label><label class="ts-field"><span>Riesgo bajo</span><input v-model.number="settings.riesgo.bajo" type="number"></label><label class="ts-field"><span>Riesgo medio</span><input v-model.number="settings.riesgo.medio" type="number"></label><label class="ts-field"><span>Riesgo alto</span><input v-model.number="settings.riesgo.alto" type="number"></label><label class="ts-field"><span>Riesgo muy alto</span><input v-model.number="settings.riesgo.muy_alto" type="number"></label></div></article>
 <div class="ts-quote-layout"><article class="ts-panel ts-form-panel"><div class="ts-panel-heading"><div><span class="ts-panel-kicker">Datos de reparación</span><h3>Nueva cotización</h3></div></div><div class="ts-smart-form"><label class="ts-field"><span>Marca</span><input v-model="form.marca"></label><label class="ts-field ts-field-wide"><span>Modelo *</span><input v-model="form.modelo" placeholder="Ej. Samsung A55"></label><label class="ts-field"><span>Servicio</span><input v-model="form.servicio"></label><label class="ts-field"><span>Calidad / pieza</span><input v-model="form.calidad"></label><label class="ts-field"><span>Costo de pieza *</span><input v-model.number="form.costo_pieza" type="number"></label><label class="ts-field"><span>Envío</span><input v-model.number="form.envio" type="number"></label><label class="ts-field"><span>Nivel de riesgo</span><select v-model="form.riesgo"><option value="bajo">Bajo</option><option value="medio">Medio</option><option value="alto">Alto</option><option value="muy_alto">Muy alto</option></select></label><label class="ts-field"><span>Precio final opcional</span><input v-model.number="form.precio_final" type="number" :placeholder="String(result.recommended)"></label></div><div class="ts-breakdown"><div><span>Pieza + envío</span><strong>{{money(result.direct)}}</strong></div><div><span>Operación</span><strong>{{money(result.operation)}}</strong></div><div><span>Riesgo</span><strong>{{money(result.risk)}}</strong></div><div><span>Garantía</span><strong>{{money(result.warranty)}}</strong></div></div></article>
-<aside class="ts-quote-result"><span>PRECIO RECOMENDADO</span><strong>{{money(result.recommended)}}</strong><p>Calculado con margen real, operación y riesgo del trabajo.</p><div class="ts-result-grid"><div><span>Costo real</span><strong>{{money(result.realCost)}}</strong></div><div><span>Precio mínimo</span><strong>{{money(result.minimum)}}</strong></div><div><span>Utilidad</span><strong>{{money(finalPrice-result.realCost)}}</strong></div><div><span>Margen final</span><strong>{{finalMargin.toFixed(1)}}%</strong></div></div><button class="ts-white-button" @click="saveQuote">Guardar cotización</button><button class="ts-outline-light" @click="addRate">Agregar al tarifario</button><button class="ts-outline-light" @click="addInventoryPart">Guardar como refacción</button></aside></div>
+<aside class="ts-quote-result"><span>PRECIO RECOMENDADO</span><strong>{{money(result.recommended)}}</strong><p>Calculado con margen real, operación y riesgo del trabajo.</p><div class="ts-result-grid"><div><span>Costo real</span><strong>{{money(result.realCost)}}</strong></div><div><span>Precio mínimo</span><strong>{{money(result.minimum)}}</strong></div><div><span>Utilidad</span><strong>{{money(finalPrice-result.realCost)}}</strong></div><div><span>Margen final</span><strong>{{finalMargin.toFixed(1)}}%</strong></div></div><button class="ts-white-button" :disabled="busy||!ready" @click="useInOrder">{{order ? "Agregar servicio a esta orden" : "Usar en nueva orden"}}</button><button class="ts-outline-light" :disabled="busy||!ready" @click="saveQuote">Guardar cotización</button><button class="ts-outline-light" :disabled="busy||!ready" @click="addRate">Agregar al tarifario</button><button class="ts-outline-light" :disabled="busy||!ready" @click="addInventoryPart">Guardar como refacción</button></aside></div>
 <article class="ts-panel"><div class="ts-panel-heading"><div><span class="ts-panel-kicker">Historial</span><h3>Cotizaciones recientes</h3></div></div><div class="ts-history-list"><div v-for="q in quotes.slice(0,12)" :key="q.id"><div><strong>{{q.marca}} {{q.modelo}}</strong><span>{{q.servicio}} · {{q.calidad||'General'}}</span></div><div><strong>{{money(q.precio_final)}}</strong><span>Margen {{Number(q.margen_final||0).toFixed(1)}}%</span></div></div><p v-if="!quotes.length" class="ts-empty-inline">Todavía no hay cotizaciones guardadas.</p></div></article></section></template>
+
+<style scoped>.calculator-error{color:#b42318}.ts-quote-result button:disabled{opacity:.5;cursor:wait}</style>

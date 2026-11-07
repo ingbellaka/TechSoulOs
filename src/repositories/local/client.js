@@ -4,6 +4,7 @@
  * Replace this file with the real Supabase client when the backend is connected.
  */
 
+import { validateCheckout } from '../../utils/checkout.js'
 const DB_KEY = 'techsoul_os_local_db_v2'
 const SESSION_KEY = 'techsoul_os_local_session'
 const FILE_KEY = 'techsoul_os_local_files'
@@ -11,7 +12,7 @@ const FILE_KEY = 'techsoul_os_local_files'
 const now = () => new Date().toISOString()
 
 const seed = () => ({
-  perfiles: [{ id: 'local-admin', nombre: 'Yuliana', rol: 'Administrador', email: 'admin@techsoul.local' }],
+  perfiles: [{ id: 'local-admin', nombre: 'Yuliana', rol: 'admin', activo: true, email: 'admin@techsoul.local' }],
   clientes: [
     { id: 1, nombre: 'Cliente demostración', telefono: '6677487373', whatsapp: '6677487373', email: '', notas: 'Registro local de ejemplo', created_at: now() }
   ],
@@ -109,6 +110,7 @@ class QueryBuilder {
   }
   select(_columns = '*', options = {}) { this.countMode = options.count === 'exact'; this.head = !!options.head; return this }
   insert(payload) { this.action = 'insert'; this.payload = payload; return this }
+  upsert(payload, options = {}) { this.action = 'upsert'; this.payload = payload; this.conflict = (options.onConflict || 'id').split(','); return this }
   update(payload) { this.action = 'update'; this.payload = payload; return this }
   delete() { this.action = 'delete'; return this }
   eq(field, value) { this.filters.push(row => row?.[field] == value); return this }
@@ -118,6 +120,7 @@ class QueryBuilder {
   lt(field, value) { this.filters.push(row => row?.[field] < value); return this }
   lte(field, value) { this.filters.push(row => row?.[field] <= value); return this }
   is(field, value) { this.filters.push(row => row?.[field] === value); return this }
+  not(field, _operator, value) { this.filters.push(row => row?.[field] != value); return this }
   in(field, values) { this.filters.push(row => values.includes(row?.[field])); return this }
   like(field, pattern) {
     const escaped = String(pattern ?? '')
@@ -167,6 +170,15 @@ class QueryBuilder {
         return { data, error: this.wantSingle && !data ? { message: 'Registro no encontrado' } : null, count: this.countMode ? selected.length : null }
       }
 
+      if (this.action === 'upsert') {
+        const inserted = (Array.isArray(this.payload) ? this.payload : [this.payload]).map(item => {
+          const index = rows.findIndex(r => this.conflict.every(k => r[k] === item[k]))
+          if (index >= 0) { rows[index] = {...rows[index],...clone(item),updated_at:now()}; return rows[index] }
+          const row = {id:item.id ?? nextId(rows),created_at:now(),...clone(item)}; rows.push(row); return row
+        })
+        writeDb(db)
+        return {data:clone(this.wantSingle ? inserted[0] : inserted),error:null}
+      }
       if (this.action === 'insert') {
         const list = Array.isArray(this.payload) ? this.payload : [this.payload]
         const inserted = list.map(item => {
@@ -214,6 +226,48 @@ function getSessionValue() {
 
 export const supabase = {
   from(table) { return new QueryBuilder(table) },
+  async rpc(name, request) {
+    try {
+      const db = readDb(), order = db.ordenes.find(o => o.id == request.p_orden_id)
+      if (!order) throw new Error('Orden no encontrada.')
+      if (name === 'cobrar_entregar_orden') {
+        db.operaciones_orden ||= []
+        const previous = db.operaciones_orden.find(o=>o.id===request.p_operacion)
+        if (previous) {
+          if (JSON.stringify(previous.solicitud)!==JSON.stringify(request)) throw new Error('La operación ya se utilizó con otros datos.')
+          return {data:clone(previous.resultado),error:null}
+        }
+        if (Number(order.costo_total)!==request.p_total_esperado || Number(order.anticipo || 0)!==request.p_pagado_esperado || order.estado!==request.p_estado_esperado) throw new Error('La orden cambió en otra sesión. Recarga antes de cobrar.')
+        const result = validateCheckout(order,request.p_pagos,request.p_entregar)
+        db.movimientos_caja ||= []; db.orden_historial ||= []
+        const movements=[]
+        for (const p of request.p_pagos) {
+          const movement={id:nextId(db.movimientos_caja),tipo:'Entrada',concepto:`${result.balance ? 'Abono' : 'Liquidación'} orden ${order.folio}`,monto:Number(p.monto),metodo_pago:p.metodo,referencia_tipo:'orden',referencia_id:String(order.id),fecha_movimiento:now(),created_at:now()}
+          db.movimientos_caja.push(movement); movements.push(movement)
+        }
+        const anterior=order.estado
+        order.anticipo=result.paid
+        if(request.p_entregar) {order.estado='Entregado';order.fecha_entrega=now()}
+        order.updated_at=now()
+        db.orden_historial.push({id:nextId(db.orden_historial),orden_id:order.id,tipo:request.p_entregar?'estado':'pago',titulo:request.p_entregar?'Equipo entregado':'Pago registrado',descripcion:`Pago recibido: $${result.total}. Saldo: $${result.balance}`,estado_anterior:anterior,estado_nuevo:order.estado,created_at:now()})
+        const response={...order,movimientos_checkout:movements}
+        db.operaciones_orden.push({id:request.p_operacion,orden_id:order.id,solicitud:clone(request),resultado:clone(response),created_at:now()})
+        writeDb(db)
+        return {data:clone(response),error:null}
+      } else if (name === 'agregar_cotizacion_orden') {
+        db.orden_historial ||= []; db.orden_servicios ||= []
+        if (db.orden_historial.some(h=>h.orden_id==order.id && h.tipo==='cotizacion' && h.descripcion===request.p_cotizacion_id)) return {data:clone(order),error:null}
+        if(!['Recibido','Diagnóstico','Esperando autorización'].includes(order.estado) || Number(order.costo_total)!==request.p_total_esperado) throw new Error('La orden cambió o no admite cotizaciones.')
+        const quote=db.cotizaciones_calculador?.find(q=>q.id===request.p_cotizacion_id)?.datos
+        if(!quote || !Number.isFinite(Number(quote.precio_final)) || Number(quote.precio_final)<=0) throw new Error('Precio inválido.')
+        db.orden_servicios.push({id:nextId(db.orden_servicios),orden_id:order.id,tipo_servicio:quote.servicio,descripcion:[quote.servicio,quote.marca,quote.modelo,quote.calidad].filter(Boolean).join(' · '),precio:Number(quote.precio_final),estado:'Pendiente',orden_visual:db.orden_servicios.filter(s=>s.orden_id==order.id).length+1})
+        order.costo_total=Number(order.costo_total || 0)+Number(quote.precio_final)
+        db.orden_historial.push({id:nextId(db.orden_historial),orden_id:order.id,tipo:'cotizacion',titulo:'Servicio cotizado agregado',descripcion:request.p_cotizacion_id,created_at:now()})
+      } else throw new Error('Operación no disponible.')
+      writeDb(db)
+      return {data:clone(order),error:null}
+    } catch(e) {return {data:null,error:{message:e.message}}}
+  },
   auth: {
     async getSession() { return { data: { session: getSessionValue() }, error: null } },
     async getUser() { const session = getSessionValue(); return { data: { user: session?.user || null }, error: null } },

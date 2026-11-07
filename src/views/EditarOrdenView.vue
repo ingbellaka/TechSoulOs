@@ -223,16 +223,13 @@ async function guardarCambios() {
     const pasaAListoPorPrimeraVez = orden.value.estado === 'Listo' && !orden.value.fecha_listo
     const fechaListoNueva = pasaAListoPorPrimeraVez ? new Date().toISOString() : orden.value.fecha_listo
 
-    const { error: errorOrden } = await supabase
+    let update = supabase
       .from('ordenes')
       .update({
         falla_reportada: orden.value.falla_reportada,
         diagnostico: orden.value.diagnostico,
         trabajo_realizado: orden.value.trabajo_realizado,
         costo_total: Number(orden.value.costo_total || 0),
-        anticipo: Number(orden.value.anticipo || 0),
-        metodo_pago: orden.value.metodo_pago || 'No especificado',
-        estado: estadoOriginal.value,
         fecha_listo: fechaListoNueva,
         garantia_dias: Number(garantia.value.dias_garantia || 0),
         garantia_condiciones: garantia.value.condiciones,
@@ -242,8 +239,14 @@ async function guardarCambios() {
         duracion_estimada_min: orden.value.fecha_programada ? Number(orden.value.duracion_estimada_min || 30) : null
       })
       .eq('id', orden.value.id)
+      .eq('estado', estadoOriginal.value)
+      .eq('anticipo', orden.value.anticipo)
+    if (orden.value.updated_at) update = update.eq('updated_at', orden.value.updated_at)
+    const { data: ordenGuardada, error: errorOrden } = await update.select('id,updated_at').maybeSingle()
 
     if (errorOrden) throw errorOrden
+    if (!ordenGuardada) throw new Error('La orden cambió en otra sesión. Recarga antes de editar.')
+    orden.value.updated_at = ordenGuardada.updated_at
 
     if (pasaAListoPorPrimeraVez) orden.value.fecha_listo = fechaListoNueva
 
@@ -450,23 +453,18 @@ onMounted(cargar)
             </label>
             <label class="ts-finance-field">
               <span>Pagado / anticipo</span>
-              <div class="ts-money-input"><b>$</b><input v-model.number="orden.anticipo" type="number" min="0" step="0.01"></div>
+              <div class="ts-money-input"><b>$</b><input :value="orden.anticipo" type="number" readonly></div>
             </label>
 
             <div class="ts-payment-method-card ts-payment-clean">
               <div class="ts-payment-title">
                 <div>
                   <strong>Método de pago</strong>
-                  <small>Selecciona cómo se recibió el pago.</small>
+                  <small>Registra pagos y métodos desde la ficha de la orden.</small>
                 </div>
                 <span v-if="orden.metodo_pago && orden.metodo_pago !== 'No especificado'" class="ts-payment-current">{{ orden.metodo_pago }}</span>
               </div>
-              <div class="ts-payment-method-options">
-                <button v-for="metodo in ['Efectivo','Transferencia','Tarjeta']" :key="metodo" type="button" :class="{ active: orden.metodo_pago === metodo }" @click="orden.metodo_pago = metodo">
-                  <span class="ts-payment-icon">{{ metodo === 'Efectivo' ? '$' : metodo === 'Transferencia' ? '↗' : '▣' }}</span>
-                  <span>{{ metodo }}</span>
-                </button>
-              </div>
+              <router-link :to="`/ordenes/${orden.id}?cobrar=1`" class="ts-action-secondary">Ir a cobro</router-link>
             </div>
 
             <div class="ts-finance-editor-result ts-finance-balance-card">

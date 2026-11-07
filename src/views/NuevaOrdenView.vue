@@ -625,6 +625,15 @@ onMounted(async () => {
   await cargarCitaOrigen()
   cargarTarifario()
   cargarChecklistBase()
+  if (route.query.cotizacion === '1') {
+    try {
+      const quote = JSON.parse(sessionStorage.getItem('techsoul_quote_draft') || 'null')
+      if (quote && Number.isFinite(Number(quote.precio_final)) && Number(quote.precio_final)>0) {
+        equipo.value.marca=quote.marca || '';equipo.value.modelo=quote.modelo || ''
+        servicios.value=[{...crearServicioVacio(),tipo:'Otro',descripcion:[quote.servicio,quote.modelo,quote.calidad].filter(Boolean).join(' · '),precio:Number(quote.precio_final)}]
+      }
+    } catch { alert('No se pudo recuperar la cotización. Puedes capturar el servicio manualmente.') }
+  }
 })
 </script>
 
@@ -924,7 +933,7 @@ onMounted(async () => {
               <div class="field-block"><label class="form-label">Generar garantía</label><select v-model="orden.generar_garantia" class="form-select"><option :value="true">Sí, generar garantía</option><option :value="false">Sin garantía</option></select></div>
               <div class="field-block"><label class="form-label">Garantía (días)</label><input v-model.number="orden.garantia_dias" type="number" min="0" class="form-control" :disabled="!orden.generar_garantia"></div>
               <div class="field-block"><label class="form-label">Técnico / recepción</label><input v-model="orden.tecnico" class="form-control"></div>
-              <div class="field-block"><label class="form-label">Estado inicial</label><select v-model="orden.estado" class="form-select"><option>Recibido</option><option>Diagnóstico</option><option>Esperando autorización</option><option>Esperando pieza</option><option>En reparación</option><option>Listo</option><option>Entregado</option><option>Garantía</option><option>Cancelado</option></select></div>
+              <div class="field-block"><label class="form-label">Estado inicial</label><select v-model="orden.estado" class="form-select"><option>Recibido</option><option>Diagnóstico</option><option>Esperando autorización</option><option>Esperando pieza</option><option>En reparación</option><option>Garantía</option><option>Cancelado</option></select></div>
               <div class="field-block two-span"><label class="form-label">Condiciones de garantía</label><textarea v-model="orden.garantia_condiciones" class="form-control" rows="3" :disabled="!orden.generar_garantia"></textarea></div>
               <div class="field-block full"><label class="form-label">Notas internas</label><textarea v-model="orden.notas" class="form-control" rows="2"></textarea></div>
             </div>

@@ -47,8 +47,8 @@ function ticketHtml(autoPrint = false, copy = 'client') {
     ${t.previousPaid > 0 ? `<div class="sum"><span>Pagado anteriormente</span><b>${monedaMX(t.previousPaid)}</b></div>` : ''}
     <div class="sum"><span>Pago recibido</span><b>${monedaMX(t.paymentReceived)}</b></div>
     <div class="sum balance"><span>Saldo pendiente</span><b>${monedaMX(t.balance)}</b></div>` : t.kind === 'service-order' ? `
-    <div class="sum total"><span>Pago</span><b>${monedaMX(t.totalService)}</b></div>
-    ${!t.isPaid ? `<div class="sum"><span>Anticipo</span><b>${monedaMX(t.paymentReceived)}</b></div><div class="sum balance"><span>Resto</span><b>${monedaMX(t.balance)}</b></div>` : ''}
+    <div class="sum total"><span>Total del servicio</span><b>${monedaMX(t.totalService)}</b></div>
+    <div class="sum"><span>Pagado</span><b>${monedaMX(t.paymentReceived)}</b></div><div class="sum balance"><span>Saldo</span><b>${monedaMX(t.balance)}</b></div>
     <div class="payment"><span>Método de pago</span><b>${esc(t.paymentMethod || 'No especificado')}</b></div>` : `
     <div class="sum total"><span>Total</span><b>${monedaMX(t.totalService)}</b></div>
     ${t.balance > 0 ? `<div class="sum"><span>Pagado</span><b>${monedaMX(t.paymentReceived)}</b></div><div class="sum balance"><span>Saldo</span><b>${monedaMX(t.balance)}</b></div>` : ''}`
@@ -231,7 +231,7 @@ async function whatsapp() {
         <div class="ticket-title"><b>{{ ticket.title }}</b><strong>{{ ticket.folio }}</strong><small>{{ fechaTicket(ticket.date) }}</small></div>
         <template v-if="ticket.kind === 'service-order'">
           <dl><dt>Nombre</dt><dd>{{ ticket.client }}</dd><dt>Número</dt><dd>{{ ticket.phone || '—' }}</dd><dt>Modelo</dt><dd>{{ ticket.model }}</dd><dt>Reparación</dt><dd>{{ ticket.repair }}</dd><dt>Garantía</dt><dd>{{ ticket.warrantyDays }} días</dd></dl>
-          <div class="ticket-totals"><div class="balance"><span>Pago</span><b>{{ monedaMX(ticket.totalService) }}</b></div><div v-if="!ticket.isPaid"><span>Anticipo</span><b>{{ monedaMX(ticket.paymentReceived) }}</b></div><div v-if="!ticket.isPaid"><span>Resto</span><b>{{ monedaMX(ticket.balance) }}</b></div></div>
+          <div class="ticket-totals"><div class="balance"><span>Total del servicio</span><b>{{ monedaMX(ticket.totalService) }}</b></div><div><span>Pagado</span><b>{{ monedaMX(ticket.paymentReceived) }}</b></div><div><span>Saldo</span><b>{{ monedaMX(ticket.balance) }}</b></div></div>
           <div class="ticket-payment"><span>Método de pago</span><b>{{ ticket.paymentMethod || 'No especificado' }}</b></div>
           <div class="ticket-conditions"><strong>CONDICIONES</strong><ul><li v-for="(condition,i) in ticket.conditions" :key="i">{{ condition }}</li></ul></div>
           <div v-if="qrFirma" class="ticket-digital-sign"><strong>GARANTÍA DIGITAL</strong><img :src="qrFirma" alt="QR para firmar garantía"><b>Escanea para revisar y firmar tu garantía</b><small>La aceptación quedará registrada digitalmente en TechSoul.</small></div>

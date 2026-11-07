@@ -10,6 +10,6 @@ const isPublic = computed(() => route.meta.public === true)
 <template>
   <router-view v-if="isPublic" />
   <AppLayout v-else>
-    <router-view />
+    <router-view :key="route.path" />
   </AppLayout>
 </template>

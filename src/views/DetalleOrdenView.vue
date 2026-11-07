@@ -5,14 +5,19 @@ import { supabase } from '../lib/supabase'
 import TicketPreviewModal from '../components/tickets/TicketPreviewModal.vue'
 import { buildReciboOrden, buildTicketOrdenServicio } from '../utils/tickets'
 import { subirEvidencia } from '../lib/storage'
+import OrderCheckout from '../components/orders/OrderCheckout.vue'
+import TallerView from './TallerView.vue'
 
 const route = useRoute()
 const orden = ref(null)
+const tallerVersion = ref(0)
+async function refrescarTrasCobro() { await cargarDetalle(); tallerVersion.value++ }
 const evidencias = ref([])
 const equiposRelacionados = ref([])
 const checklist = ref([])
 const garantia = ref(null)
 const movimientos = ref([])
+const operacionesCobro = ref([])
 const ticketActual = ref(null)
 const firmas = ref([])
 const firmaGarantiaRemota = ref(null)
@@ -46,7 +51,7 @@ function onLoadFirmaGarantia() {
   errorImagenFirma.value = false
 }
 const historial = ref([])
-const seccionActiva = ref('resumen')
+const seccionActiva = ref('seguimiento')
 const negocio = ref({ nombre_negocio: 'TechSoul', cuota_almacenamiento_dia: 50, dias_gracia_almacenamiento: 30 })
 
 const canvasFirma = ref(null)
@@ -138,7 +143,7 @@ async function cargarDetalle() {
   } else equiposRelacionados.value = []
   nombreFirmante.value = dataOrden.clientes?.nombre || ''
 
-  const [{ data: fotos }, { data: checks }, { data: garantias }, { data: movs }, { data: dataFirmas }, firmaRemotaResult, historialResult, { data: dataNegocio }] = await Promise.all([
+  const [{ data: fotos }, { data: checks }, { data: garantias }, { data: movs }, { data: dataFirmas }, firmaRemotaResult, historialResult, { data: dataNegocio }, { data: ops }] = await Promise.all([
     supabase.from('evidencias').select('*').eq('orden_id', id).order('id', { ascending: false }),
     supabase.from('checklist_orden').select('*').eq('orden_id', id).order('id'),
     supabase.from('garantias').select('*').eq('orden_id', id).order('id', { ascending: false }),
@@ -146,13 +151,15 @@ async function cargarDetalle() {
     supabase.from('firmas_orden').select('*').eq('orden_id', id).order('id', { ascending: false }),
     supabase.from('garantia_firmas_remotas').select('*').eq('orden_id', id).eq('acepto_condiciones', true).not('firmado_en', 'is', null).not('firma_data_url', 'is', null).order('firmado_en', { ascending: false }).limit(1).maybeSingle(),
     supabase.from('orden_historial').select('*').eq('orden_id', id).order('created_at', { ascending: false }),
-    supabase.from('configuracion_negocio').select('*').order('id').limit(1).single()
+    supabase.from('configuracion_negocio').select('*').order('id').limit(1).single(),
+    supabase.from('operaciones_orden').select('solicitud,resultado').eq('orden_id',id)
   ])
 
   evidencias.value = fotos || []
   checklist.value = checks || []
   garantia.value = (garantias || [])[0] || null
   movimientos.value = movs || []
+  operacionesCobro.value = ops || []
   firmas.value = dataFirmas || []
   firmaGarantiaRemota.value = firmaRemotaResult.data || null
   historial.value = historialResult.data || []
@@ -176,6 +183,15 @@ function abrirTicketOrdenServicio() {
 
 function abrirReciboMovimiento(movimiento) {
   if (!orden.value || movimiento?.tipo !== 'Entrada') return
+  const operacion=operacionesCobro.value.find(o=>o.resultado?.movimientos_checkout?.some(m=>m.id===movimiento.id))
+  const grupo=operacion?.resultado?.movimientos_checkout
+  if(grupo?.length){
+    const previo=Number(operacion.solicitud.pagado ?? operacion.solicitud.p_pagado_esperado ?? 0)
+    const monto=grupo.reduce((sum,m)=>sum+Number(m.monto),0)
+    const metodo_pago=grupo.map(m=>`${m.metodo_pago}: ${moneda(m.monto)}`).join(' + ')
+    ticketActual.value=buildReciboOrden({movimiento:{...grupo[0],monto,metodo_pago},orden:{...orden.value,costo_total:operacion.resultado.costo_total},negocio:negocio.value,pagadoAnterior:previo})
+    return
+  }
   const pagosOrdenados = movimientos.value
     .filter(m => m.tipo === 'Entrada')
     .slice()
@@ -648,10 +664,12 @@ onMounted(cargarDetalle)
           <span>Editar orden</span>
         </router-link>
         <a class="ts-action-secondary ts-whatsapp-button" :href="whatsappLink()" target="_blank" rel="noopener">WhatsApp</a>
-        <button class="ts-action-secondary" type="button" @click="abrirTicketOrdenServicio">Comprobante de pago</button>
+        <OrderCheckout :order="orden" :auto-open="route.query.entregar === '1' || route.query.cobrar === '1'" @saved="refrescarTrasCobro" />
+        <router-link v-if="['Recibido','Diagnóstico','Esperando autorización'].includes(orden.estado)" class="ts-action-secondary" :to="`/cotizador?orden=${orden.id}`">Cotizar servicio</router-link>
         <button class="ts-action-secondary" type="button" @click="generarPdfOrden">Orden de servicio PDF</button>
       </div>
     </header>
+    <dl class="order-checkout-summary no-print"><div><dt>Total</dt><dd>{{moneda(orden.costo_total)}}</dd></div><div><dt>Pagado</dt><dd>{{moneda(orden.anticipo)}}</dd></div><div><dt>Saldo</dt><dd>{{moneda(saldoOrden)}}</dd></div></dl>
 
     <section v-if="equiposRelacionados.length" class="ts-detail-card no-print" style="margin:12px 0">
       <strong>Otros equipos de esta recepción</strong>
@@ -667,12 +685,13 @@ onMounted(cargarDetalle)
     </section>
     <nav class="ts-order-tabs no-print" aria-label="Secciones de la orden">
       <button v-for="tab in [
-        ['resumen','Resumen'],['historial','Historial'],['evidencias','Evidencias'],['finanzas','Finanzas'],['firma','Firma']
+        ['seguimiento','Seguimiento'],['resumen','Resumen'],['historial','Historial'],['evidencias','Evidencias'],['finanzas','Finanzas'],['firma','Firma']
       ]" :key="tab[0]" type="button" :class="{ active: seccionActiva === tab[0] }" @click="seccionActiva = tab[0]; tab[0] === 'firma' && nextTick(prepararCanvas)">
         {{ tab[1] }}
       </button>
     </nav>
 
+    <section v-if="seccionActiva === 'seguimiento'" class="no-print"><TallerView :key="tallerVersion" :order-id="orden.id" embedded @updated="cargarDetalle" /></section>
     <section v-if="seccionActiva === 'resumen'" class="ts-order-detail-layout">
       <main class="ts-order-detail-main">
         <article class="ts-detail-card ts-order-hero-card">
@@ -805,7 +824,7 @@ onMounted(cargarDetalle)
       </article>
     </section>
 
-    <section v-else class="ts-signature-detail-layout">
+    <section v-else-if="seccionActiva === 'firma'" class="ts-signature-detail-layout">
       <article class="ts-detail-card">
         <div class="ts-detail-card-heading"><div><span class="ts-detail-label">Garantía digital</span><h2>Firma del cliente</h2><p>La firma realizada desde el enlace público de garantía aparece aquí automáticamente.</p></div></div>
         <div v-if="firmaGarantiaRemota?.firmado_en" class="ts-remote-signature-card">
@@ -836,6 +855,7 @@ onMounted(cargarDetalle)
 </template>
 
 <style scoped>
+.order-checkout-summary{display:flex;flex-wrap:wrap;gap:12px 28px;margin:14px 0;padding:12px 16px;border:1px solid var(--ts-border);border-radius:12px;background:var(--ts-surface)}.order-checkout-summary dt{color:var(--ts-muted);font-size:.8rem}.order-checkout-summary dd{margin:2px 0 0;font-weight:750}
 .ts-receipt-link{border:1px solid #bfdbfe;background:#eff6ff;color:#175cff;border-radius:9px;padding:7px 10px;font-weight:800;font-size:.75rem;cursor:pointer}
 
 /* Acciones principales del detalle de orden */

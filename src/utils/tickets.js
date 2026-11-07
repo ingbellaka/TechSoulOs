@@ -82,16 +82,17 @@ export function buildTicketOrdenServicio({ orden, negocio = {}, paymentMethod = 
   const saldo = normalizarSaldo(total - pagado)
   const modelo = orden?.equipos?.modelo || orden?.equipos?.marca || 'Equipo'
   const reparacion = orden?.trabajo_realizado || orden?.tipo_servicio || orden?.falla_reportada || 'Reparación por definir'
-  const garantiaDias = Number(orden?.garantia_dias || 90)
+  const garantiaDias = Number(orden?.garantia_dias ?? 0)
+  const delivered = orden?.estado === 'Entregado'
 
   return {
     kind: 'service-order',
     orderId: orden?.id || null,
     status: orden?.estado || '',
-    title: 'COMPROBANTE DE PAGO',
+    title: delivered ? 'TICKET DE ENTREGA' : 'TICKET DE RECEPCIÓN',
     folio: orden?.folio || `TS-${String(orden?.id || 0).padStart(6, '0')}`,
     reference: '',
-    date: orden?.fecha_ingreso || orden?.created_at || new Date().toISOString(),
+    date: (delivered ? orden?.fecha_entrega : orden?.fecha_ingreso) || orden?.created_at || new Date().toISOString(),
     client: orden?.clientes?.nombre || 'Cliente',
     phone: orden?.clientes?.telefono || orden?.clientes?.whatsapp || '',
     model: modelo,
@@ -106,10 +107,8 @@ export function buildTicketOrdenServicio({ orden, negocio = {}, paymentMethod = 
     signerName: firma?.nombre_firmante || '',
     signedAt: firma?.fecha_firma || firma?.created_at || '',
     business: normalizeBusiness(negocio),
-    conditions: [
-      '90 días de garantía a partir de que se le notificó.',
-      'Después de 30 días de almacenamiento se cobrará un costo extra de $50.',
-      'Garantía únicamente en la reparación si presenta defectos de fábrica, no por golpes, uso indebido o daños por terceros.'
+    conditions: orden?.garantia_condiciones?.trim() ? [orden.garantia_condiciones.trim()] : [
+      garantiaDias > 0 ? `${garantiaDias} días de garantía en la reparación, según las condiciones de la orden.` : 'Este servicio no tiene garantía registrada.'
     ]
   }
 }

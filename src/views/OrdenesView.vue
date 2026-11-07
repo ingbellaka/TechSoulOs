@@ -2,8 +2,6 @@
 import { computed, onMounted, ref } from 'vue'
 import { supabase } from '../lib/supabase'
 import { useAuthStore } from '../stores/auth'
-import TicketPreviewModal from '../components/tickets/TicketPreviewModal.vue'
-import { buildTicketOrdenServicio } from '../utils/tickets'
 
 const ordenes = ref([])
 const filtro = ref('')
@@ -14,16 +12,10 @@ const menuAbierto = ref(null)
 const ordenAccion = ref(null)
 const modalAccion = ref(null)
 const procesandoAccion = ref(false)
-const ticketActual = ref(null)
-const pagoModal = ref(null)
-const pagoForm = ref({ pagos: [{ metodo: 'Efectivo', monto: null }] })
-const guardandoPago = ref(false)
-const errorPago = ref('')
 const gastoModal = ref(null)
 const gastoForm = ref({ concepto: '', monto: null, metodo_pago: 'Transferencia', notas: '' })
 const guardandoGasto = ref(false)
 const errorGasto = ref('')
-const negocio = ref({ nombre_negocio: 'TechSoul', direccion: 'Blvd. Jardín de las Orquídeas 2584-B', telefono: '667 748 7373' })
 
 const esAdministrador = computed(() => authStore.isAdmin)
 
@@ -74,13 +66,6 @@ function moneda(valor) {
 
 function saldoReal(orden) {
   return Math.max(0, Number(orden?.costo_total || 0) - Number(orden?.anticipo || 0))
-}
-
-function tipoPago(orden, monto) {
-  const pagadoAntes = Number(orden?.anticipo || 0)
-  const saldo = saldoReal(orden)
-  if (monto >= saldo - 0.009) return 'Liquidación'
-  return pagadoAntes > 0 ? 'Abono' : 'Anticipo'
 }
 
 function estadoSlug(estado = '') {
@@ -137,22 +122,6 @@ async function cargarOrdenes() {
   ordenes.value = (data || []).map((orden) => ({ ...orden, _estadoAnterior: orden.estado }))
 }
 
-async function actualizarEstado(orden) {
-  const estadoAnterior = orden._estadoAnterior || 'Recibido'
-  if (['Pendiente de devolución', 'Devuelto sin reparación'].includes(orden.estado) || ['Pendiente de devolución', 'Devuelto sin reparación'].includes(estadoAnterior)) { orden.estado = estadoAnterior; return alert('Registra el motivo y la devolución desde Taller.') }
-  const { error } = await supabase.from('ordenes').update({ estado: orden.estado }).eq('id', orden.id)
-  if (error) return alert(error.message)
-  await registrarHistorial(
-    orden.id,
-    'estado',
-    `Estado cambiado a ${orden.estado}`,
-    `La orden avanzó de “${estadoAnterior}” a “${orden.estado}”.`,
-    estadoAnterior,
-    orden.estado
-  )
-  orden._estadoAnterior = orden.estado
-}
-
 function abrirGasto(orden) {
   gastoModal.value = orden
   gastoForm.value = { concepto: '', monto: null, metodo_pago: 'Transferencia', notas: '' }
@@ -197,123 +166,6 @@ async function registrarGasto() {
   } finally {
     guardandoGasto.value = false
   }
-}
-
-function abrirPago(orden) {
-  const saldo = saldoReal(orden)
-  if (saldo <= 0) {
-    alert('Esta orden ya está liquidada.')
-    return
-  }
-  pagoModal.value = orden
-  pagoForm.value = { pagos: [{ metodo: 'Efectivo', monto: null }] }
-  errorPago.value = ''
-}
-
-function cerrarPago() {
-  if (guardandoPago.value) return
-  pagoModal.value = null
-  errorPago.value = ''
-}
-
-function establecerMonto(valor) {
-  if (!pagoModal.value) return
-  pagoForm.value.pagos = [{ metodo: pagoForm.value.pagos[0]?.metodo || 'Efectivo', monto: Math.min(Number(valor || 0), saldoReal(pagoModal.value)) }]
-}
-
-async function registrarLiquidacion() {
-  const orden = pagoModal.value
-  if (!orden || guardandoPago.value) return
-
-  const pagos = pagoForm.value.pagos
-  const monto = pagos.reduce((s, p) => s + Math.round(Number(p.monto || 0) * 100), 0) / 100
-  const saldoAntes = saldoReal(orden)
-  errorPago.value = ''
-
-  if (pagos.some(p => !p.metodo || !Number.isFinite(Number(p.monto)) || Number(p.monto) < 0 || (pagos.length > 1 && Number(p.monto) <= 0)) || !monto || monto <= 0) {
-    errorPago.value = 'Ingresa un monto mayor a $0.00.'
-    return
-  }
-  if (monto > saldoAntes + 0.009) {
-    errorPago.value = `El pago no puede superar el saldo pendiente de ${moneda(saldoAntes)}.`
-    return
-  }
-
-  guardandoPago.value = true
-  const nuevoAnticipo = Number((Number(orden.anticipo || 0) + monto).toFixed(2))
-  const nuevoSaldo = Math.max(0, Number((Number(orden.costo_total || 0) - nuevoAnticipo).toFixed(2)))
-  const clasePago = tipoPago(orden, monto)
-
-  const { error: errorOrden } = await supabase
-    .from('ordenes')
-    .update({ anticipo: nuevoAnticipo })
-    .eq('id', orden.id)
-
-  if (errorOrden) {
-    guardandoPago.value = false
-    errorPago.value = errorOrden.message
-    return
-  }
-
-  const movimientosGuardados = []
-  for (const pago of pagos) {
-    const { data: movimiento, error: errorCaja } = await supabase.from('movimientos_caja').insert({
-      tipo: 'Entrada', concepto: `${clasePago} orden ${orden.folio}`,
-      monto: Math.round(Number(pago.monto) * 100) / 100, metodo_pago: pago.metodo,
-      referencia_tipo: 'orden', referencia_id: orden.id, notas: orden.clientes?.nombre
-    }).select('id').single()
-    if (errorCaja) {
-      for (const id of movimientosGuardados) await supabase.from('movimientos_caja').delete().eq('id', id)
-      await supabase.from('ordenes').update({ anticipo: Number(orden.anticipo || 0) }).eq('id', orden.id)
-      guardandoPago.value = false; errorPago.value = errorCaja.message; return
-    }
-    movimientosGuardados.push(movimiento.id)
-  }
-
-  await registrarHistorial(
-    orden.id,
-    'pago',
-    `${clasePago} registrado`,
-    `Se registró ${clasePago.toLowerCase()} de ${moneda(monto)} por ${pagos.map(p => `${p.metodo}: ${moneda(p.monto)}`).join(' + ')}. Saldo restante: ${moneda(nuevoSaldo)}.`
-  )
-
-  const ordenActualizada = { ...orden, anticipo: nuevoAnticipo }
-  guardandoPago.value = false
-  pagoModal.value = null
-  await cargarOrdenes()
-  await abrirTicketOrden(ordenActualizada, pagos.map(p => `${p.metodo} ${moneda(p.monto)}`).join(' + '))
-}
-
-
-
-async function abrirTicketOrden(orden, metodoPagoForzado = '') {
-  if (!orden) return
-
-  const [{ data: ultimoPago }, { data: dataNegocio }] = await Promise.all([
-    supabase
-      .from('movimientos_caja')
-      .select('metodo_pago, fecha_movimiento, created_at')
-      .eq('referencia_tipo', 'orden')
-      .eq('referencia_id', orden.id)
-      .eq('tipo', 'Entrada')
-      .order('id', { ascending: false })
-      .limit(1)
-      .maybeSingle(),
-    supabase
-      .from('configuracion_negocio')
-      .select('*')
-      .order('id')
-      .limit(1)
-      .maybeSingle()
-  ])
-
-  if (dataNegocio) negocio.value = dataNegocio
-
-  ticketActual.value = buildTicketOrdenServicio({
-    orden,
-    negocio: negocio.value,
-    paymentMethod: metodoPagoForzado || ultimoPago?.metodo_pago || orden?.metodo_pago || orden?.forma_pago || 'No especificado'
-  })
 }
 
 function alternarMenu(id) {
@@ -480,23 +332,14 @@ onMounted(async () => {
             </div>
           </div>
 
-          <label class="ts-order-status-control">
-            <span>Actualizar estado</span>
-            <select v-model="orden.estado" :disabled="['Pendiente de devolución', 'Devuelto sin reparación'].includes(orden.estado)" @change="actualizarEstado(orden)">
-              <option v-for="estado in estados.slice(1)" :key="estado" :disabled="['Pendiente de devolución', 'Devuelto sin reparación'].includes(estado)">{{ estado }}</option>
-            </select>
-          </label>
+          <router-link class="ts-action-secondary" :to="`/taller?orden=${orden.id}`">Continuar seguimiento · {{ orden.estado }}</router-link>
 
           <footer class="ts-order-actions">
             <router-link class="ts-action-primary ts-action-compact" :to="`/ordenes/${orden.id}`">Ver detalle</router-link>
-            <button class="ts-action-secondary ts-action-compact" type="button" @click="abrirPago(orden)">Registrar pago</button>
+            <router-link v-if="authStore.can(['admin','recepcion']) && !['Entregado','Cancelado','Devuelto sin reparación'].includes(orden.estado) && (orden.estado==='Listo'||saldoReal(orden)>0)" class="ts-action-secondary ts-action-compact" :to="`/ordenes/${orden.id}?cobrar=1`">{{orden.estado==='Listo'?'Cobrar y entregar':'Registrar pago'}}</router-link>
             <button class="ts-action-expense ts-action-compact" type="button" @click="abrirGasto(orden)">
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 1v22M17 5H9.5a3.5 3.5 0 0 0 0 7H14a3.5 3.5 0 0 1 0 7H6" /></svg>
               Registrar gasto
-            </button>
-            <button class="ts-action-secondary ts-action-compact ts-ticket-order-action" type="button" @click="abrirTicketOrden(orden)">
-              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9V2h12v7M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8" rx="1"/></svg>
-              Imprimir ticket
             </button>
             <a
               class="ts-more-action ts-whatsapp-action"
@@ -612,68 +455,6 @@ onMounted(async () => {
     </Teleport>
 
     <Teleport to="body">
-      <div v-if="pagoModal" class="ts-payment-backdrop" @click.self="cerrarPago">
-        <section class="ts-payment-dialog" role="dialog" aria-modal="true" aria-labelledby="payment-title">
-          <header class="ts-payment-dialog-head">
-            <div>
-              <span class="ts-eyebrow">Cobro de orden</span>
-              <h3 id="payment-title">Registrar pago</h3>
-              <p>{{ pagoModal.folio }} · {{ pagoModal.clientes?.nombre || 'Cliente' }}</p>
-            </div>
-            <button class="ts-payment-close" type="button" aria-label="Cerrar" @click="cerrarPago">×</button>
-          </header>
-
-          <div class="ts-payment-order-chip">
-            <div class="ts-payment-device-icon">
-              <svg viewBox="0 0 24 24"><rect x="6" y="2" width="12" height="20" rx="2"/><path d="M10 18h4"/></svg>
-            </div>
-            <div>
-              <strong>{{ [pagoModal.equipos?.marca, pagoModal.equipos?.modelo].filter(Boolean).join(' ') || 'Equipo sin especificar' }}</strong>
-              <span>{{ pagoModal.falla_reportada || 'Orden de servicio' }}</span>
-            </div>
-          </div>
-
-          <div class="ts-payment-totals">
-            <div><span>Total</span><strong>{{ moneda(pagoModal.costo_total) }}</strong></div>
-            <div><span>Pagado</span><strong>{{ moneda(pagoModal.anticipo) }}</strong></div>
-            <div class="is-due"><span>Saldo pendiente</span><strong>{{ moneda(saldoReal(pagoModal)) }}</strong></div>
-          </div>
-
-          <div class="ts-payment-field">
-            <span>¿Cuánto pagó el cliente y cómo?</span>
-            <div v-for="(pago, indice) in pagoForm.pagos" :key="indice" class="split-payment-row">
-              <select v-model="pago.metodo" aria-label="Método"><option>Efectivo</option><option>Transferencia</option><option>Tarjeta</option><option>Mercado Pago</option><option>Otro</option></select>
-              <input v-model.number="pago.monto" type="number" min="0" :max="saldoReal(pagoModal)" step="0.01" aria-label="Importe">
-              <button v-if="pagoForm.pagos.length > 1" type="button" @click="pagoForm.pagos.splice(indice, 1)">×</button>
-            </div>
-            <button type="button" class="ts-action-secondary" @click="pagoForm.pagos.push({ metodo: 'Transferencia', monto: null })">+ Agregar método</button>
-            <small>Total: {{ moneda(pagoForm.pagos.reduce((s,p)=>s+Number(p.monto||0),0)) }}</small>
-          </div>
-
-          <div class="ts-quick-payments">
-            <button type="button" @click="establecerMonto(500)">$500</button>
-            <button type="button" @click="establecerMonto(1000)">$1,000</button>
-            <button type="button" class="is-liquidate" @click="establecerMonto(saldoReal(pagoModal))">Liquidar {{ moneda(saldoReal(pagoModal)) }}</button>
-          </div>
-
-          <div class="ts-payment-type-preview">
-            <span>Se registrará como</span>
-            <strong>{{ pagoForm.pagos.some(p => Number(p.monto) > 0) ? tipoPago(pagoModal, pagoForm.pagos.reduce((s,p)=>s+Number(p.monto||0),0)) : (Number(pagoModal.anticipo || 0) > 0 ? 'Abono' : 'Anticipo') }}</strong>
-          </div>
-
-          <p v-if="errorPago" class="ts-payment-error">{{ errorPago }}</p>
-
-          <footer class="ts-payment-actions">
-            <button class="ts-action-secondary" type="button" :disabled="guardandoPago" @click="cerrarPago">Cancelar</button>
-            <button class="ts-action-primary" type="button" :disabled="guardandoPago" @click="registrarLiquidacion">
-              {{ guardandoPago ? 'Registrando…' : 'Registrar pago' }}
-            </button>
-          </footer>
-        </section>
-      </div>
-    </Teleport>
-
-    <Teleport to="body">
       <div v-if="ordenAccion" class="ts-confirm-backdrop" @click.self="cerrarConfirmacion">
         <section class="ts-confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="confirm-title">
           <div class="ts-confirm-icon" :class="{ 'is-danger': modalAccion === 'eliminar' }">
@@ -712,8 +493,6 @@ onMounted(async () => {
         </section>
       </div>
     </Teleport>
-
-    <TicketPreviewModal :ticket="ticketActual" @close="ticketActual = null" />
   </section>
 </template>
 

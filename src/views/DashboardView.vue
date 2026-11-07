@@ -169,7 +169,7 @@ async function cargarDashboard() {
   const [ordenesRes, citasRes, cajaRes] = await Promise.all([
     supabase
       .from('ordenes')
-      .select('id,folio,estado,falla_reportada,trabajo_realizado,fecha_programada,fecha_ingreso,created_at,updated_at,clientes(nombre,telefono),equipos(tipo_equipo,marca,modelo),orden_produccion(prioridad)')
+      .select('id,folio,estado,costo_total,anticipo,falla_reportada,trabajo_realizado,fecha_programada,fecha_ingreso,created_at,updated_at,clientes(nombre,telefono),equipos(tipo_equipo,marca,modelo),orden_produccion(prioridad)')
       .order('id', { ascending: false })
       .limit(250),
     supabase
@@ -206,6 +206,7 @@ onMounted(async () => {
         <p>Aquí está el estado actual de tu taller.</p>
       </div>
       <div class="dashboard-actions">
+        <router-link to="/cotizador" class="action-btn primary">Cotizar precio</router-link>
         <router-link to="/ventas?nueva=1" class="action-btn secondary">
           <svg viewBox="0 0 24 24"><path d="M6 2h9l5 5v15H6z"/><path d="M14 2v6h6M9 13h8M9 17h5"/></svg>
           Nueva venta
@@ -217,6 +218,11 @@ onMounted(async () => {
       </div>
     </header>
 
+    <section class="dashboard-followup" aria-label="Pendientes por resolver">
+      <router-link v-for="state in ['Esperando autorización','Esperando pieza','En pruebas','Listo']" :key="state" :to="`/taller?estado=${encodeURIComponent(state)}`">
+        <strong>{{ ordenes.filter(o=>o.estado===state).length }}</strong><span>{{ state === 'Listo' ? 'Cobrar y entregar' : state }}</span>
+      </router-link>
+    </section>
     <section class="kpi-grid">
       <article class="kpi-card neutral">
         <span class="kpi-icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></span>
@@ -297,6 +303,27 @@ onMounted(async () => {
       </article>
     </section>
 
+    <article class="panel ready-panel">
+      <header class="panel-title compact">
+        <div class="title-with-icon success-title"><svg viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></svg><h3>Listos para cobrar y entregar</h3><span class="count-bubble success-bubble">{{ listas }}</span></div>
+        <router-link to="/taller?estado=Listo">Ver todos →</router-link>
+      </header>
+      <div v-if="!listosEntrega.length" class="ready-empty">
+        <svg viewBox="0 0 24 24"><path d="m21 8-9 5-9-5 9-5zM3 8v8l9 5 9-5V8M12 13v8"/></svg>
+        <strong>No hay equipos listos pendientes de entrega.</strong>
+        <span>Cuando un equipo esté listo, aparecerá aquí.</span>
+      </div>
+      <div v-else class="ready-list">
+        <router-link v-for="orden in listosEntrega" :key="orden.id" :to="`/ordenes/${orden.id}?entregar=1`" class="ready-row">
+          <span>{{ orden.folio }}</span>
+          <strong>{{ equipoNombre(orden) }}</strong>
+          <span>{{ orden.clientes?.nombre || 'Cliente' }}</span>
+          <span class="ready-status">{{ moneda(Math.max(0,Number(orden.costo_total||0)-Number(orden.anticipo||0))) }} · Cobrar y entregar</span>
+          <svg class="chevron" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></svg>
+        </router-link>
+      </div>
+    </article>
+
     <section class="finance-grid">
       <article class="panel sales-panel">
         <header class="panel-title compact">
@@ -333,30 +360,12 @@ onMounted(async () => {
       </article>
     </section>
 
-    <article class="panel ready-panel">
-      <header class="panel-title compact">
-        <div class="title-with-icon success-title"><svg viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></svg><h3>Equipos listos por entregar</h3><span class="count-bubble success-bubble">{{ listas }}</span></div>
-        <router-link to="/taller">Ver todos →</router-link>
-      </header>
-      <div v-if="!listosEntrega.length" class="ready-empty">
-        <svg viewBox="0 0 24 24"><path d="m21 8-9 5-9-5 9-5zM3 8v8l9 5 9-5V8M12 13v8"/></svg>
-        <strong>No hay equipos listos pendientes de entrega.</strong>
-        <span>Cuando un equipo esté listo, aparecerá aquí.</span>
-      </div>
-      <div v-else class="ready-list">
-        <router-link v-for="orden in listosEntrega" :key="orden.id" :to="`/ordenes/${orden.id}`" class="ready-row">
-          <span>{{ orden.folio }}</span>
-          <strong>{{ equipoNombre(orden) }}</strong>
-          <span>{{ orden.clientes?.nombre || 'Cliente' }}</span>
-          <span class="ready-status">Listo</span>
-          <svg class="chevron" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></svg>
-        </router-link>
-      </div>
-    </article>
+
   </section>
 </template>
 
 <style scoped>
+.dashboard-followup{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}.dashboard-followup a{display:flex;gap:12px;align-items:center;padding:16px;border-radius:12px;background:var(--ts-surface);color:var(--ts-text);text-decoration:none;border:1px solid var(--ts-border)}.dashboard-followup strong{font-size:1.6rem}.dashboard-actions{flex-wrap:wrap}@media(max-width:700px){.dashboard-followup{grid-template-columns:repeat(2,minmax(0,1fr))}}
 .op-dashboard { width: 100%; max-width: 1760px; margin: 0 auto; display: grid; gap: 20px; color: var(--ts-text); }
 .op-dashboard.is-loading { opacity: .72; pointer-events: none; }
 .dashboard-header { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; }

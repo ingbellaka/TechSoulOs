@@ -5,6 +5,14 @@ import { destinoRespuestaCliente, pruebasAprobadas } from '../utils/flujo-taller
 import { MOTIVOS_NO_REPARACION, ESTADOS_DEVOLUCION, validarNoReparacion, mensajeNoReparacion } from '../utils/no-reparacion'
 import { subirEvidencia } from '../lib/storage'
 import { asegurarFirmaGarantiaPorOrden, abrirWhatsAppFirma } from '../services/garantia-firma.service'
+import { useAuthStore } from '../stores/auth'
+import ControlCalidadView from './ControlCalidadView.vue'
+import { useRoute } from 'vue-router'
+const route = useRoute()
+const auth = useAuthStore()
+const props = defineProps({ orderId: [String, Number], embedded: Boolean })
+const emit = defineEmits(['updated'])
+const qualityOpen = ref(false)
 
 const cargando = ref(true)
 const guardando = ref(null)
@@ -110,6 +118,7 @@ async function guardarNoReparacion() {
     if (orden.produccion?.corriendo) await pausarSilencioso(orden)
     await guardarProduccion(orden, { corriendo: false, etapa: 'listo', finalizado_en: new Date().toISOString() })
     await registrarHistorial(orden, estado, `${payload.motivo_no_reparacion}: ${payload.explicacion_no_reparacion}${payload.notas_devolucion ? '\nDevolución: ' + payload.notas_devolucion : ''}`, { tipo: 'estado', estado_anterior: anterior, estado_nuevo: estado })
+    emit('updated')
     modalNoReparacion.value = null
     if (modalDiagnostico.value?.id === orden.id) cerrarDiagnostico()
     notificar(devolviendoEquipo.value ? 'Equipo devuelto sin reparación.' : 'Equipo pendiente de devolución. Puedes copiar el aviso para el cliente.')
@@ -425,6 +434,7 @@ const ordenesVisibles = computed(() => {
 
   return ordenes.value
     .filter(o => {
+      if ((props.orderId || route.query.orden) && String(o.id) !== String(props.orderId || route.query.orden)) return false
       if (filtroEstado.value === 'activas') return !['Entregado', 'Cancelado', 'Devuelto sin reparación'].includes(o.estado)
       if (filtroEstado.value === 'todos') return true
       return o.estado === filtroEstado.value
@@ -457,9 +467,11 @@ const resumen = computed(() => ({
 async function cargar() {
   cargando.value = true
   const [ordenesRes, citasRes] = await Promise.all([
-    supabase
-      .from('ordenes')
-      .select('id,folio,estado,falla_reportada,diagnostico,motivo_no_reparacion,explicacion_no_reparacion,notas_devolucion,fecha_devolucion,trabajo_realizado,costo_total,anticipo,fecha_ingreso,created_at,updated_at,fecha_programada,duracion_estimada_min,clientes(nombre,telefono),equipos(tipo_equipo,marca,modelo),orden_servicios(tipo_servicio,descripcion,precio,orden_visual),orden_produccion(*)')
+    (() => {
+      let query = supabase.from('ordenes').select('id,folio,estado,garantia_dias,garantia_condiciones,metodo_pago,fecha_entrega,falla_reportada,diagnostico,motivo_no_reparacion,explicacion_no_reparacion,notas_devolucion,fecha_devolucion,trabajo_realizado,costo_total,anticipo,fecha_ingreso,created_at,updated_at,fecha_programada,duracion_estimada_min,clientes(nombre,telefono),equipos(tipo_equipo,marca,modelo),orden_servicios(tipo_servicio,descripcion,precio,orden_visual),orden_produccion(*)')
+      if (props.orderId || route.query.orden) query = query.eq('id',props.orderId || route.query.orden)
+      return query
+    })()
       .order('fecha_ingreso', { ascending: false })
       .limit(300),
     supabase
@@ -804,6 +816,7 @@ async function guardarDiagnosticoYAutorizar() {
   if (!diagnostico) return notificar('Ingresa el diagnóstico técnico.', 'error')
   if (!solucion) return notificar('Ingresa la solución o reparación propuesta.', 'error')
   if (!Number.isFinite(costo) || costo < 0) return notificar('Ingresa un costo válido.', 'error')
+  if (costo < Number(orden.anticipo || 0)) return notificar('La cotización no puede ser menor al importe ya pagado.', 'error')
   if (!fotosDiagnostico.value.every(Boolean)) return notificar('Toma las dos fotografías obligatorias del diagnóstico.', 'error')
   guardandoDiagnostico.value = true
   try {
@@ -818,8 +831,8 @@ async function guardarDiagnosticoYAutorizar() {
         : await supabase.from('evidencias').insert(payload)
       if (resultado.error) throw resultado.error
     }
-    const { error } = await supabase.from('ordenes').update({ diagnostico, trabajo_realizado: solucion, costo_total: costo }).eq('id', orden.id)
-    if (error) throw error
+    const { data: guardada, error } = await supabase.from('ordenes').update({ diagnostico, trabajo_realizado: solucion, costo_total: costo }).eq('id', orden.id).eq('estado',orden.estado).eq('costo_total',orden.costo_total).eq('anticipo',orden.anticipo).select('id').maybeSingle()
+    if (error || !guardada) throw error || new Error('La orden cambió en otra sesión. Actualiza antes de cotizar.')
     orden.diagnostico = diagnostico
     orden.trabajo_realizado = solucion
     orden.costo_total = costo
@@ -844,7 +857,6 @@ async function accionPrincipal(orden) {
     return
   }
   if (orden.estado === 'Reparado') return cambiarEstado(orden, 'En pruebas')
-  if (orden.estado === 'Listo') return cambiarEstado(orden, 'Entregado')
 }
 
 function etiquetaAccion(orden) {
@@ -855,7 +867,7 @@ function etiquetaAccion(orden) {
     'En reparación': '✓ Terminar reparación',
     'Reparado': '🧪 Pasar a pruebas',
     'Pendiente de devolución': 'Registrar devolución sin reparación',
-    'Listo': '📦 Marcar entregado'
+    'Listo': ''
   }
   return mapa[orden.estado] || ''
 }
@@ -888,7 +900,7 @@ async function cambiarEstado(orden, nuevoEstado, evidenciaValidada = false) {
       return
     }
   }
-  if (nuevoEstado === 'Entregado' && Number(orden.costo_total || 0) > Number(orden.anticipo || 0)) return notificar('Registra el pago pendiente antes de entregar el equipo.', 'error')
+  if (nuevoEstado === 'Entregado') return notificar('Usa Cobrar y entregar para confirmar el pago y la entrega.', 'error')
   guardando.value = orden.id
 
   if (['Esperando autorización', 'Esperando pieza', 'Listo', 'Entregado', 'Cancelado', 'Pendiente de devolución', 'Devuelto sin reparación'].includes(nuevoEstado) && orden.produccion?.corriendo) await pausarSilencioso(orden)
@@ -920,6 +932,7 @@ async function cambiarEstado(orden, nuevoEstado, evidenciaValidada = false) {
   await registrarHistorial(orden, `Estado cambiado a ${etiquetaEstado(nuevoEstado)}`,
     `La orden cambió de ${etiquetaEstado(anterior)} a ${etiquetaEstado(nuevoEstado)} desde el Panel de Taller.`,
     { tipo: 'estado', estado_anterior: anterior, estado_nuevo: nuevoEstado })
+  emit('updated')
 
   if (nuevoEstado === 'Listo') {
     try {
@@ -969,6 +982,8 @@ async function pausar(orden) {
 }
 
 onMounted(async () => {
+  if (route.query.estado) filtroEstado.value = String(route.query.estado)
+  if (props.orderId || route.query.orden) filtroEstado.value = 'todos'
   reloj = window.setInterval(() => { ahora.value = Date.now() }, 1000)
   await cargar()
 })
@@ -984,8 +999,8 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <section class="workshop-page">
-    <header class="workshop-header">
+  <section class="workshop-page" :class="{ 'is-embedded':embedded }">
+    <header v-if="!embedded" class="workshop-header">
       <div>
         <span class="eyebrow">Taller · TechSoul</span>
         <h1>Control de órdenes</h1>
@@ -1006,7 +1021,7 @@ onBeforeUnmount(() => {
       </div>
     </header>
 
-    <div class="metrics">
+    <div v-if="!embedded" class="metrics">
       <button type="button" @click="filtroEstado = 'activas'">
         <span class="metric-icon blue">◷</span><span class="metric-copy">Pendientes<strong>{{ resumen.pendientes }}</strong></span>
       </button>
@@ -1027,7 +1042,7 @@ onBeforeUnmount(() => {
       </button>
     </div>
 
-    <div class="toolbar">
+    <div v-if="!embedded" class="toolbar">
       <label class="search-box">
         <span>⌕</span>
         <input v-model="filtroTexto" placeholder="Buscar folio, cliente, equipo o falla...">
@@ -1116,6 +1131,8 @@ onBeforeUnmount(() => {
 
           <p v-if="orden.motivo_no_reparacion" class="return-summary"><strong>{{ orden.motivo_no_reparacion }}</strong><br>{{ orden.explicacion_no_reparacion }}</p>
           <div class="workflow-actions">
+            <router-link v-if="!embedded && orden.estado==='Listo' && auth.can(['admin','recepcion'])" class="workflow-primary" :to="`/ordenes/${orden.id}?cobrar=1`">Cobrar y entregar</router-link>
+            <router-link v-if="!embedded && ['Recibido','Diagnóstico','Esperando autorización'].includes(orden.estado)" class="workflow-secondary" :to="`/cotizador?orden=${orden.id}`">Cotizar servicio</router-link>
             <button v-if="etiquetaAccion(orden)" type="button" class="workflow-primary" :disabled="guardando === orden.id" @click="accionPrincipal(orden)">{{ etiquetaAccion(orden) }}</button>
             <template v-if="orden.estado === 'Esperando autorización'">
               <button type="button" class="workflow-primary" @click="orden.diagnostico ? compartirDiagnostico(orden) : abrirDiagnostico(orden)">Enviar diagnóstico y cotización</button>
@@ -1123,7 +1140,8 @@ onBeforeUnmount(() => {
             </template>
             <button v-if="['Diagnóstico', 'Esperando autorización', 'Esperando pieza', 'En reparación', 'En pruebas'].includes(orden.estado)" type="button" class="workflow-secondary" :disabled="guardando === orden.id" @click="abrirNoReparacion(orden)">No podemos continuar</button>
             <button v-if="orden.motivo_no_reparacion && ESTADOS_DEVOLUCION.includes(orden.estado)" type="button" class="workflow-secondary" @click="copiarAvisoNoReparacion(orden)">Copiar aviso al cliente</button>
-            <router-link v-if="orden.estado === 'En pruebas'" :to="`/taller/${orden.id}/control`" class="quality-link">Realizar pruebas y evidencia final</router-link>
+            <button v-if="orden.estado === 'En pruebas' && embedded" type="button" class="quality-link" @click="qualityOpen=!qualityOpen">{{qualityOpen ? 'Ocultar pruebas' : 'Realizar pruebas y evidencia final'}}</button>
+            <router-link v-else-if="orden.estado === 'En pruebas'" :to="`/taller/${orden.id}/control`" class="quality-link">Realizar pruebas y evidencia final</router-link>
             <button v-if="orden.estado === 'En pruebas'" type="button" class="workflow-secondary" :disabled="guardando === orden.id" @click="cambiarEstado(orden, 'Diagnóstico')">Pruebas fallidas · Volver a diagnóstico</button>
             <details v-if="orden.estado === 'Esperando autorización' && orden.diagnostico" class="workflow-more">
               <summary>Más opciones</summary>
@@ -1131,6 +1149,7 @@ onBeforeUnmount(() => {
               <button type="button" class="workflow-secondary" @click="abrirDiagnostico(orden)">Revisar diagnóstico y cotización</button>
             </details>
           </div>
+          <ControlCalidadView v-if="embedded && qualityOpen && orden.estado === 'En pruebas'" :order-id="orden.id" embedded @released="qualityOpen=false; cargar(); emit('updated')" />
           <div class="card-footer">
             <div class="fixed-tech">
               <span>Técnico</span>
@@ -1262,6 +1281,7 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
+.is-embedded .orders-grid{grid-template-columns:minmax(0,1fr)}
 .workflow-more summary{cursor:pointer;color:#64748b;font-size:.75rem;padding:8px}.workflow-more[open]{display:grid;gap:8px}.workflow-more button{width:100%;margin-top:6px}.response-modal select{width:100%;padding:12px;border:1px solid #cbd5e1;border-radius:10px}
 .return-modal{z-index:1200}.return-summary{padding:12px;border-radius:10px;background:#fff7ed;color:#9a3412;white-space:pre-wrap}.return-modal select{width:100%;padding:12px;border:1px solid #cbd5e1;border-radius:10px}
 .diagnostic-photo-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.diagnostic-photo-slot{display:grid;gap:9px;padding:12px;border:1px solid #dbe3ee;border-radius:14px}.diagnostic-photo-slot>strong{font-size:.85rem}.diagnostic-photo-slot img{width:100%;height:155px;object-fit:contain;border-radius:9px;background:#f1f5f9}.photo-empty{height:120px;display:grid;place-items:center;padding:12px;text-align:center;color:#64748b;border:1px dashed #cbd5e1;border-radius:9px;font-size:.8rem}.photo-camera-button{border:0;border-radius:10px;padding:12px;background:#0B43FF;color:#fff;font-weight:700;cursor:pointer}.photo-camera-button:disabled{opacity:.55;cursor:default}.photo-file-button{display:grid;gap:5px;color:#64748b;font-size:.75rem;overflow:hidden}.photo-file-button input{max-width:100%;font-size:.72rem}.camera-backdrop{position:fixed;inset:0;z-index:6000;background:rgba(15,23,42,.85);display:grid;place-items:center;padding:16px}.camera-dialog{width:min(640px,100%);max-height:95dvh;overflow:auto;background:white;border-radius:18px;padding:16px;display:grid;gap:12px;color:#101828}.camera-dialog header{display:flex;justify-content:space-between;align-items:center}.camera-dialog header button{border:0;background:#f1f5f9;border-radius:50%;width:36px;height:36px;font-size:24px}.camera-dialog video{width:100%;max-height:65dvh;object-fit:contain;background:#0B0F17;border-radius:10px}.evidence-modal{max-height:92dvh;overflow-y:auto}.evidence-modal-actions{position:sticky;bottom:-20px;background:#fff;padding-block:12px;z-index:1}@media(max-width:520px){.diagnostic-photo-grid{grid-template-columns:1fr}.diagnostic-photo-slot img{height:180px}}

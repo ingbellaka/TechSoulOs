@@ -6,6 +6,9 @@ import { pruebasAprobadas } from '../utils/flujo-taller'
 import { subirEvidencia } from '../lib/storage'
 
 const route=useRoute(), router=useRouter()
+const props=defineProps({orderId:[String,Number],embedded:Boolean})
+const emit=defineEmits(['released'])
+const currentId=computed(()=>props.orderId || route.params.id)
 const orden=ref(null), evidencias=ref([]), controles=ref([]), guardando=ref(false), fotosSalida=ref({})
 const liberando = ref(false)
 const estados=[['Funciona','Bien'],['No funciona','Falla'],['No probado','Pend.'],['No aplica','N/A']]
@@ -30,7 +33,7 @@ const fotosCompletas=computed(()=>requisitosSalida.value.every(n=>salidaGuardada
 const listo=computed(()=>orden.value?.estado === 'En pruebas' && checksCompletos.value && fotosCompletas.value && reparacionInterna.value.length > 0)
 
 async function cargar(){
- const id=route.params.id
+ const id=currentId.value
  const [{data:o,error},{data:e},{data:c}]=await Promise.all([
   supabase.from('ordenes').select('*,equipos(*),clientes(nombre)').eq('id',id).single(),
   supabase.from('evidencias').select('*').eq('orden_id',id).order('id'),
@@ -41,13 +44,37 @@ async function cargar(){
  controles.value=(pruebas[tipo.value]||pruebas.Otro).map(item=>existentes.get(item)||{orden_id:Number(id),item,estado:'No probado',notas:''})
 }
 function foto(ev,n){const f=ev.target.files?.[0];if(!f)return;fotosSalida.value={...fotosSalida.value,[n]:{file:f,preview:URL.createObjectURL(f)}}}
-async function guardarPruebas(){guardando.value=true;try{for(const c of controles.value){const payload={orden_id:Number(route.params.id),item:c.item,estado:c.estado,notas:c.notas||''};const {error}=await supabase.from('control_calidad_orden').upsert(payload,{onConflict:'orden_id,item'});if(error)throw error}alert('Checklist de pruebas guardado');return true}catch(e){alert(e.message);return false}finally{guardando.value=false}}
-async function guardarFotos(){guardando.value=true;try{for(const n of requisitosSalida.value){const f=fotosSalida.value[n]?.file;if(!f||salidaGuardada.value.some(e=>e.descripcion===n))continue;const url=await subirEvidencia(f,`orden-${route.params.id}/salida`);const {error}=await supabase.from('evidencias').insert({orden_id:Number(route.params.id),tipo:'Salida',url_imagen:url,descripcion:n});if(error)throw error}await cargar();alert('Evidencia de salida guardada');return true}catch(e){alert(e.message);return false}finally{guardando.value=false}}
+async function guardarPruebas(silencioso = false) {
+ guardando.value = true
+ try {
+  const rows = controles.value.map(c=>({orden_id:Number(currentId.value),item:c.item,estado:c.estado,notas:c.notas||''}))
+  const {error}=await supabase.from('control_calidad_orden').upsert(rows,{onConflict:'orden_id,item'})
+  if(error) throw error
+  if(silencioso !== true) alert('Checklist de pruebas guardado')
+  return true
+ } catch(e) { alert(e.message); return false }
+ finally { guardando.value=false }
+}
+async function guardarFotos(silencioso = false) {
+ guardando.value=true
+ try {
+  for(const n of requisitosSalida.value){
+   const f=fotosSalida.value[n]?.file
+   if(!f||salidaGuardada.value.some(e=>e.descripcion===n))continue
+   const url=await subirEvidencia(f,`orden-${currentId.value}/salida`)
+   const {error}=await supabase.from('evidencias').insert({orden_id:Number(currentId.value),tipo:'Salida',url_imagen:url,descripcion:n})
+   if(error)throw error
+  }
+  if(silencioso !== true){await cargar();alert('Evidencia de salida guardada')}
+  return true
+ } catch(e){alert(e.message);return false}
+ finally{guardando.value=false}
+}
 async function marcarListo() {
  if (guardando.value || liberando.value) return
  liberando.value = true
  try {
-  if (!await guardarPruebas() || !await guardarFotos()) return
+  if (!await guardarPruebas(true) || !await guardarFotos(true)) return
   await cargar()
   const fotosPersistidas = requisitosSalida.value.every(n => salidaGuardada.value.some(e => e.descripcion === n))
   if (!listo.value || !fotosPersistidas) return alert('Para liberar el equipo debe estar En pruebas, tener evidencia interna y fotografías finales guardadas, y todas las pruebas en Bien o N/A.')
@@ -55,14 +82,15 @@ async function marcarListo() {
   const { data, error } = await supabase.from('ordenes').update({estado:'Listo',fecha_listo:new Date().toISOString()}).eq('id',orden.value.id).eq('estado','En pruebas').select('id').single()
   if (error || !data) return alert(error?.message || 'La orden cambió en otro dispositivo. Recarga antes de liberarla.')
   await supabase.from('orden_historial').insert({orden_id:orden.value.id,tipo:'calidad',titulo:'Control de calidad aprobado',descripcion:'Pruebas aprobadas y evidencia de salida completa. Equipo liberado para entrega.',estado_anterior:anterior,estado_nuevo:'Listo'})
-  router.push('/taller')
+  if(props.embedded) emit('released')
+  else router.push(`/ordenes/${orden.value.id}`)
  } catch (error) { alert(error.message) }
  finally { liberando.value = false }
 }
 onMounted(cargar)
 </script>
 <template><section v-if="orden" class="qc-page">
- <header><div><button class="back" @click="router.push('/taller')">← Volver al taller</button><span>CONTROL DE CALIDAD · {{ orden.folio }}</span><h1>Pruebas y evidencia final</h1><p>{{ orden.equipos?.marca }} {{ orden.equipos?.modelo }} · {{ tipo }} · {{ orden.clientes?.nombre }}</p></div><div class="state">{{ orden.estado }}</div></header>
+ <header><div><button v-if="!embedded" class="back" @click="router.push('/taller')">← Volver al taller</button><span>CONTROL DE CALIDAD · {{ orden.folio }}</span><h1>Pruebas y evidencia final</h1><p>{{ orden.equipos?.marca }} {{ orden.equipos?.modelo }} · {{ tipo }} · {{ orden.clientes?.nombre }}</p></div><div class="state">{{ orden.estado }}</div></header>
  <div class="summary"><b>📥 Recepción {{ recepcion.length }}</b><b>🧪 Pruebas {{ controles.filter(c=>c.estado!=='No probado').length }}/{{ controles.length }}</b><b>📤 Salida {{ salidaGuardada.length }}/{{ requisitosSalida.length }}</b><b :class="{ok:listo}">{{ listo?'✓ Puede liberarse':'Pendiente' }}</b></div>
  <article class="panel"><div class="title"><div><span>01 · EVIDENCIA ORIGINAL</span><h2>Así se recibió</h2></div></div><div class="photos"><figure v-for="e in recepcion" :key="e.id"><img :src="e.url_imagen"><figcaption>{{e.descripcion}}</figcaption></figure></div></article>
  <article class="panel"><div class="title"><div><span>02 · EVIDENCIA DE REPARACIÓN</span><h2>Interior y blindajes antes del cierre</h2><p>Evidencia del interior tomada antes de cerrar el equipo e iniciar las pruebas.</p></div></div><div v-if="reparacionInterna.length" class="photos"><figure v-for="e in reparacionInterna" :key="e.id"><img :src="e.url_imagen"><figcaption>{{e.descripcion || 'Reparación interna'}}</figcaption></figure></div><p v-else class="missing-internal">⚠ Aún no existe evidencia interna de la reparación.</p></article>
