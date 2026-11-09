@@ -262,35 +262,14 @@ onMounted(async () => {
       </div>
     </article>
 
-    <details class="dashboard-stats"><summary>Agenda e indicadores del taller</summary>
-      <article class="panel agenda-panel">
-        <header class="panel-title">
-          <div class="title-with-icon">
-            <svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 10h18"/></svg>
-            <h3>Agenda de hoy</h3>
-          </div>
-          <router-link to="/agenda">Ver agenda →</router-link>
-        </header>
-
-        <div v-if="!agendaHoy.length" class="agenda-empty">
-          <svg viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="15" rx="2"/><path d="M8 3v4M16 3v4M4 10h16"/></svg>
-          <strong>No hay citas programadas hoy.</strong>
-          <span>Cuando tengas citas, las verás aquí.</span>
-          <router-link to="/agenda">Ir a agenda</router-link>
-        </div>
-        <div v-else class="agenda-list">
-          <div v-for="evento in agendaHoy" :key="evento.id" class="agenda-row">
-            <strong class="agenda-time">{{ horaCorta(evento.inicio) }}</strong>
-            <div><strong>{{ evento.equipo }}</strong><small>{{ evento.servicio }}</small></div>
-            <span class="agenda-client">{{ evento.cliente }}</span>
-          </div>
-        </div>
-      </article>
-    <section class="dashboard-followup" aria-label="Pendientes por resolver">
-      <router-link v-for="state in ['Esperando autorización','Esperando pieza','En pruebas','Listo']" :key="state" :to="`/taller?estado=${encodeURIComponent(state)}`">
-        <strong>{{ ordenes.filter(o=>o.estado===state).length }}</strong><span>{{ state === 'Listo' ? 'Cobrar y entregar' : state }}</span>
-      </router-link>
-    </section>
+    <details class="dashboard-stats workshop-insights">
+      <summary>
+        <span class="insights-summary-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 19h16M7 15v-4m5 4V6m5 9v-7"/></svg></span>
+        <span class="insights-summary-copy"><strong>Indicadores del taller</strong><small>Órdenes, próximos pasos y agenda de hoy</small></span>
+        <span class="insights-chevron" aria-hidden="true">⌄</span>
+      </summary>
+      <div class="insights-body">
+        <h3>Resumen operativo</h3>
     <section class="kpi-grid">
       <article class="kpi-card neutral">
         <span class="kpi-icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></span>
@@ -314,6 +293,36 @@ onMounted(async () => {
       </article>
     </section>
 
+        <h3>Órdenes por atender</h3>
+    <section class="dashboard-followup" aria-label="Pendientes por resolver">
+      <router-link v-for="state in ['Esperando autorización','Esperando pieza','En pruebas','Listo']" :key="state" :to="`/taller?estado=${encodeURIComponent(state)}`">
+        <strong>{{ ordenes.filter(o => o.estado === state).length }}</strong><span>{{ state === 'Listo' ? 'Listas para entrega' : state }}</span><span class="insights-link-arrow" aria-hidden="true">›</span>
+      </router-link>
+    </section>
+              <article class="panel agenda-panel">
+        <header class="panel-title">
+          <div class="title-with-icon">
+            <svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 10h18"/></svg>
+            <h3>Agenda de hoy</h3>
+          </div>
+          <router-link to="/agenda">Ver agenda →</router-link>
+        </header>
+
+        <div v-if="!agendaHoy.length" class="agenda-empty">
+          <svg viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="15" rx="2"/><path d="M8 3v4M16 3v4M4 10h16"/></svg>
+          <strong>No hay citas programadas hoy.</strong>
+          <span>Cuando tengas citas, las verás aquí.</span>
+          <router-link to="/agenda">Ir a agenda</router-link>
+        </div>
+        <div v-else class="agenda-list">
+          <div v-for="evento in agendaHoy" :key="evento.id" class="agenda-row">
+            <strong class="agenda-time">{{ horaCorta(evento.inicio) }}</strong>
+            <div><strong>{{ evento.equipo }}</strong><small>{{ evento.servicio }}</small></div>
+            <span class="agenda-client">{{ evento.cliente }}</span>
+          </div>
+        </div>
+      </article>
+      </div>
     </details>
     <section class="finance-grid">
       <article class="panel sales-panel">
