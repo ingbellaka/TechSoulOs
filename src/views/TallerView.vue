@@ -1203,7 +1203,7 @@ onBeforeUnmount(() => {
             <img v-if="previewsDiagnostico[indice]" :src="previewsDiagnostico[indice]" :alt="`Foto ${indice + 1} del diagnóstico`">
             <div v-else class="photo-empty">Interior del equipo · obligatoria</div>
             <button type="button" class="photo-camera-button" :disabled="guardandoDiagnostico" @click="abrirCamara({ tipo: 'diagnostico', indice })">📷 {{ fotosDiagnostico[indice] ? 'Volver a tomar' : 'Tomar foto' }}</button>
-            <label class="photo-file-button">Cámara o galería del dispositivo<input type="file" accept="image/*" capture="environment" :disabled="guardandoDiagnostico" @change="seleccionarFotoDiagnostico($event, indice)"></label>
+            <label class="photo-file-button">Elegir del carrete<input type="file" accept="image/*" :disabled="guardandoDiagnostico" @change="seleccionarFotoDiagnostico($event, indice)"></label>
           </article>
         </div>
         <small>{{ fotosDiagnostico.filter(Boolean).length }} / 2 fotografías capturadas. Ambas son obligatorias.</small>
@@ -1220,8 +1220,8 @@ onBeforeUnmount(() => {
         <p>Toma una fotografía del interior con los blindajes colocados, antes de cerrar el equipo y pasar a pruebas. Esta evidencia quedará vinculada permanentemente a la orden <strong>{{ modalEvidencia.folio }}</strong>.</p>
         <label class="internal-photo-box">
           <img v-if="previewInterna" :src="previewInterna" alt="Evidencia interna de reparación">
-          <div v-else><b>Interior con blindajes colocados</b><small>Foto obligatoria antes de cerrar</small></div>
-          <input type="file" accept="image/*" capture="environment" :disabled="guardandoEvidencia" @change="seleccionarFotoInterna">
+          <div v-else><b>Interior con blindajes colocados</b><small>Elegir del carrete · Foto obligatoria</small></div>
+          <input type="file" accept="image/*" :disabled="guardandoEvidencia" @change="seleccionarFotoInterna">
         </label>
         <button type="button" class="photo-camera-button" :disabled="guardandoEvidencia" @click="abrirCamara({ tipo: 'blindajes' })">📷 {{ fotoInterna ? 'Volver a tomar foto de blindajes' : 'Tomar foto de blindajes' }}</button>
         <div class="evidence-modal-actions"><button type="button" class="cancel-evidence" @click="cerrarEvidenciaInterna">Cancelar</button><button type="button" class="save-evidence" :disabled="guardandoEvidencia" @click="guardarEvidenciaInterna">{{ guardandoEvidencia ? 'Guardando...' : 'Guardar y pasar a pruebas' }}</button></div>

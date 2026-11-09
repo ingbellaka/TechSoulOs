@@ -744,8 +744,9 @@ onMounted(async () => {
                 <label class="evidence-capture">
                   <input type="file" accept="image/*" capture="environment" @change="manejarEvidencia($event, nombre)">
                   <img v-if="evidenciasRecepcion[nombre]?.preview" :src="evidenciasRecepcion[nombre].preview" :alt="nombre">
-                  <div v-else><b>📷</b><strong>Tomar foto</strong><small>o seleccionar de galería</small></div>
+                  <div v-else><b>📷</b><strong>Tomar foto</strong></div>
                 </label>
+                <label class="btn btn-outline-secondary w-100 mt-2">Elegir del carrete<input class="visually-hidden" type="file" accept="image/*" :aria-label="`Elegir del carrete: ${nombre}`" @change="manejarEvidencia($event, nombre)"></label>
                 <button v-if="evidenciasRecepcion[nombre]?.file" type="button" class="remove-evidence" @click="quitarEvidencia(nombre)">Reemplazar / quitar</button>
               </article>
             </div>
@@ -753,6 +754,7 @@ onMounted(async () => {
               <article v-for="nombre in evidenciasOpcionales" :key="nombre" class="evidence-slot">
                 <div class="evidence-slot-head"><strong>{{ nombre }}</strong><span>Opcional</span></div>
                 <label class="evidence-capture"><input type="file" accept="image/*" capture="environment" @change="manejarEvidencia($event, nombre)"><img v-if="evidenciasRecepcion[nombre]?.preview" :src="evidenciasRecepcion[nombre].preview" :alt="nombre"><div v-else>📷 Tomar foto</div></label>
+                <label class="btn btn-outline-secondary w-100 mt-2">Elegir del carrete<input class="visually-hidden" type="file" accept="image/*" :aria-label="`Elegir del carrete: ${nombre}`" @change="manejarEvidencia($event, nombre)"></label>
                 <button v-if="evidenciasRecepcion[nombre]?.file" type="button" @click="quitarEvidencia(nombre)">Quitar</button>
               </article>
             </div>
