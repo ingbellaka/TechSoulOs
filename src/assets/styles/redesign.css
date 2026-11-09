@@ -294,3 +294,13 @@
   .workshop-insights .kpi-grid {grid-template-columns:repeat(2,minmax(0,1fr))}
   .workshop-insights .dashboard-followup {grid-template-columns:minmax(0,1fr)}
 }
+
+.quote-header-actions,.quote-catalog-search {display:flex;flex-wrap:wrap;gap:.65rem;align-items:end}
+.quote-catalog-search .ts-field {flex:1 1 12rem}
+.quote-catalog-results {list-style:none;padding:0;margin:.75rem 0 0}
+.quote-catalog-results li {display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:.75rem;align-items:center;padding:.65rem 0;border-top:1px solid var(--ts-border)}
+.quote-catalog-results small {display:block;color:var(--ts-muted)}
+@media(max-width:480px) {
+  .quote-catalog-results li {grid-template-columns:minmax(0,1fr) auto}
+  .quote-catalog-results button {grid-column:1/-1;justify-content:center}
+}

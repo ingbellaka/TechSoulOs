@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref, onMounted } from 'vue'
+import { computed, ref, onMounted, nextTick } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { supabase } from '../lib/supabase'
 import { useAuthStore } from '../stores/auth'
@@ -9,6 +9,55 @@ const router=useRouter(), route=useRoute(), auth=useAuthStore(); const settings=
 const order=ref(null), busy=ref(false), error=ref(''), notice=ref(''), ready=ref(false)
 const legacyQuotes=ref(getQuotes())
 const canConfigure=computed(()=>auth.can(['admin','recepcion']))
+const listaAbierta = ref(false)
+const modeloBusqueda = ref('')
+const buscadorPrecios = ref(null)
+const preciosCatalogo = ref([])
+const buscandoPrecios = ref(false)
+const errorPrecios = ref('')
+
+async function buscarPrecios() {
+  buscandoPrecios.value = true
+  errorPrecios.value = ''
+  try {
+    const modelo = modeloBusqueda.value.trim()
+    let consulta = supabase.from('catalogo_servicios')
+      .select('id,nombre,categoria,marca,modelo,variante,costo_base,precio_venta')
+      .eq('activo', true).gt('precio_venta', 0)
+    if (modelo) consulta = consulta.ilike('modelo', '%' + modelo.replace(/[\\%_]/g, '\\$&') + '%')
+    const { data, error } = await consulta.order('modelo').limit(40)
+    if (error) throw error
+    preciosCatalogo.value = data || []
+  } catch (error) {
+    preciosCatalogo.value = []
+    errorPrecios.value = error.message || 'No se pudo consultar la lista de precios.'
+  } finally {
+    buscandoPrecios.value = false
+  }
+}
+
+async function alternarListaPrecios() {
+  listaAbierta.value = !listaAbierta.value
+  if (!listaAbierta.value) return
+  modeloBusqueda.value = form.value.modelo
+  await nextTick()
+  buscadorPrecios.value?.focus()
+  await buscarPrecios()
+}
+
+function usarPrecioCatalogo(precio) {
+  Object.assign(form.value, {
+    marca: precio.marca || '',
+    modelo: precio.modelo || form.value.modelo,
+    servicio: precio.nombre,
+    calidad: precio.variante || '',
+    costo_pieza: Number(precio.costo_base || 0),
+    envio: 0,
+    precio_final: Number(precio.precio_venta),
+  })
+  listaAbierta.value = false
+  notice.value = 'Precio de la lista aplicado a la cotización.'
+}
 const result=computed(()=>calculateQuote(form.value,settings.value)); const finalPrice=computed(()=>Number(form.value.precio_final||result.value.recommended)); const finalMargin=computed(()=>finalPrice.value?((finalPrice.value-result.value.realCost)/finalPrice.value)*100:0)
 function validate(){
   if(!ready.value) throw new Error('Espera a que cargue la configuración compartida.')
@@ -71,7 +120,25 @@ function addInventoryPart(){
 }
 function addRate(){ const rates=getRates(); rates.unshift({id:crypto.randomUUID(),marca:form.value.marca,modelo:form.value.modelo,servicio:form.value.servicio,calidad:form.value.calidad,precio_publico:finalPrice.value,precio_minimo:result.value.minimum,costo_actual:Number(form.value.costo_pieza),activo:true,origen:'Cotizador',actualizado_en:new Date().toISOString()}); saveRates(rates); alert('Precio agregado al tarifario') }
 </script>
-<template><section class="ts-module-page quote-workspace"><header class="ts-module-header"><div><span class="ts-eyebrow">Reparaciones especiales</span><h2>Cotizar</h2><p>Define el precio de la reparación y aplícalo a una orden.</p></div><button v-if="canConfigure" class="ts-action-secondary" @click="showSettings=!showSettings">{{showSettings?'Ocultar':'Configurar cálculo'}}</button></header>
+<template><section class="ts-module-page quote-workspace"><header class="ts-module-header"><div><span class="ts-eyebrow">Reparaciones especiales</span><h2>Cotizar</h2><p>Define el precio de la reparación y aplícalo a una orden.</p></div><div class="quote-header-actions"><button type="button" class="ts-action-primary" :aria-expanded="listaAbierta" aria-controls="lista-precios" @click="alternarListaPrecios">Lista de precios</button><button v-if="canConfigure" class="ts-action-secondary" @click="showSettings=!showSettings">{{showSettings?'Ocultar':'Configurar cálculo'}}</button></div></header>
+<article v-if="listaAbierta" id="lista-precios" class="ts-panel quote-catalog">
+  <div class="ts-panel-heading"><div><h3>Lista de precios</h3><p>Busca por modelo y elige la pieza o servicio.</p></div></div>
+  <form class="quote-catalog-search" @submit.prevent="buscarPrecios">
+    <label class="ts-field"><span>Modelo</span><input ref="buscadorPrecios" v-model="modeloBusqueda" type="search" placeholder="Ej. iPhone 13 o A55"></label>
+    <button type="submit" class="ts-action-secondary" :disabled="buscandoPrecios">Buscar</button>
+  </form>
+  <p v-if="buscandoPrecios" role="status">Buscando precios…</p>
+  <p v-else-if="errorPrecios" role="alert">{{ errorPrecios }}</p>
+  <p v-else-if="!preciosCatalogo.length">No hay precios para ese modelo en el catálogo.</p>
+  <ul v-else class="quote-catalog-results">
+    <li v-for="precio in preciosCatalogo" :key="precio.id">
+      <div><strong>{{ [precio.marca, precio.modelo].filter(Boolean).join(' ') || precio.nombre }}</strong><small>{{ [precio.nombre, precio.variante].filter(Boolean).join(' · ') }}</small></div>
+      <strong>{{ money(precio.precio_venta) }}</strong>
+      <button type="button" class="ts-action-secondary" @click="usarPrecioCatalogo(precio)">Usar precio</button>
+    </li>
+  </ul>
+</article>
+
 <p v-if="error" role="alert" class="calculator-error">{{error}}</p><p v-if="notice" role="status">{{notice}}</p><div v-if="order" class="ts-panel p-3">Agregando servicio a <strong>{{order.folio}}</strong> · Total actual {{money(order.costo_total)}}. El precio cotizado se sumará al total.</div><button v-if="legacyQuotes.length" class="ts-action-secondary" :disabled="busy||!ready" @click="importLegacy">Importar {{legacyQuotes.length}} cotizaciones de este navegador</button><article v-if="showSettings && canConfigure" class="ts-panel ts-form-panel"><div class="ts-panel-heading"><div><span class="ts-panel-kicker">Reglas del negocio</span><h3>Cálculo rentable y estable</h3></div><button class="ts-action-primary" :disabled="busy||!ready" @click="saveSettings">Guardar configuración</button></div><div class="ts-smart-form"><label class="ts-field"><span>Operación por reparación</span><input v-model.number="settings.costo_operativo_inicial" type="number"></label><label class="ts-field"><span>Margen mínimo %</span><input v-model.number="settings.margen_minimo" type="number"></label><label class="ts-field"><span>Margen recomendado %</span><input v-model.number="settings.margen_recomendado" type="number"></label><label class="ts-field"><span>Reserva de garantía %</span><input v-model.number="settings.reserva_garantia" type="number"></label><label class="ts-field"><span>Redondear a</span><input v-model.number="settings.redondeo" type="number"></label><label class="ts-field"><span>Riesgo bajo</span><input v-model.number="settings.riesgo.bajo" type="number"></label><label class="ts-field"><span>Riesgo medio</span><input v-model.number="settings.riesgo.medio" type="number"></label><label class="ts-field"><span>Riesgo alto</span><input v-model.number="settings.riesgo.alto" type="number"></label><label class="ts-field"><span>Riesgo muy alto</span><input v-model.number="settings.riesgo.muy_alto" type="number"></label></div></article>
 <div class="ts-quote-layout"><article class="ts-panel ts-form-panel"><div class="ts-panel-heading"><div><span class="ts-panel-kicker">Datos de reparación</span><h3>Nueva cotización</h3></div></div><div class="ts-smart-form"><label class="ts-field"><span>Marca</span><input v-model="form.marca"></label><label class="ts-field ts-field-wide"><span>Modelo *</span><input v-model="form.modelo" placeholder="Ej. Samsung A55"></label><label class="ts-field"><span>Servicio</span><input v-model="form.servicio"></label><label class="ts-field"><span>Calidad / pieza</span><input v-model="form.calidad"></label><label class="ts-field"><span>Costo de pieza *</span><input v-model.number="form.costo_pieza" type="number"></label><label class="ts-field"><span>Envío</span><input v-model.number="form.envio" type="number"></label><label class="ts-field"><span>Nivel de riesgo</span><select v-model="form.riesgo"><option value="bajo">Bajo</option><option value="medio">Medio</option><option value="alto">Alto</option><option value="muy_alto">Muy alto</option></select></label><label class="ts-field"><span>Precio final opcional</span><input v-model.number="form.precio_final" type="number" :placeholder="String(result.recommended)"></label></div><div class="ts-breakdown"><div><span>Pieza + envío</span><strong>{{money(result.direct)}}</strong></div><div><span>Operación</span><strong>{{money(result.operation)}}</strong></div><div><span>Riesgo</span><strong>{{money(result.risk)}}</strong></div><div><span>Garantía</span><strong>{{money(result.warranty)}}</strong></div></div></article>
 <aside class="ts-quote-result"><div class="quote-total"><span>Total</span><strong>{{money(finalPrice)}}</strong></div><p>Precio recomendado {{money(result.recommended)}}</p><div class="ts-result-grid"><div><span>Costo real</span><strong>{{money(result.realCost)}}</strong></div><div><span>Precio mínimo</span><strong>{{money(result.minimum)}}</strong></div><div><span>Utilidad</span><strong>{{money(finalPrice-result.realCost)}}</strong></div><div><span>Margen final</span><strong>{{finalMargin.toFixed(1)}}%</strong></div></div><button class="ts-white-button" :disabled="busy||!ready" @click="useInOrder">{{order ? "Agregar servicio a esta orden" : "Usar en nueva orden"}}</button><button class="ts-outline-light" :disabled="busy||!ready" @click="saveQuote">Guardar cotización</button><button class="ts-outline-light" :disabled="busy||!ready" @click="addRate">Agregar al tarifario</button><button class="ts-outline-light" :disabled="busy||!ready" @click="addInventoryPart">Guardar como refacción</button></aside></div>
