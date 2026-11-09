@@ -304,3 +304,5 @@
   .quote-catalog-results li {grid-template-columns:minmax(0,1fr) auto}
   .quote-catalog-results button {grid-column:1/-1;justify-content:center}
 }
+.quote-customer-price {display:grid;gap:.2rem;text-align:right}
+.quote-customer-price strong {font-size:1.05rem;white-space:nowrap}
