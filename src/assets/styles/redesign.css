@@ -314,3 +314,8 @@
 .quote-home-service label strong {margin-inline-start:auto}
 .quote-home-service small {display:block;color:var(--ts-muted)}
 .quote-workspace .quote-minimum-button {margin-top:.45rem;min-height:36px;padding:.35rem .55rem;white-space:normal}
+.quote-catalog-actions {display:grid;gap:.35rem}
+.quote-catalog-actions button {justify-content:center}
+@media(max-width:480px) {
+  .quote-catalog-actions {grid-column:1/-1;grid-template-columns:repeat(auto-fit,minmax(min(100%,8rem),1fr))}
+}

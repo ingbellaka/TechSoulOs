@@ -63,7 +63,7 @@ async function alternarListaPrecios() {
   await buscarPrecios()
 }
 
-function usarPrecioCatalogo(precio) {
+function usarPrecioCatalogo(precio, usarMinimo = false) {
   requierePrecioManual.value = requierePrecioInstalado(precio)
   Object.assign(form.value, {
     marca: precio.marca || '',
@@ -72,7 +72,7 @@ function usarPrecioCatalogo(precio) {
     calidad: precio.variante || '',
     costo_pieza: Number(precio.costo_base || 0),
     envio: 0,
-    precio_final: requierePrecioManual.value ? 0 : precioSugeridoCatalogo(precio),
+    precio_final: usarMinimo ? minimoCambioPantalla(precio.costo_base) : requierePrecioManual.value ? 0 : precioSugeridoCatalogo(precio),
   })
   listaAbierta.value = false
   notice.value = requierePrecioManual.value ? 'Captura el precio instalado para esta pantalla antes de cotizar.' : 'Precio de la lista aplicado a la cotización.'
@@ -182,7 +182,10 @@ function addRate(){ const rates=getRates(); rates.unshift({id:crypto.randomUUID(
         <strong>{{ requierePrecioInstalado(precio) ? 'Por definir' : money(precioSugeridoCatalogo(precio)) }}</strong>
         <small v-if="precio.categoria === 'Pantallas' && minimoCambioPantalla(precio.costo_base)">Mínimo {{ money(minimoCambioPantalla(precio.costo_base)) }}</small>
       </div>
-      <button type="button" class="ts-action-secondary" @click="usarPrecioCatalogo(precio)">Aplicar a cotización</button>
+      <div class="quote-catalog-actions">
+        <button type="button" class="ts-action-secondary" @click="usarPrecioCatalogo(precio)">Usar sugerido</button>
+        <button v-if="precio.categoria === 'Pantallas' && Number(precio.costo_base) > 0 && Number(precio.costo_base) <= 400" type="button" class="ts-action-secondary" @click="usarPrecioCatalogo(precio, true)">Gama baja · {{ money(minimoCambioPantalla(precio.costo_base)) }}</button>
+      </div>
     </li>
   </ul>
 </article>
