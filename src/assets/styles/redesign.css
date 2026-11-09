@@ -313,3 +313,4 @@
 .quote-home-service label {display:flex;align-items:center;gap:.55rem;min-height:44px}
 .quote-home-service label strong {margin-inline-start:auto}
 .quote-home-service small {display:block;color:var(--ts-muted)}
+.quote-workspace .quote-minimum-button {margin-top:.45rem;min-height:36px;padding:.35rem .55rem;white-space:normal}

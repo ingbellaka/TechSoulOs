@@ -72,6 +72,24 @@ export function saveCosts(rows) { return save(KEYS.costs, rows) }
 export function getPricingSettings() { return { ...defaultPricingSettings, ...load(KEYS.settings, {}) } }
 export function savePricingSettings(value) { return save(KEYS.settings, value) }
 export function money(value) { return Number(value || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN', minimumFractionDigits: 0, maximumFractionDigits: 2 }) }
+
+export function minimoCambioPantalla(costoPieza) {
+  const costo = Number(costoPieza)
+  if (!Number.isFinite(costo) || costo <= 0) return 0
+  let minimo
+  if (costo <= 200) minimo = 750
+  else if (costo <= 250) minimo = 750 + (costo - 200)
+  else if (costo <= 400) minimo = 800 + (costo - 250) * 2
+  else if (costo < 800) minimo = 1100 + (costo - 400) * 1.25
+  else minimo = costo * 2
+  return Math.round(minimo * 100) / 100
+}
+
+export function sugerenciaCambioBateria(costoPieza) {
+  const costo = Number(costoPieza)
+  if (!Number.isFinite(costo) || costo <= 0) return 0
+  return Math.max(550, Math.ceil((costo + 380) / 50) * 50)
+}
 export function normalize(value) { return String(value || '').toLocaleLowerCase('es-MX').normalize('NFD').replace(/[\u0300-\u036f]/g, '') }
 export function roundTo(value, step = 50) { const safe = Math.max(1, Number(step || 50)); return Math.ceil(Number(value || 0) / safe) * safe }
 export function calculateQuote(input, settings = getPricingSettings()) {
