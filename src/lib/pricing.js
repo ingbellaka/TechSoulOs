@@ -48,6 +48,7 @@ const seedRates = [...screenRows, ...batteryRows].map((row, index) => ({
 }))
 
 export const defaultPricingSettings = {
+  tarifa_domicilio: 0,
   gastos: { renta: 3500, luz: 800, internet: 500, publicidad: 500, sueldos: 8000, otros: 2000 },
   costo_operativo_inicial: 180,
   margen_minimo: 30,
