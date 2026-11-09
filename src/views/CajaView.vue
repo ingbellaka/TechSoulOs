@@ -175,15 +175,16 @@ onMounted(cargarMovimientos)
   <div class="ts-module-page">
     <header class="ts-module-header">
       <div><span class="ts-eyebrow">Finanzas</span><h2>Caja</h2><p>Control centralizado de entradas, salidas y flujo de efectivo.</p></div>
-      <button class="ts-action-primary" type="button" @click="mostrarFormulario ? cancelarFormulario() : abrirNuevoMovimiento()"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>{{ mostrarFormulario ? 'Cerrar movimiento' : 'Nuevo movimiento' }}</button>
+
     </header>
     <nav class="module-tabs" aria-label="Caja">
-      <router-link to="/caja">Caja</router-link>
+            <button class="ts-action-primary" type="button" @click="mostrarFormulario ? cancelarFormulario() : abrirNuevoMovimiento()"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>{{ mostrarFormulario ? 'Cerrar movimiento' : 'Nuevo movimiento' }}</button>
+      <a href="#movimientos-caja">Movimientos</a>
       <router-link to="/ventas">Ventas</router-link>
       <router-link to="/corte-caja">Corte de caja</router-link>
     </nav>
 
-    <section class="ts-metric-strip ts-metric-strip-four">
+    <section class="ts-metric-strip ts-metric-strip-four cash-summary">
       <article class="ts-mini-metric ts-metric-positive"><span>Ingresos</span><strong>{{ moneda(ingresos) }}</strong><small>Entradas acumuladas</small></article>
       <article class="ts-mini-metric ts-metric-negative"><span>Salidas</span><strong>{{ moneda(salidas) }}</strong><small>Egresos acumulados</small></article>
       <article class="ts-mini-metric"><span>Saldo estimado</span><strong>{{ moneda(caja) }}</strong><small>Ingresos menos salidas</small></article>
@@ -205,7 +206,7 @@ onMounted(cargarMovimientos)
       </div>
     </section>
 
-    <section class="ts-panel">
+    <section id="movimientos-caja" class="ts-panel"><h3>Últimos movimientos</h3>
       <div class="ts-orders-toolbar">
         <div class="ts-search-control ts-search-grow"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input v-model="busqueda" placeholder="Buscar por concepto, método o referencia"></div>
         <select v-model="tipoFiltro" class="ts-filter-select"><option>Todos</option><option>Entrada</option><option>Salida</option></select>

@@ -97,9 +97,9 @@ if (props.autoOpen && canCharge.value && (pending.value || (!closed.value && (ba
   <Teleport to="body">
     <div v-if="open" class="checkout-backdrop" @click.self="!busy && (open=false)">
       <section ref="dialog" tabindex="-1" class="checkout-dialog" role="dialog" aria-modal="true" aria-labelledby="checkout-title" @keydown.esc="!busy && (open=false)">
-        <header><div><small>{{ order.folio }} · {{ order.clientes?.nombre }}</small><h2 id="checkout-title">{{ saved ? 'Operación guardada' : 'Cobro y entrega' }}</h2></div><button type="button" aria-label="Cerrar" :disabled="busy" @click="open=false">×</button></header>
+        <header><div><small>{{ order.folio }} · {{ order.clientes?.nombre }}</small><h2 id="checkout-title">{{ saved ? 'Operación guardada' : order.estado === 'Listo' ? 'Cobrar y entregar' : 'Registrar pago' }}</h2></div><button type="button" aria-label="Cerrar" :disabled="busy" @click="open=false">×</button></header>
         <p>{{ order.equipos?.marca }} {{ order.equipos?.modelo }}</p>
-        <dl><div><dt>Total</dt><dd>{{ monedaMX(order.costo_total) }}</dd></div><div><dt>Pagado</dt><dd>{{ monedaMX(order.anticipo) }}</dd></div><div><dt>Saldo</dt><dd>{{ monedaMX(balance) }}</dd></div></dl>
+        <dl><div><dt>Total</dt><dd>{{ monedaMX(order.costo_total) }}</dd></div><div><dt>Pagado</dt><dd>{{ monedaMX(order.anticipo) }}</dd></div><div class="checkout-balance"><dt>Saldo</dt><dd>{{ monedaMX(balance) }}</dd></div></dl>
         <template v-if="!saved">
           <fieldset :disabled="busy || !!frozen">
             <legend>Pago recibido</legend>
@@ -113,7 +113,7 @@ if (props.autoOpen && canCharge.value && (pending.value || (!closed.value && (ba
             <label v-if="order.estado === 'Listo'" class="checkout-deliver"><input v-model="deliver" type="checkbox"> Confirmar entrega del equipo</label>
             <p v-else>La entrega estará disponible al terminar las pruebas y marcar el equipo como Listo.</p>
           </fieldset>
-          <p aria-live="polite">Saldo después del pago: <strong>{{ monedaMX(remaining) }}</strong></p>
+          <p class="checkout-payment-status" :class="{ covered: remaining === 0 }" aria-live="polite">Saldo después del pago: <strong>{{ monedaMX(remaining) }}</strong></p>
         </template>
         <p v-else role="status">{{ saved.estado === 'Entregado' ? 'Entrega confirmada.' : 'Pago registrado.' }} Puedes imprimir o reimprimir el ticket sin registrar otro cobro.</p>
         <p v-if="error" role="alert" class="checkout-error">{{ error }}</p>

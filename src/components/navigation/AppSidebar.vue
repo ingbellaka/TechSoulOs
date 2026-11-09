@@ -24,13 +24,18 @@ const visibleGroups = computed(() => [{
     { label: 'Inicio', to: '/', icon: 'home' },
     { label: 'Órdenes', to: '/ordenes', icon: 'clipboard' },
     { label: 'Caja', to: '/caja', icon: 'wallet', roles: ['admin', 'recepcion'] },
+    { label: 'Inventario y compras', to: '/inventario', icon: 'box' },
+    { label: 'Clientes y agenda', to: '/clientes', icon: 'users' },
     { label: 'Más', to: '/mas', icon: 'box' },
   ].filter(item => !item.roles || auth.can(item.roles)),
 }])
 
 function isActive(to) {
   if (to === '/') return route.path === '/'
-  return route.path.startsWith(to)
+  if (to === '/caja') return ['/caja', '/ventas', '/corte-caja'].includes(route.path)
+  if (to === '/inventario') return route.path === to || route.path.startsWith('/compras')
+  if (to === '/clientes') return ['/clientes', '/agenda', '/garantias'].includes(route.path)
+  return route.path === to || route.path.startsWith(to + '/')
 }
 
 async function logout() {

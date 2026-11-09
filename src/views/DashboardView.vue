@@ -9,7 +9,6 @@ const ordenes = ref([])
 const citas = ref([])
 const movimientos = ref([])
 
-const firstName = computed(() => (auth.perfil?.nombre || 'Yuliana').trim().split(/\s+/)[0])
 
 function moneda(valor) {
   return Number(valor || 0).toLocaleString('es-MX', {
@@ -64,12 +63,6 @@ function prioridadEfectiva(orden) {
   return produccionDe(orden)?.prioridad || 'normal'
 }
 
-function prioridadLabel(orden) {
-  const p = prioridadEfectiva(orden)
-  if (p === 'urgente') return 'Urgente'
-  if (p === 'alta') return 'Prioridad alta'
-  return orden.estado || 'Pendiente'
-}
 
 function equipoNombre(orden) {
   return [orden.equipos?.marca, orden.equipos?.modelo]
@@ -96,14 +89,6 @@ function horaCorta(valor) {
   })
 }
 
-function fechaEntrega(orden) {
-  if (!orden.fecha_programada) return 'Sin fecha'
-  if (mismoDia(orden.fecha_programada)) return `Hoy, ${horaCorta(orden.fecha_programada)}`
-  if (mismoDia(orden.fecha_programada, mananaISO())) return `Mañana, ${horaCorta(orden.fecha_programada)}`
-  return new Date(orden.fecha_programada).toLocaleDateString('es-MX', {
-    day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit'
-  })
-}
 
 function normalizarMetodo(valor) {
   const v = String(valor || '').toLowerCase()
@@ -213,8 +198,8 @@ onMounted(async () => {
   <section class="op-dashboard" :class="{ 'is-loading': loading }">
     <header class="dashboard-header">
       <div>
-        <h2>Hola, {{ firstName }} <span aria-hidden="true">👋</span></h2>
-        <p>Aquí está el estado actual de tu taller.</p>
+        <h2>Inicio</h2>
+        <p>Gestiona las reparaciones de tu taller.</p>
       </div>
     </header>
     <nav class="home-actions" aria-label="Acciones del taller">
@@ -224,41 +209,13 @@ onMounted(async () => {
     </nav>
 
 
-    <section class="dashboard-followup" aria-label="Pendientes por resolver">
-      <router-link v-for="state in ['Esperando autorización','Esperando pieza','En pruebas','Listo']" :key="state" :to="`/taller?estado=${encodeURIComponent(state)}`">
-        <strong>{{ ordenes.filter(o=>o.estado===state).length }}</strong><span>{{ state === 'Listo' ? 'Cobrar y entregar' : state }}</span>
-      </router-link>
-    </section>
-    <section class="kpi-grid">
-      <article class="kpi-card neutral">
-        <span class="kpi-icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></span>
-        <div><span>Pendientes</span><strong>{{ pendientes }}</strong></div>
-      </article>
-      <article class="kpi-card danger">
-        <span class="kpi-icon"><svg viewBox="0 0 24 24"><path d="M12 3 2.7 19h18.6z"/><path d="M12 9v4m0 3h.01"/></svg></span>
-        <div><span>Urgentes</span><strong>{{ urgentes }}</strong></div>
-      </article>
-      <article class="kpi-card info">
-        <span class="kpi-icon"><svg viewBox="0 0 24 24"><path d="m14.7 6.3 3-3a4.2 4.2 0 0 1-5.4 5.4l-6.6 6.6a2.1 2.1 0 1 0 3 3l6.6-6.6a4.2 4.2 0 0 1 5.4-5.4l-3 3z"/></svg></span>
-        <div><span>En proceso</span><strong>{{ enProceso }}</strong></div>
-      </article>
-      <article class="kpi-card success">
-        <span class="kpi-icon"><svg viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></svg></span>
-        <div><span>Listos</span><strong>{{ listas }}</strong></div>
-      </article>
-      <article class="kpi-card violet">
-        <span class="kpi-icon"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 10h18"/></svg></span>
-        <div><span>Citas hoy</span><strong>{{ agendaHoy.length }}</strong></div>
-      </article>
-    </section>
-
     <section class="main-grid">
       <article class="panel priority-panel">
         <header class="panel-title">
           <div class="title-with-icon danger-title">
             <svg viewBox="0 0 24 24"><path d="M12 3 2.7 19h18.6z"/><path d="M12 9v4m0 3h.01"/></svg>
             <h3>Necesitan atención</h3>
-            <span class="count-bubble danger-bubble">{{ urgentes }}</span>
+            <span class="count-bubble danger-bubble">{{ ordenesPrioritarias.length }}</span>
           </div>
           <router-link to="/taller">Ver todas →</router-link>
         </header>
@@ -266,19 +223,17 @@ onMounted(async () => {
         <div v-if="!ordenesPrioritarias.length" class="empty-state">No hay órdenes activas pendientes.</div>
         <div v-else class="priority-list">
           <router-link v-for="orden in ordenesPrioritarias" :key="orden.id" :to="`/ordenes/${orden.id}`" class="priority-row" :class="`priority-${prioridadEfectiva(orden)}`">
+            <span class="priority-equipment-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="6" y="2" width="12" height="20" rx="3"/><path d="M10 18h4"/></svg></span>
             <div class="priority-device">
-              <span>{{ orden.folio || `TS-${orden.id}` }}</span>
+              <div class="priority-identity"><strong>{{ orden.folio || 'Orden' }}</strong><span class="priority-pill" :class="orden.estado === 'Listo' ? 'is-ready' : 'is-pending'">{{ orden.estado }}</span></div>
               <strong>{{ equipoNombre(orden) }}</strong>
+              <small>{{ orden.clientes?.nombre || 'Cliente' }} · {{ orden.falla_reportada || 'Sin detalle' }}</small>
             </div>
-            <div class="priority-client">
-              <strong>{{ orden.clientes?.nombre || 'Cliente' }}</strong>
-              <small>{{ orden.falla_reportada || orden.trabajo_realizado || 'Sin detalle' }}</small>
+            <div class="priority-next">
+              <small>Siguiente acción</small>
+              <strong>{{ siguienteAccion[orden.estado] || 'Revisar orden' }}</strong>
+              <span class="priority-open">Abrir orden →</span>
             </div>
-            <span class="priority-pill" :class="prioridadEfectiva(orden)">{{ prioridadLabel(orden) }}</span>
-            <div class="priority-date">
-              <strong>{{ siguienteAccion[orden.estado] || 'Abrir orden' }}</strong>
-            </div>
-            <svg class="chevron" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></svg>
           </router-link>
         </div>
       </article>
@@ -329,6 +284,36 @@ onMounted(async () => {
       </div>
     </article>
 
+    <details class="dashboard-stats"><summary>Ver indicadores del taller</summary>
+    <section class="dashboard-followup" aria-label="Pendientes por resolver">
+      <router-link v-for="state in ['Esperando autorización','Esperando pieza','En pruebas','Listo']" :key="state" :to="`/taller?estado=${encodeURIComponent(state)}`">
+        <strong>{{ ordenes.filter(o=>o.estado===state).length }}</strong><span>{{ state === 'Listo' ? 'Cobrar y entregar' : state }}</span>
+      </router-link>
+    </section>
+    <section class="kpi-grid">
+      <article class="kpi-card neutral">
+        <span class="kpi-icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></span>
+        <div><span>Pendientes</span><strong>{{ pendientes }}</strong></div>
+      </article>
+      <article class="kpi-card danger">
+        <span class="kpi-icon"><svg viewBox="0 0 24 24"><path d="M12 3 2.7 19h18.6z"/><path d="M12 9v4m0 3h.01"/></svg></span>
+        <div><span>Urgentes</span><strong>{{ urgentes }}</strong></div>
+      </article>
+      <article class="kpi-card info">
+        <span class="kpi-icon"><svg viewBox="0 0 24 24"><path d="m14.7 6.3 3-3a4.2 4.2 0 0 1-5.4 5.4l-6.6 6.6a2.1 2.1 0 1 0 3 3l6.6-6.6a4.2 4.2 0 0 1 5.4-5.4l-3 3z"/></svg></span>
+        <div><span>En proceso</span><strong>{{ enProceso }}</strong></div>
+      </article>
+      <article class="kpi-card success">
+        <span class="kpi-icon"><svg viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></svg></span>
+        <div><span>Listos</span><strong>{{ listas }}</strong></div>
+      </article>
+      <article class="kpi-card violet">
+        <span class="kpi-icon"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 10h18"/></svg></span>
+        <div><span>Citas hoy</span><strong>{{ agendaHoy.length }}</strong></div>
+      </article>
+    </section>
+
+    </details>
     <section class="finance-grid">
       <article class="panel sales-panel">
         <header class="panel-title compact">

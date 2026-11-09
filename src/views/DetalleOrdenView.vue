@@ -59,7 +59,7 @@ function onLoadFirmaGarantia() {
   errorImagenFirma.value = false
 }
 const historial = ref([])
-const seccionActiva = ref('seguimiento')
+const seccionActiva = ref('resumen')
 const negocio = ref({ nombre_negocio: 'TechSoul', cuota_almacenamiento_dia: 50, dias_gracia_almacenamiento: 30 })
 
 const canvasFirma = ref(null)
@@ -758,6 +758,20 @@ onMounted(cargarDetalle)
       </main>
 
       <aside class="ts-order-detail-sidebar">
+        <article class="ts-detail-card">
+          <div class="order-card-heading"><h2>Fotos y pruebas</h2><button class="ts-action-secondary" type="button" @click="seccionActiva = 'evidencias'">Ver fotos ({{ evidencias.length }})</button></div>
+          <div v-if="evidencias.length" class="order-photo-strip">
+            <img v-for="foto in evidencias.slice(0, 3)" :key="foto.id" :src="foto.url_imagen" :alt="foto.descripcion || 'Evidencia'">
+          </div>
+          <p v-else>Aún no hay fotos.</p>
+        </article>
+        <article class="ts-detail-card">
+          <div class="order-card-heading"><h2>Actividad</h2><button class="ts-action-secondary" type="button" @click="seccionActiva = 'historial'">Ver historial</button></div>
+          <ul v-if="historial.length" class="order-recent-activity">
+            <li v-for="evento in historial.slice(0, 2)" :key="evento.id"><strong>{{ evento.titulo || 'Actualización' }}</strong><small>{{ fecha(evento.created_at) }}</small></li>
+          </ul>
+          <p v-else>Aún no hay actividad registrada.</p>
+        </article>
         <article class="ts-detail-card ts-client-mini-card">
           <span class="ts-detail-label">Cliente</span>
           <div class="ts-client-mini-head"><div class="ts-client-avatar">{{ (orden.clientes?.nombre || 'C').charAt(0).toUpperCase() }}</div><div><h3>{{ orden.clientes?.nombre }}</h3><p>{{ orden.clientes?.telefono || 'Sin teléfono' }}</p></div></div>

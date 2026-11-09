@@ -6,9 +6,14 @@ import { moduleGroups } from '../router/navigation'
 
 const router = useRouter()
 const auth = useAuthStore()
-const groups = computed(() => moduleGroups.map(group => ({
+const directory = [
+  { label: 'Operación', sections: ['Operación', 'Gestión', 'Herramientas'] },
+  { label: 'Negocio', sections: ['Ventas y caja', 'Inventario', 'Finanzas'] },
+  { label: 'Administración', sections: ['Sistema'] },
+]
+const groups = computed(() => directory.map(group => ({
   ...group,
-  items: group.items.filter(item => {
+  items: moduleGroups.filter(section => group.sections.includes(section.label)).flatMap(section => section.items).filter(item => {
     if (['/', '/ordenes', '/caja'].includes(item.to)) return false
     const roles = router.resolve(item.to).meta.roles
     return !roles || auth.can(roles)

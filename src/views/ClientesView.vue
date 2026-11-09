@@ -7,6 +7,21 @@ const cargando = ref(false)
 const cargandoLista = ref(true)
 const mostrarFormulario = ref(false)
 const busqueda = ref('')
+const clienteSeleccionado = ref(null)
+const historialCliente = ref([])
+const estadoHistorial = ref('')
+
+async function seleccionarCliente(cliente) {
+  clienteSeleccionado.value = cliente.id
+  historialCliente.value = []
+  estadoHistorial.value = 'Cargando historial…'
+  const { data, error } = await supabase.from('ordenes')
+    .select('id,folio,estado,fecha_ingreso,equipos(marca,modelo)')
+    .eq('cliente_id', cliente.id).order('id', { ascending: false }).limit(10)
+  if (clienteSeleccionado.value !== cliente.id) return
+  historialCliente.value = data || []
+  estadoHistorial.value = error ? 'No se pudo cargar el historial.' : ''
+}
 const form = ref({
   nombre: '',
   telefono: '',
@@ -65,6 +80,7 @@ async function cargarClientes() {
   }
 
   clientes.value = data || []
+  if (clientes.value.length && !clienteSeleccionado.value) void seleccionarCliente(clientes.value[0])
 }
 
 async function guardarCliente() {
@@ -196,8 +212,13 @@ onMounted(cargarClientes)
         <p>Estamos preparando tu directorio.</p>
       </div>
 
-      <div v-else-if="filtrados.length" class="ts-customer-grid">
-        <article v-for="cliente in filtrados" :key="cliente.id" class="ts-customer-card">
+      <div v-else-if="filtrados.length" class="customer-directory">
+        <nav class="customer-directory-list" aria-label="Directorio de clientes">
+          <button v-for="cliente in filtrados" :key="cliente.id" type="button" :aria-pressed="cliente.id === clienteSeleccionado" @click="seleccionarCliente(cliente)">
+            <strong>{{ cliente.nombre }}</strong><small>{{ cliente.telefono || 'Sin teléfono' }}</small>
+          </button>
+        </nav>
+        <article v-for="cliente in filtrados.filter(c => c.id === clienteSeleccionado)" :key="cliente.id" class="ts-customer-card">
           <div class="ts-customer-main">
             <div class="ts-customer-avatar">{{ iniciales(cliente.nombre) }}</div>
             <div class="ts-customer-copy">
@@ -224,6 +245,16 @@ onMounted(cargarClientes)
 
           <p v-if="cliente.notas" class="ts-customer-note">{{ cliente.notas }}</p>
 
+          <section class="customer-service-history">
+            <h3>Historial de servicios</h3>
+            <p v-if="estadoHistorial" role="status">{{ estadoHistorial }}</p>
+            <p v-else-if="!historialCliente.length">Aún no hay órdenes para este cliente.</p>
+            <router-link v-for="orden in historialCliente" :key="orden.id" :to="'/ordenes/' + orden.id">
+              <strong>{{ orden.folio || 'Orden' }}</strong>
+              <span>{{ [orden.equipos?.marca, orden.equipos?.modelo].filter(Boolean).join(' ') || 'Equipo' }}</span>
+              <small>{{ orden.estado }}</small>
+            </router-link>
+          </section>
           <footer class="ts-card-actions">
             <a
               class="ts-icon-action"
