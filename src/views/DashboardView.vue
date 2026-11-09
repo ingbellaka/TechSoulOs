@@ -195,7 +195,7 @@ onMounted(async () => {
 </script>
 
 <template>
-  <section class="op-dashboard" :class="{ 'is-loading': loading }">
+  <section class="op-dashboard reference-home" :class="{ 'is-loading': loading }">
     <header class="dashboard-header">
       <div>
         <h2>Inicio</h2>
@@ -203,9 +203,9 @@ onMounted(async () => {
       </div>
     </header>
     <nav class="home-actions" aria-label="Acciones del taller">
-      <router-link class="home-action home-action-primary" to="/nueva-orden"><span aria-hidden="true">＋</span><strong>Recibir equipo</strong><small>Registra una nueva orden</small></router-link>
-      <router-link class="home-action" to="/cotizador"><span aria-hidden="true">◇</span><strong>Cotizar</strong><small>Calcula el precio de una reparación</small></router-link>
-      <router-link class="home-action" to="/ordenes"><span aria-hidden="true">⌕</span><strong>Buscar orden</strong><small>Por folio, cliente o equipo</small></router-link>
+      <router-link class="home-action home-action-primary" to="/nueva-orden"><svg class="home-action-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 8v8m-4-4h8"/></svg><strong>Recibir equipo</strong><small>Registra una nueva orden</small></router-link>
+      <router-link class="home-action" to="/cotizador"><svg class="home-action-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9zM14 3v6h6M8 13h8m-8 4h6"/></svg><strong>Cotizar</strong><small>Calcula el precio de una reparación</small></router-link>
+      <router-link class="home-action" to="/ordenes"><svg class="home-action-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/></svg><strong>Buscar orden</strong><small>Por folio, cliente o equipo</small></router-link>
     </nav>
 
 
@@ -238,6 +238,31 @@ onMounted(async () => {
         </div>
       </article>
 
+
+    </section>
+
+    <article v-if="listosEntrega.length" class="panel ready-panel">
+      <header class="panel-title compact">
+        <div class="title-with-icon success-title"><svg viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></svg><h3>Listos para cobrar y entregar</h3><span class="count-bubble success-bubble">{{ listas }}</span></div>
+        <router-link to="/taller?estado=Listo">Ver todos →</router-link>
+      </header>
+      <div v-if="!listosEntrega.length" class="ready-empty">
+        <svg viewBox="0 0 24 24"><path d="m21 8-9 5-9-5 9-5zM3 8v8l9 5 9-5V8M12 13v8"/></svg>
+        <strong>No hay equipos listos pendientes de entrega.</strong>
+        <span>Cuando un equipo esté listo, aparecerá aquí.</span>
+      </div>
+      <div v-else class="ready-list">
+        <router-link v-for="orden in listosEntrega" :key="orden.id" :to="`/ordenes/${orden.id}?entregar=1`" class="ready-row">
+          <span>{{ orden.folio }}</span>
+          <strong>{{ equipoNombre(orden) }}</strong>
+          <span>{{ orden.clientes?.nombre || 'Cliente' }}</span>
+          <span class="ready-status">{{ moneda(Math.max(0,Number(orden.costo_total||0)-Number(orden.anticipo||0))) }} · Cobrar y entregar</span>
+          <svg class="chevron" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></svg>
+        </router-link>
+      </div>
+    </article>
+
+    <details class="dashboard-stats"><summary>Agenda e indicadores del taller</summary>
       <article class="panel agenda-panel">
         <header class="panel-title">
           <div class="title-with-icon">
@@ -261,30 +286,6 @@ onMounted(async () => {
           </div>
         </div>
       </article>
-    </section>
-
-    <article class="panel ready-panel">
-      <header class="panel-title compact">
-        <div class="title-with-icon success-title"><svg viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></svg><h3>Listos para cobrar y entregar</h3><span class="count-bubble success-bubble">{{ listas }}</span></div>
-        <router-link to="/taller?estado=Listo">Ver todos →</router-link>
-      </header>
-      <div v-if="!listosEntrega.length" class="ready-empty">
-        <svg viewBox="0 0 24 24"><path d="m21 8-9 5-9-5 9-5zM3 8v8l9 5 9-5V8M12 13v8"/></svg>
-        <strong>No hay equipos listos pendientes de entrega.</strong>
-        <span>Cuando un equipo esté listo, aparecerá aquí.</span>
-      </div>
-      <div v-else class="ready-list">
-        <router-link v-for="orden in listosEntrega" :key="orden.id" :to="`/ordenes/${orden.id}?entregar=1`" class="ready-row">
-          <span>{{ orden.folio }}</span>
-          <strong>{{ equipoNombre(orden) }}</strong>
-          <span>{{ orden.clientes?.nombre || 'Cliente' }}</span>
-          <span class="ready-status">{{ moneda(Math.max(0,Number(orden.costo_total||0)-Number(orden.anticipo||0))) }} · Cobrar y entregar</span>
-          <svg class="chevron" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></svg>
-        </router-link>
-      </div>
-    </article>
-
-    <details class="dashboard-stats"><summary>Ver indicadores del taller</summary>
     <section class="dashboard-followup" aria-label="Pendientes por resolver">
       <router-link v-for="state in ['Esperando autorización','Esperando pieza','En pruebas','Listo']" :key="state" :to="`/taller?estado=${encodeURIComponent(state)}`">
         <strong>{{ ordenes.filter(o=>o.estado===state).length }}</strong><span>{{ state === 'Listo' ? 'Cobrar y entregar' : state }}</span>

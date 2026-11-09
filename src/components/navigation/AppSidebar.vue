@@ -52,12 +52,7 @@ async function logout() {
   <aside class="app-sidebar" :class="{ open, collapsed }" aria-label="Navegación principal">
     <div class="sidebar-brand techsoul-brand">
       <router-link to="/" class="brand-link techsoul-brand-link" aria-label="Ir al inicio de TechSoul" @click="emit('close')">
-        <img
-          v-if="!collapsed"
-          class="techsoul-brand-logo"
-          src="/brand/techsoul-logo-white.png"
-          alt="TechSoul Servicio Técnico Especializado"
-        >
+        <span v-if="!collapsed" class="reference-brand"><span class="brand-mark" aria-hidden="true">TS</span><strong>TechSoul OS</strong></span>
         <span v-else class="techsoul-brand-symbol-wrap" aria-hidden="true">
           <img class="techsoul-brand-symbol" src="/brand/techsoul-symbol-white.png" alt="">
         </span>

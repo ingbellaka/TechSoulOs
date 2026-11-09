@@ -658,8 +658,8 @@ onMounted(cargarDetalle)
         <router-link to="/ordenes" class="ts-back-link">← Volver a órdenes</router-link>
         <div class="ts-order-detail-title-row">
           <div>
-            <span class="ts-order-eyebrow">Orden {{ orden.folio }}</span>
-            <h1>{{ orden.equipos?.marca }} {{ orden.equipos?.modelo }}</h1>
+            <span class="ts-order-eyebrow">Ficha de servicio</span>
+            <h1>Orden {{ orden.folio }}</h1><strong>{{ orden.equipos?.marca }} {{ orden.equipos?.modelo }}</strong>
             <p>{{ orden.clientes?.nombre }} · Ingresó {{ fecha(orden.fecha_ingreso) }}</p>
           </div>
           <span class="ts-order-state-badge" :class="estadoOrdenClase()">{{ orden.estado }}</span>
@@ -680,7 +680,7 @@ onMounted(cargarDetalle)
     <ol v-if="etapaOrden >= 0" class="order-steps no-print" aria-label="Avance de la orden">
       <li v-for="(etapa, i) in ['Recepción','Diagnóstico','Taller','Entrega']" :key="etapa" :class="{ done: i < etapaOrden }" :aria-current="i === etapaOrden ? 'step' : undefined">{{ etapa }}</li>
     </ol>
-    <dl class="order-checkout-summary no-print"><div><dt>Total</dt><dd>{{moneda(orden.costo_total)}}</dd></div><div><dt>Pagado</dt><dd>{{moneda(orden.anticipo)}}</dd></div><div><dt>Saldo</dt><dd>{{moneda(saldoOrden)}}</dd></div></dl>
+
 
     <section v-if="equiposRelacionados.length" class="ts-detail-card no-print" style="margin:12px 0">
       <strong>Otros equipos de esta recepción</strong>
@@ -705,6 +705,7 @@ onMounted(cargarDetalle)
     <section v-if="seccionActiva === 'seguimiento'" class="no-print"><TallerView :key="tallerVersion" :order-id="orden.id" embedded @updated="cargarDetalle" /></section>
     <section v-if="seccionActiva === 'resumen'" class="ts-order-detail-layout">
       <main class="ts-order-detail-main">
+        <article class="ts-detail-card reference-order-summary"><h2>Detalles de la orden</h2><dl class="reference-order-facts"><div><dt>Folio</dt><dd>{{ orden.folio }}</dd></div><div><dt>Estado</dt><dd>{{ orden.estado }}</dd></div><div><dt>Equipo</dt><dd>{{ orden.equipos?.marca }} {{ orden.equipos?.modelo }}</dd></div><div><dt>Cliente</dt><dd>{{ orden.clientes?.nombre }}</dd></div><div><dt>Recepción</dt><dd>{{ fecha(orden.fecha_ingreso) }}</dd></div></dl><dl class="order-checkout-summary no-print"><div><dt>Total</dt><dd>{{moneda(orden.costo_total)}}</dd></div><div><dt>Pagado</dt><dd>{{moneda(orden.anticipo)}}</dd></div><div><dt>Saldo</dt><dd>{{moneda(saldoOrden)}}</dd></div></dl></article>
         <article class="ts-detail-card ts-order-hero-card">
           <div class="ts-order-device-icon">{{ orden.equipos?.tipo_equipo === 'Tablet' ? '▰' : '▯' }}</div>
           <div>

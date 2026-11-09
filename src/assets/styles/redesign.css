@@ -190,3 +190,73 @@
   .checkout-backdrop {align-items:end;padding:0}
   .checkout-dialog {width:100%;max-height:94dvh;border-radius:16px 16px 0 0;padding-bottom:calc(1rem + env(safe-area-inset-bottom))}
 }
+
+/* Composición de las pantallas de referencia. */
+:root {
+  --ts-sidebar-width: 232px;
+  --ts-sidebar: #101d38;
+}
+.reference-brand {display:flex;align-items:center;gap:.65rem;color:#fff;font-size:1.08rem;white-space:nowrap}
+.brand-mark {display:grid;place-items:center;width:34px;height:34px;border-radius:10px;background:#0755eb;color:#fff;font-size:.8rem}
+.app-sidebar .sidebar-link.active {background:#074de0;box-shadow:none}
+.reference-home {max-width:1120px;gap:24px}
+.reference-home .dashboard-header h2 {font-size:clamp(1.85rem,4vw,2.55rem)}
+.reference-home .home-actions {grid-template-columns:repeat(3,minmax(0,1fr))}
+.reference-home .home-action {
+  min-height:136px;justify-items:center;gap:.4rem;border-radius:12px;
+  box-shadow:var(--ts-shadow-sm);padding:1rem .7rem;
+}
+.home-action-icon {width:32px;height:32px;fill:none;stroke:currentColor;stroke-width:1.65;margin-bottom:.3rem}
+.reference-home .main-grid {display:block}
+.reference-home .priority-panel {padding:0;background:none;border:0;box-shadow:none}
+.reference-home .priority-panel .panel-title {margin-bottom:14px}
+.reference-home .priority-panel .title-with-icon>svg,.reference-home .priority-panel .count-bubble {display:none}
+.reference-home .priority-panel h3 {font-size:clamp(1.25rem,3vw,1.6rem)}
+.reference-home .priority-row {grid-template-columns:64px minmax(0,1fr) minmax(0,15rem);padding:12px;border-radius:12px}
+.reference-home .priority-equipment-icon {width:64px;height:72px}
+.reference-home .priority-next {gap:.25rem}
+.reference-home .priority-open {display:block}
+.reference-home .dashboard-stats .agenda-panel {margin-top:1rem;min-height:0}
+.reference-order-summary h2 {font-size:1.1rem;margin-bottom:.8rem}
+.reference-order-facts {margin:0}
+.reference-order-facts div,.reference-order-summary .order-checkout-summary div {display:flex;justify-content:space-between;gap:1rem;padding:.5rem 0;border-bottom:1px solid var(--ts-border)}
+.reference-order-facts dd,.reference-order-summary .order-checkout-summary dd {margin:0;text-align:right;overflow-wrap:anywhere}
+.reference-order-facts dt,.reference-order-summary .order-checkout-summary dt {font-weight:500}
+.reference-order-summary .order-checkout-summary {display:block;padding:0;border:0;margin:.6rem 0 0}
+.reference-order-summary .order-checkout-summary div:last-child {background:var(--ts-primary-soft);border:0;border-radius:8px;padding:.65rem}
+@media(min-width:1100px) {
+  .app-shell:has(.reference-home) .app-topbar .page-heading,
+  .app-shell:has(.reference-home) .app-topbar .global-search,
+  .app-shell:has(.reference-home) .app-topbar .topbar-actions>a {display:none}
+  .app-shell:has(.reference-home) .app-topbar {min-height:58px}
+}
+@media(max-width:560px) {
+  .reference-home {gap:16px}
+  .reference-home .home-actions {grid-template-columns:repeat(2,minmax(0,1fr))}
+  .reference-home .home-action {min-height:104px}
+  .reference-home .home-action-primary {grid-column:1/-1}
+  .reference-home .priority-row {grid-template-columns:42px minmax(0,1fr)}
+  .reference-home .priority-equipment-icon {width:42px;height:52px}
+  .reference-home .priority-next {grid-column:2}
+}
+
+.reference-cash-table {border:1px solid var(--ts-border);border-radius:12px;overflow:hidden}
+.reference-cash-table table {width:100%;border-collapse:collapse;font-size:.88rem}
+.reference-cash-table th {background:var(--ts-surface-2);text-align:left}
+.reference-cash-table th,.reference-cash-table td {padding:.65rem .7rem;vertical-align:middle;overflow-wrap:anywhere}
+.reference-cash-table td {border-top:1px solid var(--ts-border)}
+.reference-cash-table td small {display:block;color:var(--ts-muted)}
+.reference-cash-table .cash-amount {font-weight:750;white-space:nowrap}
+.cash-type {display:inline-block;padding:.2rem .55rem;border-radius:99px;font-weight:650}
+.cash-type.entry {background:#cbf4e8;color:#065f52}
+.cash-type.exit {background:#fff0c6;color:#713e09}
+.reference-cash-table .ts-cash-actions {flex-wrap:wrap;margin:0}
+@media(max-width:850px) {
+  .reference-cash-table {border:0}
+  .reference-cash-table table,.reference-cash-table tbody {display:block}
+  .reference-cash-table thead {position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
+  .reference-cash-table tr {display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:.35rem .75rem;padding:.65rem;border:1px solid var(--ts-border);border-radius:10px;margin-bottom:.55rem}
+  .reference-cash-table td {border:0;padding:.25rem 0}
+  .reference-cash-table td::before {content:attr(data-label);display:block;color:var(--ts-muted);font-size:.75rem}
+  .reference-cash-table .cash-row-actions {grid-column:1/-1}
+}

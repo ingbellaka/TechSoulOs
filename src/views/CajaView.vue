@@ -214,21 +214,27 @@ onMounted(cargarMovimientos)
 
       <div v-if="cargando" class="ts-empty-state"><span class="ts-spinner"></span><p>Cargando movimientos…</p></div>
       <div v-else-if="!movimientosFiltrados.length" class="ts-empty-state"><span class="ts-empty-icon"><svg viewBox="0 0 24 24"><path d="M3 6h16a2 2 0 0 1 2 2v11H5a2 2 0 0 1-2-2zM3 6l14-3v3m1 6h3"/></svg></span><strong>No hay movimientos</strong><p>Registra una entrada o salida para comenzar.</p></div>
-      <div v-else class="ts-cash-list">
-        <article v-for="movimiento in movimientosFiltrados" :key="movimiento.id" class="ts-cash-row">
-          <span class="ts-cash-icon" :class="movimiento.tipo === 'Entrada' ? 'is-entry' : 'is-exit'"><svg v-if="movimiento.tipo === 'Entrada'" viewBox="0 0 24 24"><path d="M12 19V5m-6 6 6-6 6 6"/></svg><svg v-else viewBox="0 0 24 24"><path d="M12 5v14m6-6-6 6-6-6"/></svg></span>
-          <div class="ts-cash-main"><span>{{ movimiento.tipo }}</span><strong>{{ movimiento.concepto }}</strong><small>{{ fecha(movimiento.fecha_movimiento) }} · {{ movimiento.metodo_pago || 'Sin método' }}</small></div>
-          <span v-if="movimiento.referencia_tipo" class="ts-reference-pill">{{ movimiento.referencia_tipo }} #{{ movimiento.referencia_id }}</span>
-          <strong class="ts-cash-amount" :class="movimiento.tipo === 'Entrada' ? 'is-entry' : 'is-exit'">{{ movimiento.tipo === 'Entrada' ? '+' : '−' }}{{ moneda(movimiento.monto) }}</strong>
-
-          <div class="ts-cash-actions">
+      <div v-else class="reference-cash-table">
+        <table>
+          <thead><tr><th scope="col">Fecha</th><th scope="col">Concepto</th><th scope="col">Referencia</th><th scope="col">Tipo</th><th scope="col">Monto</th><th scope="col">Acciones</th></tr></thead>
+          <tbody>
+            <tr v-for="movimiento in movimientosFiltrados" :key="movimiento.id">
+              <td data-label="Fecha">{{ fecha(movimiento.fecha_movimiento) }}</td>
+              <td data-label="Concepto"><strong>{{ movimiento.concepto }}</strong><small>{{ movimiento.metodo_pago || 'Sin método' }}</small></td>
+              <td data-label="Referencia">{{ movimiento.referencia_tipo ? movimiento.referencia_tipo + ' #' + movimiento.referencia_id : '—' }}</td>
+              <td data-label="Tipo"><span class="cash-type" :class="movimiento.tipo === 'Entrada' ? 'entry' : 'exit'">{{ movimiento.tipo }}</span></td>
+              <td data-label="Monto" class="cash-amount">{{ movimiento.tipo === 'Entrada' ? '+' : '−' }}{{ moneda(movimiento.monto) }}</td>
+              <td class="cash-row-actions">          <div class="ts-cash-actions">
             <button v-if="puedeDocumento(movimiento)" class="ts-cash-action is-document" type="button" @click="abrirDocumentoMovimiento(movimiento)">
               {{ String(movimiento.referencia_tipo).toLowerCase() === 'orden' ? 'Recibo' : 'Ticket' }}
             </button>
             <button v-if="esAdministrador" class="ts-cash-action" type="button" title="Editar movimiento" @click="editarMovimiento(movimiento)">Editar</button>
             <button v-if="esAdministrador" class="ts-cash-action is-danger" type="button" title="Eliminar movimiento" :disabled="eliminandoId === movimiento.id" @click="eliminarMovimiento(movimiento)">{{ eliminandoId === movimiento.id ? 'Eliminando…' : 'Eliminar' }}</button>
           </div>
-        </article>
+</td>
+            </tr>
+          </tbody>
+        </table>
       </div>
     </section>
     <TicketPreviewModal :ticket="ticketActual" @close="ticketActual = null" />
