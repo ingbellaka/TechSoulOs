@@ -5,12 +5,15 @@ import { supabase } from '../lib/supabase'
 import { useAuthStore } from '../stores/auth'
 import { loadCalculator, saveCalculatorSettings, saveCalculatorQuote, addQuoteToOrder } from '../services/calculador.service'
 import { calculateQuote, getPricingSettings, savePricingSettings, getQuotes, saveQuotes, getRates, saveRates, money, minimoCambioPantalla, sugerenciaCambioBateria } from '../lib/pricing'
+import { findDeviceReferences } from '../lib/deviceReferences'
 const router=useRouter(), route=useRoute(), auth=useAuthStore(); const settings=ref(getPricingSettings()); const quotes=ref([]); const form=ref({marca:'Samsung',modelo:'',servicio:'Pantalla',calidad:'',costo_pieza:0,envio:0,riesgo:'medio',cliente:'',precio_final:0}); const showSettings=ref(false)
 const order=ref(null), busy=ref(false), error=ref(''), notice=ref(''), ready=ref(false)
 const legacyQuotes=ref(getQuotes())
 const canConfigure=computed(()=>auth.can(['admin','recepcion']))
 const listaAbierta = ref(false)
 const modeloBusqueda = ref('')
+const busquedaConsultada = ref('')
+const referenciasEquipo = computed(() => findDeviceReferences(busquedaConsultada.value))
 const buscadorPrecios = ref(null)
 const preciosCatalogo = ref([])
 const buscandoPrecios = ref(false)
@@ -35,7 +38,11 @@ async function buscarPrecios() {
   buscandoPrecios.value = true
   errorPrecios.value = ''
   try {
-    const busqueda = modeloBusqueda.value.trim()
+    busquedaConsultada.value = modeloBusqueda.value.trim()
+    const [equipo] = referenciasEquipo.value
+    const busqueda = referenciasEquipo.value.length === 1
+      ? `${equipo.brand} ${equipo.catalogModel}`
+      : busquedaConsultada.value
     const marcaEncontrada = busqueda.match(/^(Samsung|Motorola|Xiaomi|Huawei|Honor|Vivo|Oppo|Realme|ZTE|Infinix|Google|OnePlus|Apple|LG|TCL|Cubot)(?:\s+|$)/i)
     const modelo = marcaEncontrada ? busqueda.slice(marcaEncontrada[0].length).trim() : busqueda
     let consulta = supabase.from('catalogo_servicios')
@@ -171,6 +178,16 @@ function addRate(){ const rates=getRates(); rates.unshift({id:crypto.randomUUID(
     <label class="ts-field"><span>Modelo</span><input ref="buscadorPrecios" v-model="modeloBusqueda" type="search" placeholder="Ej. iPhone 13 o A55"></label>
     <button type="submit" class="ts-action-secondary" :disabled="buscandoPrecios">Buscar</button>
   </form>
+  <section v-if="busquedaConsultada" class="quote-device-reference" aria-label="Referencia del equipo completo">
+    <h4>Equipo completo</h4>
+    <div v-for="equipo in referenciasEquipo" :key="equipo.model">
+      <strong>{{ equipo.brand }} {{ equipo.model }} · Gama {{ equipo.tier.toLowerCase() }}</strong>
+      <span>{{ money(equipo.price) }} MXN · {{ equipo.detail }}</span>
+      <a :href="equipo.source" target="_blank" rel="noopener noreferrer">Ver fuente</a>
+    </div>
+    <small v-if="referenciasEquipo.length">Referencia de equipo nuevo en México. Gama orientativa para el taller.</small>
+    <small v-else>Sin referencia verificada para esta búsqueda. Escribe el modelo exacto, incluida la variante 4G o 5G cuando aplique.</small>
+  </section>
   <p v-if="buscandoPrecios" role="status">Buscando precios…</p>
   <p v-else-if="errorPrecios" role="alert">{{ errorPrecios }}</p>
   <p v-else-if="!preciosCatalogo.length">No hay precios para ese modelo en el catálogo.</p>
@@ -195,4 +212,11 @@ function addRate(){ const rates=getRates(); rates.unshift({id:crypto.randomUUID(
 <aside class="ts-quote-result"><div class="quote-total"><span>Precio al cliente</span><strong>{{ requierePrecioManual && !precioReparacion ? "Por definir" : money(finalPrice) }}</strong></div><dl class="quote-price-breakdown"><div><dt>Reparación</dt><dd>{{money(precioReparacion)}}</dd></div></dl><div class="quote-home-service"><label><input v-model="servicioADomicilio" type="checkbox" :disabled="!tarifaDomicilioGuardada"> Servicio a domicilio <strong v-if="tarifaDomicilioGuardada">+{{ money(tarifaDomicilioGuardada) }}</strong></label><small v-if="!tarifaDomicilioGuardada">Configura la tarifa fija para activar el servicio a domicilio.</small></div><div class="ts-result-grid"><div><span>Costo real</span><strong>{{money(result.realCost)}}</strong></div><div><span>{{ servicioADomicilio ? "Mínimo con domicilio" : "Mínimo en taller" }}</span><strong>{{ money(minimoConDomicilio) }}</strong><button v-if="minimoPantalla" class="ts-action-secondary quote-minimum-button" type="button" @click="form.precio_final = minimoPantalla">Usar mínimo</button></div><div><span>Utilidad de reparación</span><strong>{{money(precioReparacion-result.realCost)}}</strong></div><div><span>Margen de reparación</span><strong>{{finalMargin.toFixed(1)}}%</strong></div></div><button class="ts-white-button" :disabled="busy||!ready" @click="useInOrder">{{order ? "Agregar servicio a esta orden" : "Usar en nueva orden"}}</button><button class="ts-outline-light" :disabled="busy||!ready" @click="saveQuote">Guardar cotización</button><button class="ts-outline-light" :disabled="busy||!ready" @click="addRate">Agregar al tarifario</button><button class="ts-outline-light" :disabled="busy||!ready" @click="addInventoryPart">Guardar como refacción</button></aside></div>
 <article class="ts-panel"><div class="ts-panel-heading"><div><span class="ts-panel-kicker">Historial</span><h3>Cotizaciones recientes</h3></div></div><div class="ts-history-list"><div v-for="q in quotes.slice(0,12)" :key="q.id"><div><strong>{{q.marca}} {{q.modelo}}</strong><span>{{q.servicio}} · {{q.calidad||'General'}}</span></div><div><strong>{{money(q.precio_final)}}</strong><span>Margen {{Number(q.margen_final||0).toFixed(1)}}%</span></div></div><p v-if="!quotes.length" class="ts-empty-inline">Todavía no hay cotizaciones guardadas.</p></div></article></section></template>
 
-<style scoped>.calculator-error{color:#b42318}.ts-quote-result button:disabled{opacity:.5;cursor:wait}</style>
+<style scoped>
+.calculator-error{color:#b42318}
+.ts-quote-result button:disabled{opacity:.5;cursor:wait}
+.quote-device-reference{border:1px solid currentColor;border-radius:.75rem;padding:.75rem 1rem;margin-block:1rem}
+.quote-device-reference h4{margin:0 0 .35rem;font-size:1rem}
+.quote-device-reference div{display:flex;flex-wrap:wrap;gap:.25rem .75rem;margin-bottom:.35rem}
+.quote-device-reference a{text-decoration:underline}
+</style>
