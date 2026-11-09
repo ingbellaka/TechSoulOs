@@ -107,6 +107,11 @@ onMounted(cargarClientes)
         {{ mostrarFormulario ? 'Cerrar formulario' : 'Nuevo cliente' }}
       </button>
     </header>
+    <nav class="module-tabs" aria-label="Clientes y agenda">
+      <router-link to="/clientes">Clientes</router-link>
+      <router-link to="/agenda">Agenda</router-link>
+      <router-link to="/garantias">Garantías</router-link>
+    </nav>
 
     <div class="ts-metric-strip">
       <article class="ts-mini-metric">

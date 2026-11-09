@@ -177,6 +177,11 @@ onMounted(cargarMovimientos)
       <div><span class="ts-eyebrow">Finanzas</span><h2>Caja</h2><p>Control centralizado de entradas, salidas y flujo de efectivo.</p></div>
       <button class="ts-action-primary" type="button" @click="mostrarFormulario ? cancelarFormulario() : abrirNuevoMovimiento()"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>{{ mostrarFormulario ? 'Cerrar movimiento' : 'Nuevo movimiento' }}</button>
     </header>
+    <nav class="module-tabs" aria-label="Caja">
+      <router-link to="/caja">Caja</router-link>
+      <router-link to="/ventas">Ventas</router-link>
+      <router-link to="/corte-caja">Corte de caja</router-link>
+    </nav>
 
     <section class="ts-metric-strip ts-metric-strip-four">
       <article class="ts-mini-metric ts-metric-positive"><span>Ingresos</span><strong>{{ moneda(ingresos) }}</strong><small>Entradas acumuladas</small></article>

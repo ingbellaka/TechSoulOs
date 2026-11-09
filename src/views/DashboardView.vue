@@ -77,6 +77,17 @@ function equipoNombre(orden) {
     .join(' ') || orden.equipos?.tipo_equipo || 'Equipo'
 }
 
+const siguienteAccion = {
+  Recibido: 'Iniciar diagnóstico',
+  Diagnóstico: 'Completar diagnóstico',
+  'Esperando autorización': 'Revisar autorización',
+  'Esperando pieza': 'Revisar refacción',
+  'En reparación': 'Continuar reparación',
+  Reparado: 'Pasar a pruebas',
+  'En pruebas': 'Completar pruebas',
+  Listo: 'Preparar entrega',
+}
+
 function horaCorta(valor) {
   if (!valor) return 'Sin fecha'
   return new Date(valor).toLocaleTimeString('es-MX', {
@@ -205,18 +216,13 @@ onMounted(async () => {
         <h2>Hola, {{ firstName }} <span aria-hidden="true">👋</span></h2>
         <p>Aquí está el estado actual de tu taller.</p>
       </div>
-      <div class="dashboard-actions">
-        <router-link to="/cotizador" class="action-btn primary">Cotizar precio</router-link>
-        <router-link to="/ventas?nueva=1" class="action-btn secondary">
-          <svg viewBox="0 0 24 24"><path d="M6 2h9l5 5v15H6z"/><path d="M14 2v6h6M9 13h8M9 17h5"/></svg>
-          Nueva venta
-        </router-link>
-        <router-link to="/nueva-orden" class="action-btn primary">
-          <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
-          Nueva orden
-        </router-link>
-      </div>
     </header>
+    <nav class="home-actions" aria-label="Acciones del taller">
+      <router-link class="home-action home-action-primary" to="/nueva-orden"><span aria-hidden="true">＋</span><strong>Recibir equipo</strong><small>Registra una nueva orden</small></router-link>
+      <router-link class="home-action" to="/cotizador"><span aria-hidden="true">◇</span><strong>Cotizar</strong><small>Calcula el precio de una reparación</small></router-link>
+      <router-link class="home-action" to="/ordenes"><span aria-hidden="true">⌕</span><strong>Buscar orden</strong><small>Por folio, cliente o equipo</small></router-link>
+    </nav>
+
 
     <section class="dashboard-followup" aria-label="Pendientes por resolver">
       <router-link v-for="state in ['Esperando autorización','Esperando pieza','En pruebas','Listo']" :key="state" :to="`/taller?estado=${encodeURIComponent(state)}`">
@@ -251,7 +257,7 @@ onMounted(async () => {
         <header class="panel-title">
           <div class="title-with-icon danger-title">
             <svg viewBox="0 0 24 24"><path d="M12 3 2.7 19h18.6z"/><path d="M12 9v4m0 3h.01"/></svg>
-            <h3>Órdenes prioritarias</h3>
+            <h3>Necesitan atención</h3>
             <span class="count-bubble danger-bubble">{{ urgentes }}</span>
           </div>
           <router-link to="/taller">Ver todas →</router-link>
@@ -270,8 +276,7 @@ onMounted(async () => {
             </div>
             <span class="priority-pill" :class="prioridadEfectiva(orden)">{{ prioridadLabel(orden) }}</span>
             <div class="priority-date">
-              <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
-              <strong>{{ fechaEntrega(orden) }}</strong>
+              <strong>{{ siguienteAccion[orden.estado] || 'Abrir orden' }}</strong>
             </div>
             <svg class="chevron" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></svg>
           </router-link>

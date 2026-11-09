@@ -10,6 +10,14 @@ import TallerView from './TallerView.vue'
 
 const route = useRoute()
 const orden = ref(null)
+const etapaOrden = computed(() => {
+  const estado = orden.value?.estado
+  if (estado === 'Recibido') return 0
+  if (['Diagnóstico', 'Esperando autorización'].includes(estado)) return 1
+  if (['Esperando pieza', 'En reparación', 'Reparado', 'En pruebas'].includes(estado)) return 2
+  if (['Listo', 'Entregado'].includes(estado)) return 3
+  return -1
+})
 const tallerVersion = ref(0)
 async function refrescarTrasCobro() { await cargarDetalle(); tallerVersion.value++ }
 const evidencias = ref([])
@@ -669,6 +677,9 @@ onMounted(cargarDetalle)
         <button class="ts-action-secondary" type="button" @click="generarPdfOrden">Orden de servicio PDF</button>
       </div>
     </header>
+    <ol v-if="etapaOrden >= 0" class="order-steps no-print" aria-label="Avance de la orden">
+      <li v-for="(etapa, i) in ['Recepción','Diagnóstico','Taller','Entrega']" :key="etapa" :class="{ done: i < etapaOrden }" :aria-current="i === etapaOrden ? 'step' : undefined">{{ etapa }}</li>
+    </ol>
     <dl class="order-checkout-summary no-print"><div><dt>Total</dt><dd>{{moneda(orden.costo_total)}}</dd></div><div><dt>Pagado</dt><dd>{{moneda(orden.anticipo)}}</dd></div><div><dt>Saldo</dt><dd>{{moneda(saldoOrden)}}</dd></div></dl>
 
     <section v-if="equiposRelacionados.length" class="ts-detail-card no-print" style="margin:12px 0">
@@ -685,7 +696,7 @@ onMounted(cargarDetalle)
     </section>
     <nav class="ts-order-tabs no-print" aria-label="Secciones de la orden">
       <button v-for="tab in [
-        ['seguimiento','Seguimiento'],['resumen','Resumen'],['historial','Historial'],['evidencias','Evidencias'],['finanzas','Finanzas'],['firma','Firma']
+        ['seguimiento','Seguimiento'],['resumen','Detalles'],['historial','Actividad'],['evidencias','Fotos'],['finanzas','Finanzas'],['firma','Firma']
       ]" :key="tab[0]" type="button" :class="{ active: seccionActiva === tab[0] }" @click="seccionActiva = tab[0]; tab[0] === 'firma' && nextTick(prepararCanvas)">
         {{ tab[1] }}
       </button>

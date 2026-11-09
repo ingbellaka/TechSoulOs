@@ -1,4 +1,6 @@
 <script setup>
+import { useAuthStore as useNavigationAuth } from '../stores/auth'
+const puedeComprar = useNavigationAuth().can(['admin', 'recepcion'])
 import { computed, onMounted, ref } from 'vue'
 import { supabase } from '../lib/supabase'
 import { ajustarExistencia, registrarMovimientoInventario } from '../services/integracion.service'
@@ -167,9 +169,13 @@ onMounted(async () => { await Promise.all([cargarProductos(), cargarMovimientos(
 <template>
   <section class="ts-module-page">
     <header class="ts-module-header">
-      <div><span class="ts-eyebrow">Inventario progresivo</span><h2>Refacciones y piezas bajo pedido</h2><p>No necesitas crear un catálogo completo: agrega cada pieza conforme la compras o la cotizas.</p></div>
+      <div><span class="ts-eyebrow">Inventario progresivo</span><h2>Inventario y compras</h2><p>No necesitas crear un catálogo completo: agrega cada pieza conforme la compras o la cotizas.</p></div>
       <div class="inv-header-actions"><button class="ts-action-secondary" type="button" @click="mostrarMovimientos = !mostrarMovimientos">{{ mostrarMovimientos ? 'Ocultar movimientos' : 'Ver movimientos' }}</button><button class="ts-action-primary" type="button" @click="abrirNuevo">+ Nueva refacción</button></div>
     </header>
+    <nav class="module-tabs" aria-label="Inventario y compras">
+      <router-link to="/inventario">Inventario</router-link>
+      <router-link to="/compras" v-if="puedeComprar">Compras</router-link>
+    </nav>
 
     <div class="ts-metric-strip inv-metrics">
       <article class="ts-mini-metric"><span>Refacciones</span><strong>{{ totalProductos }}</strong><small>Catálogo construido con el uso</small></article>

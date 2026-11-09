@@ -10,6 +10,7 @@ import './assets/styles/shell.css'
 import './assets/styles/modules.css'
 import './assets/styles.css'
 import './assets/styles/responsive.css'
+import './assets/styles/redesign.css'
 
 const app = createApp(App)
 

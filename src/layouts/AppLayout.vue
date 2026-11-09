@@ -1,8 +1,10 @@
 <script setup>
 import { ref } from 'vue'
+import { useAuthStore } from '../stores/auth'
 import AppSidebar from '../components/navigation/AppSidebar.vue'
 import AppTopbar from '../components/navigation/AppTopbar.vue'
 
+const auth = useAuthStore()
 const mobileMenuOpen = ref(false)
 const sidebarCollapsed = ref(false)
 </script>
@@ -26,5 +28,11 @@ const sidebarCollapsed = ref(false)
         <slot />
       </main>
     </div>
+    <nav class="mobile-work-nav no-print" aria-label="Navegación rápida">
+      <router-link to="/">Inicio</router-link>
+      <router-link to="/ordenes">Órdenes</router-link>
+      <router-link v-if="auth.can(['admin', 'recepcion'])" to="/caja">Caja</router-link>
+      <router-link to="/mas">Más</router-link>
+    </nav>
   </div>
 </template>

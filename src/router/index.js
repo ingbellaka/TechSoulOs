@@ -5,6 +5,7 @@ import LoginView from '../views/LoginView.vue'
 import RecuperarContrasenaView from '../views/RecuperarContrasenaView.vue'
 import RestablecerContrasenaView from '../views/RestablecerContrasenaView.vue'
 import SinPermisoView from '../views/SinPermisoView.vue'
+import MoreView from '../views/MoreView.vue'
 import DashboardView from '../views/DashboardView.vue'
 import ClientesView from '../views/ClientesView.vue'
 import EquiposView from '../views/EquiposView.vue'
@@ -50,6 +51,7 @@ const routes = [
   { path: '/restablecer-contrasena', name: 'restablecerContrasena', component: RestablecerContrasenaView, meta: { public: true } },
   { path: '/firma-garantia/:token', name: 'firmaGarantiaPublica', component: FirmaGarantiaPublicaView, meta: { public: true } },
   { path: '/sin-permiso', name: 'sinPermiso', component: SinPermisoView },
+  { path: '/mas', name: 'mas', component: MoreView },
   { path: '/', name: 'dashboard', component: DashboardView },
   { path: '/clientes', name: 'clientes', component: ClientesView, meta: { roles: OPERACION } },
   { path: '/equipos', name: 'equipos', component: EquiposView, meta: { roles: OPERACION } },
