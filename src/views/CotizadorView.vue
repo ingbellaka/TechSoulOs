@@ -10,7 +10,7 @@ const router=useRouter(), route=useRoute(), auth=useAuthStore(); const settings=
 const order=ref(null), busy=ref(false), error=ref(''), notice=ref(''), ready=ref(false)
 const legacyQuotes=ref(getQuotes())
 const canConfigure=computed(()=>auth.can(['admin','recepcion']))
-const listaAbierta = ref(false)
+const listaAbierta = ref(route.name === 'listaPrecios')
 const modeloBusqueda = ref('')
 const busquedaConsultada = ref('')
 const referenciasEquipo = computed(() => findDeviceReferences(busquedaConsultada.value))
@@ -147,6 +147,7 @@ async function importLegacy(){
   }catch(e){error.value=e.message}finally{busy.value=false}
 }
 onMounted(async()=>{
+  if (listaAbierta.value) void buscarPrecios()
   try{
     const data=await loadCalculator();settings.value=data.settings;quotes.value=data.quotes
     tarifaDomicilioGuardada.value = Number(data.settings.tarifa_domicilio || 0)
@@ -171,7 +172,7 @@ function addInventoryPart(){
 }
 function addRate(){ const rates=getRates(); rates.unshift({id:crypto.randomUUID(),marca:form.value.marca,modelo:form.value.modelo,servicio:form.value.servicio,calidad:form.value.calidad,precio_publico:precioReparacion.value,precio_minimo:minimoReparacion.value,costo_actual:Number(form.value.costo_pieza),activo:true,origen:'Cotizador',actualizado_en:new Date().toISOString()}); saveRates(rates); alert('Precio agregado al tarifario') }
 </script>
-<template><section class="ts-module-page quote-workspace"><header class="ts-module-header"><div><span class="ts-eyebrow">Reparaciones especiales</span><h2>Cotizar</h2><p>Define el precio de la reparación y aplícalo a una orden.</p></div><div class="quote-header-actions"><button type="button" class="ts-action-primary" :aria-expanded="listaAbierta" aria-controls="lista-precios" @click="alternarListaPrecios">Lista de precios</button><button v-if="canConfigure" class="ts-action-secondary" @click="showSettings=!showSettings">{{showSettings?'Ocultar':'Configurar cálculo'}}</button></div></header>
+<template><section class="ts-module-page quote-workspace"><header class="ts-module-header"><div><span class="ts-eyebrow">Reparaciones especiales</span><h2>{{ route.name === "listaPrecios" && listaAbierta ? "Lista de precios" : "Cotizar" }}</h2><p>{{ route.name === "listaPrecios" && listaAbierta ? "Consulta precios de reparación por modelo." : "Define el precio de la reparación y aplícalo a una orden." }}</p></div><div class="quote-header-actions"><button type="button" class="ts-action-primary" :aria-expanded="listaAbierta" aria-controls="lista-precios" @click="alternarListaPrecios">{{ listaAbierta ? "Ocultar lista" : "Lista de precios" }}</button><button v-if="canConfigure" class="ts-action-secondary" @click="showSettings=!showSettings">{{showSettings?'Ocultar':'Configurar cálculo'}}</button></div></header>
 <article v-if="listaAbierta" id="lista-precios" class="ts-panel quote-catalog">
   <div class="ts-panel-heading"><div><h3>Lista de precios</h3><p>Busca por modelo. Cada resultado muestra el precio que puedes aplicar a la cotización del cliente.</p></div></div>
   <form class="quote-catalog-search" @submit.prevent="buscarPrecios">
@@ -215,7 +216,10 @@ function addRate(){ const rates=getRates(); rates.unshift({id:crypto.randomUUID(
 <style scoped>
 .calculator-error{color:#b42318}
 .ts-quote-result button:disabled{opacity:.5;cursor:wait}
-.quote-device-reference{border:1px solid currentColor;border-radius:.75rem;padding:.75rem 1rem;margin-block:1rem}
+.quote-catalog{padding:clamp(1rem,2vw,1.5rem)}
+.quote-catalog .ts-panel-heading{padding:0;margin-bottom:1rem;border-bottom:0}
+.quote-catalog-results li{overflow-wrap:anywhere;padding-block:.85rem}
+.quote-device-reference{border:1px solid var(--ts-border);border-radius:.75rem;padding:.75rem 1rem;margin-block:1rem}
 .quote-device-reference h4{margin:0 0 .35rem;font-size:1rem}
 .quote-device-reference div{display:flex;flex-wrap:wrap;gap:.25rem .75rem;margin-bottom:.35rem}
 .quote-device-reference a{text-decoration:underline}

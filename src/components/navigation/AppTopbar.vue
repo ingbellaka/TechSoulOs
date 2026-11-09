@@ -16,7 +16,7 @@ const pageTitle = computed(() => ({
   inventario: 'Inventario', ventas: 'Ventas', compras: 'Compras', ordenCompraDetalle: 'Detalle de compra',
   caja: 'Caja', configuracion: 'Configuración', garantias: 'Garantías',
   reportes: 'Reportes', usuarios: 'Usuarios',
-  tarifario: 'Tarifario', cotizador: 'Cotizador'
+  tarifario: 'Tarifario', cotizador: 'Cotizador', listaPrecios: 'Lista de precios'
 }[route.name] || 'TechSoul'))
 
 function toggleTheme() {

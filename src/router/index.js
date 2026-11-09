@@ -67,6 +67,7 @@ const routes = [
   { path: '/ventas', name: 'ventas', component: VentasView, meta: { roles: FINANZAS } },
   { path: '/tarifario', name: 'tarifario', component: TarifarioView, meta: { roles: OPERACION } },
   { path: '/cotizador', name: 'cotizador', component: CotizadorView, meta: { roles: OPERACION } },
+  { path: '/lista-de-precios', name: 'listaPrecios', component: CotizadorView, meta: { roles: OPERACION } },
   { path: '/compras', name: 'compras', component: ComprasView, meta: { roles: FINANZAS } },
   { path: '/compras/:id', name: 'ordenCompraDetalle', component: OrdenCompraDetalleView, meta: { roles: FINANZAS } },
   { path: '/caja', name: 'caja', component: CajaView, meta: { roles: FINANZAS } },

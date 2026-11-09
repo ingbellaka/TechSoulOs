@@ -24,6 +24,7 @@ const visibleGroups = computed(() => [{
     { label: 'Inicio', to: '/', icon: 'home' },
     { label: 'Taller', to: '/taller', icon: 'settings' },
     { label: 'Órdenes', to: '/ordenes', icon: 'clipboard' },
+    { label: 'Lista de precios', to: '/lista-de-precios', icon: 'tag', roles: ['admin', 'recepcion', 'tecnico'] },
     { label: 'Caja', to: '/caja', icon: 'wallet', roles: ['admin', 'recepcion'] },
     { label: 'Inventario y compras', to: '/inventario', icon: 'box' },
     { label: 'Clientes y agenda', to: '/clientes', icon: 'users' },
