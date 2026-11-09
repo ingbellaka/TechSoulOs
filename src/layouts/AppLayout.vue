@@ -30,6 +30,7 @@ const sidebarCollapsed = ref(false)
     </div>
     <nav class="mobile-work-nav no-print" aria-label="Navegación rápida">
       <router-link to="/">Inicio</router-link>
+      <router-link to="/taller">Taller</router-link>
       <router-link to="/ordenes">Órdenes</router-link>
       <router-link v-if="auth.can(['admin', 'recepcion'])" to="/caja">Caja</router-link>
       <router-link to="/mas">Más</router-link>

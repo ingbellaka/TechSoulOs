@@ -7,12 +7,28 @@ import { subirEvidencia } from '../lib/storage'
 import { asegurarFirmaGarantiaPorOrden, abrirWhatsAppFirma } from '../services/garantia-firma.service'
 import { useAuthStore } from '../stores/auth'
 import ControlCalidadView from './ControlCalidadView.vue'
+import OrderCheckout from '../components/orders/OrderCheckout.vue'
 import { useRoute } from 'vue-router'
 const route = useRoute()
 const auth = useAuthStore()
 const props = defineProps({ orderId: [String, Number], embedded: Boolean })
 const emit = defineEmits(['updated'])
-const qualityOpen = ref(false)
+const ordenEnPruebas = ref(null)
+const ordenEnCobro = ref(null)
+const checkoutVersion = ref(0)
+const verTicketTaller = ref(false)
+
+function abrirCobroTaller(orden, ticket = false) {
+  ordenEnCobro.value = orden
+  verTicketTaller.value = ticket
+  checkoutVersion.value++
+}
+
+async function actualizarTrasCobro() {
+  await cargar()
+  ordenEnCobro.value = ordenes.value.find(orden => orden.id === ordenEnCobro.value?.id) || ordenEnCobro.value
+  emit('updated')
+}
 
 const cargando = ref(true)
 const guardando = ref(null)
@@ -1131,7 +1147,8 @@ onBeforeUnmount(() => {
 
           <p v-if="orden.motivo_no_reparacion" class="return-summary"><strong>{{ orden.motivo_no_reparacion }}</strong><br>{{ orden.explicacion_no_reparacion }}</p>
           <div class="workflow-actions">
-            <router-link v-if="!embedded && orden.estado==='Listo' && auth.can(['admin','recepcion'])" class="workflow-primary" :to="`/ordenes/${orden.id}?cobrar=1`">Cobrar y entregar</router-link>
+            <button v-if="!embedded" type="button" class="workflow-secondary" @click="abrirCobroTaller(orden, true)">Ticket · 58 mm</button>
+            <button v-if="!embedded && auth.can(['admin','recepcion']) && (orden.estado === 'Listo' || (Number(orden.costo_total) > Number(orden.anticipo || 0) && !['Entregado','Cancelado','Devuelto sin reparación'].includes(orden.estado)))" type="button" class="workflow-primary" @click="abrirCobroTaller(orden)">{{ orden.estado === 'Listo' ? 'Cobrar y entregar' : 'Registrar pago' }}</button>
             <router-link v-if="!embedded && ['Recibido','Diagnóstico','Esperando autorización'].includes(orden.estado)" class="workflow-secondary" :to="`/cotizador?orden=${orden.id}`">Cotizar servicio</router-link>
             <button v-if="etiquetaAccion(orden)" type="button" class="workflow-primary" :disabled="guardando === orden.id" @click="accionPrincipal(orden)">{{ etiquetaAccion(orden) }}</button>
             <template v-if="orden.estado === 'Esperando autorización'">
@@ -1140,8 +1157,7 @@ onBeforeUnmount(() => {
             </template>
             <button v-if="['Diagnóstico', 'Esperando autorización', 'Esperando pieza', 'En reparación', 'En pruebas'].includes(orden.estado)" type="button" class="workflow-secondary" :disabled="guardando === orden.id" @click="abrirNoReparacion(orden)">No podemos continuar</button>
             <button v-if="orden.motivo_no_reparacion && ESTADOS_DEVOLUCION.includes(orden.estado)" type="button" class="workflow-secondary" @click="copiarAvisoNoReparacion(orden)">Copiar aviso al cliente</button>
-            <button v-if="orden.estado === 'En pruebas' && embedded" type="button" class="quality-link" @click="qualityOpen=!qualityOpen">{{qualityOpen ? 'Ocultar pruebas' : 'Realizar pruebas y evidencia final'}}</button>
-            <router-link v-else-if="orden.estado === 'En pruebas'" :to="`/taller/${orden.id}/control`" class="quality-link">Realizar pruebas y evidencia final</router-link>
+            <button v-if="orden.estado === 'En pruebas'" type="button" class="quality-link" @click="ordenEnPruebas = ordenEnPruebas === orden.id ? null : orden.id">{{ ordenEnPruebas === orden.id ? 'Ocultar pruebas' : 'Realizar pruebas y evidencia final' }}</button>
             <button v-if="orden.estado === 'En pruebas'" type="button" class="workflow-secondary" :disabled="guardando === orden.id" @click="cambiarEstado(orden, 'Diagnóstico')">Pruebas fallidas · Volver a diagnóstico</button>
             <details v-if="orden.estado === 'Esperando autorización' && orden.diagnostico" class="workflow-more">
               <summary>Más opciones</summary>
@@ -1149,7 +1165,7 @@ onBeforeUnmount(() => {
               <button type="button" class="workflow-secondary" @click="abrirDiagnostico(orden)">Revisar diagnóstico y cotización</button>
             </details>
           </div>
-          <ControlCalidadView v-if="embedded && qualityOpen && orden.estado === 'En pruebas'" :order-id="orden.id" embedded @released="qualityOpen=false; cargar(); emit('updated')" />
+          <ControlCalidadView v-if="ordenEnPruebas === orden.id && orden.estado === 'En pruebas'" :order-id="orden.id" embedded @released="ordenEnPruebas=null; cargar(); emit('updated')" />
           <div class="card-footer">
             <div class="fixed-tech">
               <span>Técnico</span>
@@ -1277,6 +1293,7 @@ onBeforeUnmount(() => {
       </section>
     </div>
 
+    <OrderCheckout v-if="ordenEnCobro" :key="checkoutVersion" :order="ordenEnCobro" :auto-open="!verTicketTaller" :auto-ticket="verTicketTaller" hide-triggers @saved="actualizarTrasCobro" />
   </section>
 </template>
 

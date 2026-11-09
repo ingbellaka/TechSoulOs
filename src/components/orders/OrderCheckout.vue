@@ -7,7 +7,7 @@ import { cents, paymentMethods, validateCheckout } from '../../utils/checkout'
 import { buildTicketOrdenServicio, buildReciboOrden, monedaMX } from '../../utils/tickets'
 import TicketPreviewModal from '../tickets/TicketPreviewModal.vue'
 
-const props = defineProps({ order: { type: Object, required: true }, autoOpen: Boolean })
+const props = defineProps({ order: { type: Object, required: true }, autoOpen: Boolean, autoTicket: Boolean, hideTriggers: Boolean })
 const emit = defineEmits(['saved'])
 const auth = useAuthStore()
 const canCharge = computed(() => auth.can(['admin', 'recepcion']))
@@ -88,11 +88,12 @@ async function submit() {
 }
 // Abrir desde un enlace del dashboard sin escribir en la orden.
 if (props.autoOpen && canCharge.value && (pending.value || (!closed.value && (balance.value || props.order.estado === 'Listo')))) start()
+if (props.autoTicket) void showTicket()
 </script>
 
 <template>
-  <button v-if="canCharge && (pending || (!closed && (balance || order.estado === 'Listo')))" type="button" class="ts-action-primary" @click="start">{{ pending ? 'Revisar cobro pendiente' : order.estado === 'Listo' ? 'Cobrar y entregar' : 'Registrar pago' }}</button>
-  <button type="button" class="ts-action-secondary" @click="showTicket()">{{ closed ? 'Reimprimir ticket · 58 mm' : 'Ticket · 58 mm' }}</button>
+  <button v-if="!hideTriggers && canCharge && (pending || (!closed && (balance || order.estado === 'Listo')))" type="button" class="ts-action-primary" @click="start">{{ pending ? 'Revisar cobro pendiente' : order.estado === 'Listo' ? 'Cobrar y entregar' : 'Registrar pago' }}</button>
+  <button v-if="!hideTriggers" type="button" class="ts-action-secondary" @click="showTicket()">{{ closed ? 'Reimprimir ticket · 58 mm' : 'Ticket · 58 mm' }}</button>
   <p v-if="error && !open" role="alert" class="checkout-error">{{error}}</p>
   <Teleport to="body">
     <div v-if="open" class="checkout-backdrop" @click.self="!busy && (open=false)">
