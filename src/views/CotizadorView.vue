@@ -20,10 +20,13 @@ async function buscarPrecios() {
   buscandoPrecios.value = true
   errorPrecios.value = ''
   try {
-    const modelo = modeloBusqueda.value.trim()
+    const busqueda = modeloBusqueda.value.trim()
+    const marcaEncontrada = busqueda.match(/^(Samsung|Motorola|Xiaomi|Huawei|Honor|Vivo|Oppo|Realme|ZTE|Infinix|Google|OnePlus|Apple|LG|TCL|Cubot)(?:\s+|$)/i)
+    const modelo = marcaEncontrada ? busqueda.slice(marcaEncontrada[0].length).trim() : busqueda
     let consulta = supabase.from('catalogo_servicios')
-      .select('id,nombre,categoria,marca,modelo,variante,costo_base,precio_venta')
+      .select('id,nombre,categoria,marca,modelo,variante,costo_base,precio_venta,notas')
       .eq('activo', true).gt('precio_venta', 0)
+    if (marcaEncontrada) consulta = consulta.ilike('marca', marcaEncontrada[1])
     if (modelo) consulta = consulta.ilike('modelo', '%' + modelo.replace(/[\\%_]/g, '\\$&') + '%')
     const { data, error } = await consulta.order('modelo').limit(40)
     if (error) throw error
@@ -132,7 +135,7 @@ function addRate(){ const rates=getRates(); rates.unshift({id:crypto.randomUUID(
   <p v-else-if="!preciosCatalogo.length">No hay precios para ese modelo en el catálogo.</p>
   <ul v-else class="quote-catalog-results">
     <li v-for="precio in preciosCatalogo" :key="precio.id">
-      <div><strong>{{ [precio.marca, precio.modelo].filter(Boolean).join(' ') || precio.nombre }}</strong><small>{{ [precio.nombre, precio.variante].filter(Boolean).join(' · ') }}</small></div>
+      <div><strong>{{ [precio.marca, precio.modelo].filter(Boolean).join(' ') || precio.nombre }}</strong><small>{{ [precio.nombre, precio.variante, precio.notas?.startsWith('Villanotec PDF') ? 'Villanotec' : ''].filter(Boolean).join(' · ') }}</small></div>
       <strong>{{ money(precio.precio_venta) }}</strong>
       <button type="button" class="ts-action-secondary" @click="usarPrecioCatalogo(precio)">Usar precio</button>
     </li>

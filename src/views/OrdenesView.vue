@@ -1,4 +1,5 @@
 <script setup>
+import { guardarGastoOrden } from '../services/gastos-orden.service'
 import { computed, onMounted, ref } from 'vue'
 import { supabase } from '../lib/supabase'
 import { useAuthStore } from '../stores/auth'
@@ -146,17 +147,9 @@ async function registrarGasto() {
   if (!['Efectivo', 'Transferencia', 'Tarjeta'].includes(metodo)) { errorGasto.value = 'Selecciona un método de pago válido.'; return }
   guardandoGasto.value = true
   try {
-    const notas = [orden.folio, String(gastoForm.value.notas || '').trim()].filter(Boolean).join(' · ')
-    const { error } = await supabase.from('movimientos_caja').insert({
-      tipo: 'Salida', concepto, monto, metodo_pago: metodo,
-      referencia_tipo: 'orden', referencia_id: orden.id, notas
-    })
-    if (error) throw error
-    // La salida ya está guardada: cierra el formulario para evitar repetirla.
+    const historialGuardado = await guardarGastoOrden(orden, { concepto, monto, metodo, notas: gastoForm.value.notas })
     gastoModal.value = null
-    try {
-      await registrarHistorial(orden.id, 'gasto', 'Gasto registrado', `${concepto}: ${moneda(monto)} por ${metodo}.`)
-    } catch {
+    if (!historialGuardado) {
       alert('El gasto se guardó en Caja, pero no se pudo agregar al historial de la orden.')
       return
     }

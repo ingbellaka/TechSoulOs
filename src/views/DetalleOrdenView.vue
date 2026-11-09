@@ -6,9 +6,12 @@ import TicketPreviewModal from '../components/tickets/TicketPreviewModal.vue'
 import { buildReciboOrden, buildTicketOrdenServicio } from '../utils/tickets'
 import { subirEvidencia } from '../lib/storage'
 import OrderCheckout from '../components/orders/OrderCheckout.vue'
+import { comisionEmiliano } from '../utils/tecnicos'
+import { useAuthStore } from '../stores/auth'
 import TallerView from './TallerView.vue'
 
 const route = useRoute()
+const auth = useAuthStore()
 const orden = ref(null)
 const etapaOrden = computed(() => {
   const estado = orden.value?.estado
@@ -841,6 +844,11 @@ onMounted(cargarDetalle)
       <article class="ts-detail-card ts-finance-summary-card"><span class="ts-detail-label">Ingresos</span><strong>{{ moneda(ingresos) }}</strong><small>Pagos vinculados a esta orden</small></article>
       <article class="ts-detail-card ts-finance-summary-card"><span class="ts-detail-label">Gastos</span><strong>{{ moneda(gastos) }}</strong><small>Refacciones y gastos registrados</small></article>
       <article class="ts-detail-card ts-finance-summary-card is-profit"><span class="ts-detail-label">Utilidad estimada</span><strong>{{ moneda(utilidad) }}</strong><small>Ingresos menos gastos</small></article>
+      <article v-if="orden.tecnico === 'Emiliano' && auth.can(['admin', 'recepcion'])" class="ts-detail-card ts-finance-summary-card">
+        <span class="ts-detail-label">Comisión estimada de Emiliano</span>
+        <strong>{{ moneda(comisionEmiliano(orden.costo_total, gastos)) }}</strong>
+        <small>10% de la utilidad de la orden. Se calcula sobre el total menos los gastos registrados.</small>
+      </article>
       <article class="ts-detail-card ts-detail-movements-card">
         <div class="ts-detail-card-heading"><div><span class="ts-detail-label">Historial financiero</span><h2>Movimientos</h2></div></div>
         <div v-if="movimientos.length" class="ts-detail-movement-list">

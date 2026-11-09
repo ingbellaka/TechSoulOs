@@ -70,7 +70,7 @@ export function getCosts() { return load(KEYS.costs, []) }
 export function saveCosts(rows) { return save(KEYS.costs, rows) }
 export function getPricingSettings() { return { ...defaultPricingSettings, ...load(KEYS.settings, {}) } }
 export function savePricingSettings(value) { return save(KEYS.settings, value) }
-export function money(value) { return Number(value || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 0 }) }
+export function money(value) { return Number(value || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN', minimumFractionDigits: 0, maximumFractionDigits: 2 }) }
 export function normalize(value) { return String(value || '').toLocaleLowerCase('es-MX').normalize('NFD').replace(/[\u0300-\u036f]/g, '') }
 export function roundTo(value, step = 50) { const safe = Math.max(1, Number(step || 50)); return Math.ceil(Number(value || 0) / safe) * safe }
 export function calculateQuote(input, settings = getPricingSettings()) {

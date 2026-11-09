@@ -1,4 +1,5 @@
 <script setup>
+import { tecnicosTechSoul } from '../utils/tecnicos'
 import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { supabase } from '../lib/supabase'
@@ -413,7 +414,11 @@ onMounted(cargar)
             <label><span>Falla reportada *</span><textarea v-model="orden.falla_reportada" rows="4" placeholder="Describe lo que indicó el cliente"></textarea></label>
             <label><span>Diagnóstico técnico</span><textarea v-model="orden.diagnostico" rows="5" placeholder="Resultado de las pruebas y causa probable"></textarea></label>
             <label><span>Trabajo realizado</span><textarea v-model="orden.trabajo_realizado" rows="5" placeholder="Refacciones instaladas y procedimiento realizado"></textarea></label>
-            <div class="ts-form-grid"><label><span>Técnico asignado</span><input v-model="orden.tecnico" placeholder="Nombre del técnico"></label><label><span>Notas internas</span><input v-model="orden.notas" placeholder="No visibles para el cliente"></label></div>
+            <div class="ts-form-grid"><label><span>Técnico asignado</span><select v-model="orden.tecnico" class="form-select">
+                <option value="">Sin asignar</option>
+                <option v-if="orden.tecnico && !tecnicosTechSoul.includes(orden.tecnico)" :value="orden.tecnico">{{ orden.tecnico }}</option>
+                <option v-for="tecnico in tecnicosTechSoul" :key="tecnico">{{ tecnico }}</option>
+              </select></label><label><span>Notas internas</span><input v-model="orden.notas" placeholder="No visibles para el cliente"></label></div>
             <div class="ts-schedule-editor">
               <div><span>Agenda</span><strong>Programación de la reparación</strong><small>Al definir una fecha, esta orden aparecerá automáticamente en Agenda.</small></div>
               <div class="ts-form-grid">

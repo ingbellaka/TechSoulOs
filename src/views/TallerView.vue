@@ -8,6 +8,8 @@ import { asegurarFirmaGarantiaPorOrden, abrirWhatsAppFirma } from '../services/g
 import { useAuthStore } from '../stores/auth'
 import ControlCalidadView from './ControlCalidadView.vue'
 import OrderCheckout from '../components/orders/OrderCheckout.vue'
+import OrderExpense from '../components/orders/OrderExpense.vue'
+import { tecnicosTechSoul } from '../utils/tecnicos'
 import { useRoute } from 'vue-router'
 const route = useRoute()
 const auth = useAuthStore()
@@ -15,6 +17,8 @@ const props = defineProps({ orderId: [String, Number], embedded: Boolean })
 const emit = defineEmits(['updated'])
 const ordenEnPruebas = ref(null)
 const ordenEnCobro = ref(null)
+const ordenEnGasto = ref(null)
+const asignandoTecnico = ref(null)
 const checkoutVersion = ref(0)
 const verTicketTaller = ref(false)
 
@@ -22,6 +26,28 @@ function abrirCobroTaller(orden, ticket = false) {
   ordenEnCobro.value = orden
   verTicketTaller.value = ticket
   checkoutVersion.value++
+}
+
+async function asignarTecnico(orden, evento) {
+  const tecnico = evento.target.value || null
+  asignandoTecnico.value = orden.id
+  try {
+    const { data, error } = await supabase.from('ordenes').update({ tecnico }).eq('id', orden.id).select('id').single()
+    if (error || !data) throw error || new Error('No se pudo actualizar la orden.')
+    orden.tecnico = tecnico
+    emit('updated')
+    notificar(tecnico ? `Técnico asignado: ${tecnico}.` : 'Orden sin técnico asignado.')
+  } catch (error) {
+    evento.target.value = orden.tecnico || ''
+    notificar(error.message, 'error')
+  } finally {
+    asignandoTecnico.value = null
+  }
+}
+
+function actualizarTrasGasto(historialGuardado) {
+  emit('updated')
+  notificar(historialGuardado ? 'Gasto registrado en Caja y en la orden.' : 'Gasto guardado en Caja. El historial no se pudo actualizar.', historialGuardado ? 'success' : 'error')
 }
 
 async function actualizarTrasCobro() {
@@ -295,7 +321,6 @@ function responderConfirmacion(valor) {
 
 let reloj = null
 
-const NOMBRE_TECNICO = 'Jorge Ortegón'
 
 const HORARIOS_TALLER = {
   1: { abre: '10:00', cierra: '18:00' },
@@ -484,7 +509,7 @@ async function cargar() {
   cargando.value = true
   const [ordenesRes, citasRes] = await Promise.all([
     (() => {
-      let query = supabase.from('ordenes').select('id,folio,estado,garantia_dias,garantia_condiciones,metodo_pago,fecha_entrega,falla_reportada,diagnostico,motivo_no_reparacion,explicacion_no_reparacion,notas_devolucion,fecha_devolucion,trabajo_realizado,costo_total,anticipo,fecha_ingreso,created_at,updated_at,fecha_programada,duracion_estimada_min,clientes(nombre,telefono),equipos(tipo_equipo,marca,modelo),orden_servicios(tipo_servicio,descripcion,precio,orden_visual),orden_produccion(*)')
+      let query = supabase.from('ordenes').select('id,folio,estado,tecnico,garantia_dias,garantia_condiciones,metodo_pago,fecha_entrega,falla_reportada,diagnostico,motivo_no_reparacion,explicacion_no_reparacion,notas_devolucion,fecha_devolucion,trabajo_realizado,costo_total,anticipo,fecha_ingreso,created_at,updated_at,fecha_programada,duracion_estimada_min,clientes(nombre,telefono),equipos(tipo_equipo,marca,modelo),orden_servicios(tipo_servicio,descripcion,precio,orden_visual),orden_produccion(*)')
       if (props.orderId || route.query.orden) query = query.eq('id',props.orderId || route.query.orden)
       return query
     })()
@@ -513,9 +538,6 @@ function etiquetaEstado(estado) {
   return estados.find(e => e.value === estado)?.label || estado
 }
 
-function tecnicoNombre() {
-  return NOMBRE_TECNICO
-}
 
 function segundosTrabajados(orden) {
   const p = orden.produccion || {}
@@ -984,7 +1006,7 @@ async function iniciar(orden) {
     ultima_reanudacion_en: iso,
     iniciado_en: orden.produccion?.iniciado_en || iso,
     finalizado_en: null
-  }, { titulo: 'Trabajo iniciado', descripcion: `${tecnicoNombre()} inició tiempo de trabajo.` })
+  }, { titulo: 'Trabajo iniciado', descripcion: orden.tecnico ? `${orden.tecnico} inició tiempo de trabajo.` : 'Se inició el tiempo de trabajo.' })
 }
 
 async function pausar(orden) {
@@ -1147,6 +1169,7 @@ onBeforeUnmount(() => {
 
           <p v-if="orden.motivo_no_reparacion" class="return-summary"><strong>{{ orden.motivo_no_reparacion }}</strong><br>{{ orden.explicacion_no_reparacion }}</p>
           <div class="workflow-actions">
+            <button v-if="auth.can(['admin','recepcion'])" type="button" class="workflow-secondary" @click="ordenEnGasto = orden">Registrar pieza o gasto</button>
             <button v-if="!embedded" type="button" class="workflow-secondary" @click="abrirCobroTaller(orden, true)">Ticket · 58 mm</button>
             <button v-if="!embedded && auth.can(['admin','recepcion']) && (orden.estado === 'Listo' || (Number(orden.costo_total) > Number(orden.anticipo || 0) && !['Entregado','Cancelado','Devuelto sin reparación'].includes(orden.estado)))" type="button" class="workflow-primary" @click="abrirCobroTaller(orden)">{{ orden.estado === 'Listo' ? 'Cobrar y entregar' : 'Registrar pago' }}</button>
             <router-link v-if="!embedded && ['Recibido','Diagnóstico','Esperando autorización'].includes(orden.estado)" class="workflow-secondary" :to="`/cotizador?orden=${orden.id}`">Cotizar servicio</router-link>
@@ -1167,10 +1190,14 @@ onBeforeUnmount(() => {
           </div>
           <ControlCalidadView v-if="ordenEnPruebas === orden.id && orden.estado === 'En pruebas'" :order-id="orden.id" embedded @released="ordenEnPruebas=null; cargar(); emit('updated')" />
           <div class="card-footer">
-            <div class="fixed-tech">
+            <label class="fixed-tech">
               <span>Técnico</span>
-              <strong>♟ {{ NOMBRE_TECNICO }}</strong>
-            </div>
+              <select class="form-select form-select-sm" :aria-label="'Técnico de ' + orden.folio" :value="orden.tecnico || ''" :disabled="asignandoTecnico !== null" @change="asignarTecnico(orden, $event)">
+                <option value="">Sin asignar</option>
+                <option v-if="orden.tecnico && !tecnicosTechSoul.includes(orden.tecnico)" :value="orden.tecnico">{{ orden.tecnico }}</option>
+                <option v-for="tecnico in tecnicosTechSoul" :key="tecnico">{{ tecnico }}</option>
+              </select>
+            </label>
 
             <button v-if="orden.produccion?.corriendo" type="button" class="timer-btn pause"
               :disabled="guardando === orden.id" @click="pausar(orden)">Ⅱ Pausar</button>
@@ -1294,6 +1321,7 @@ onBeforeUnmount(() => {
     </div>
 
     <OrderCheckout v-if="ordenEnCobro" :key="checkoutVersion" :order="ordenEnCobro" :auto-open="!verTicketTaller" :auto-ticket="verTicketTaller" hide-triggers @saved="actualizarTrasCobro" />
+    <OrderExpense v-if="ordenEnGasto" :order="ordenEnGasto" @close="ordenEnGasto = null" @saved="actualizarTrasGasto" />
   </section>
 </template>
 

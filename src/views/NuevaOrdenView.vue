@@ -1,4 +1,5 @@
 <script setup>
+import { tecnicosTechSoul } from '../utils/tecnicos'
 import { ref, onMounted, computed, watch } from 'vue'
 import { supabase } from '../lib/supabase'
 import { subirEvidencia } from '../lib/storage'
@@ -934,7 +935,11 @@ onMounted(async () => {
             <div v-if="mostrarOpcionesAvanzadas" class="details-panel form-grid three-cols">
               <div class="field-block"><label class="form-label">Generar garantía</label><select v-model="orden.generar_garantia" class="form-select"><option :value="true">Sí, generar garantía</option><option :value="false">Sin garantía</option></select></div>
               <div class="field-block"><label class="form-label">Garantía (días)</label><input v-model.number="orden.garantia_dias" type="number" min="0" class="form-control" :disabled="!orden.generar_garantia"></div>
-              <div class="field-block"><label class="form-label">Técnico / recepción</label><input v-model="orden.tecnico" class="form-control"></div>
+              <div class="field-block"><label class="form-label">Técnico / recepción</label><select v-model="orden.tecnico" class="form-select">
+                <option value="">Sin asignar</option>
+                <option v-if="orden.tecnico && !tecnicosTechSoul.includes(orden.tecnico)" :value="orden.tecnico">{{ orden.tecnico }}</option>
+                <option v-for="tecnico in tecnicosTechSoul" :key="tecnico">{{ tecnico }}</option>
+              </select></div>
               <div class="field-block"><label class="form-label">Estado inicial</label><select v-model="orden.estado" class="form-select"><option>Recibido</option><option>Diagnóstico</option><option>Esperando autorización</option><option>Esperando pieza</option><option>En reparación</option><option>Garantía</option><option>Cancelado</option></select></div>
               <div class="field-block two-span"><label class="form-label">Condiciones de garantía</label><textarea v-model="orden.garantia_condiciones" class="form-control" rows="3" :disabled="!orden.generar_garantia"></textarea></div>
               <div class="field-block full"><label class="form-label">Notas internas</label><textarea v-model="orden.notas" class="form-control" rows="2"></textarea></div>
