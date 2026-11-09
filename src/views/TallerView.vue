@@ -1,7 +1,7 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { supabase } from '../lib/supabase'
-import { destinoRespuestaCliente, pruebasAprobadas } from '../utils/flujo-taller'
+import { destinoRespuestaCliente } from '../utils/flujo-taller'
 import { MOTIVOS_NO_REPARACION, ESTADOS_DEVOLUCION, validarNoReparacion, mensajeNoReparacion } from '../utils/no-reparacion'
 import { subirEvidencia } from '../lib/storage'
 import { asegurarFirmaGarantiaPorOrden, abrirWhatsAppFirma } from '../services/garantia-firma.service'
@@ -911,7 +911,7 @@ async function cambiarEstado(orden, nuevoEstado, evidenciaValidada = false) {
       supabase.from('control_calidad_orden').select('estado').eq('orden_id', orden.id),
       supabase.from('evidencias').select('tipo').eq('orden_id', orden.id).eq('tipo', 'Salida')
     ])
-    if (ec || ef || !pruebasAprobadas(controles || []) || !fotos?.length) {
+    if (ec || ef || controles?.some(control => control.estado === "No funciona") || !fotos?.length) {
       notificar('Para marcar como Listo, las pruebas deben funcionar o no aplicar y debe estar completa la evidencia de salida.', 'error')
       return
     }

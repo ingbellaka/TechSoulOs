@@ -17,11 +17,10 @@ begin
   end if;
   if new.estado='Listo' and new.estado is distinct from old.estado and (
     old.estado <> 'En pruebas'
-    or not exists(select 1 from public.control_calidad_orden where orden_id=old.id)
-    or exists(select 1 from public.control_calidad_orden where orden_id=old.id and estado not in ('Funciona','No aplica'))
+    or exists(select 1 from public.control_calidad_orden where orden_id=old.id and estado='No funciona')
     or not exists(select 1 from public.evidencias where orden_id=old.id and tipo in ('Reparación interna','Blindajes antes de cierre'))
     or not exists(select 1 from public.evidencias where orden_id=old.id and tipo='Salida')
-  ) then raise exception 'Completa el control de calidad y las evidencias antes de liberar el equipo.'; end if;
+  ) then raise exception 'Completa las evidencias y resuelve las fallas registradas antes de liberar el equipo.'; end if;
   return new;
 end $$;
 revoke all on function public.proteger_finanzas_orden() from public,anon,authenticated;
