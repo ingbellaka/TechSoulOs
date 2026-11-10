@@ -73,41 +73,18 @@ const modalEvidencia = ref(null)
 const fotoInterna = ref(null)
 const previewInterna = ref('')
 const guardandoEvidencia = ref(false)
-const modalRespuestaCliente = ref(null)
-const respuestaClienteForm = ref({ respuesta: 'autoriza', faltaRefaccion: false, nota: '' })
-const guardandoRespuestaCliente = ref(false)
-function abrirRespuestaCliente(orden) {
-  if (!orden.diagnostico?.trim()) return abrirDiagnostico(orden)
-  modalRespuestaCliente.value = orden
-  respuestaClienteForm.value = { respuesta: 'autoriza', faltaRefaccion: false, nota: '' }
-}
-function cerrarRespuestaCliente() {
-  if (!guardandoRespuestaCliente.value) modalRespuestaCliente.value = null
-}
-async function guardarRespuestaCliente() {
-  const orden = modalRespuestaCliente.value
-  if (!orden || guardandoRespuestaCliente.value) return
-  const form = respuestaClienteForm.value
-  const destino = destinoRespuestaCliente(form.respuesta, form.faltaRefaccion)
-  if (!destino) return notificar('Selecciona la respuesta del cliente.', 'error')
-  if (!form.nota.trim()) return notificar('Registra quién respondió y por qué medio confirmó su decisión.', 'error')
-  if (form.respuesta === 'rechaza') {
-    modalRespuestaCliente.value = null
-    abrirNoReparacion(orden)
-    noReparacionForm.value.motivo = 'Cliente no autorizó la cotización'
-    noReparacionForm.value.explicacion = `El cliente no autorizó el trabajo propuesto. ${form.nota.trim()}`
-    return
-  }
-  guardandoRespuestaCliente.value = true
-  try {
-    await cambiarEstado(orden, destino)
-    if (orden.estado !== destino) return
-    const historialGuardado = await registrarHistorial(orden, 'Autorización del cliente registrada', `${form.nota.trim()}\n${form.faltaRefaccion ? 'Se espera refacción.' : 'Se puede iniciar la reparación.'}`, { tipo: 'autorizacion' })
-    modalRespuestaCliente.value = null
-    if (!historialGuardado) return notificar('El estado cambió, pero no se pudo registrar la confirmación en el historial. Conserva el mensaje del cliente y revisa la orden.', 'error')
-    notificar(form.faltaRefaccion ? 'Autorizado: esperando refacción.' : 'Autorizado: en reparación.')
-  } catch (error) { notificar(error.message, 'error') }
-  finally { guardandoRespuestaCliente.value = false }
+async function registrarRespuestaCliente(orden, respuesta) {
+  if (orden.estado !== 'Esperando autorización' || guardando.value === orden.id) return
+  const destino = destinoRespuestaCliente(respuesta)
+  if (!destino) return
+  const rechazo = respuesta === 'rechaza'
+  await cambiarEstado(orden, destino, false, {
+    respuestaCliente: rechazo ? 'Cliente no autorizó la cotización' : 'Cliente autorizó la cotización',
+    campos: rechazo ? {
+      motivo_no_reparacion: 'Cliente no autorizó la cotización',
+      explicacion_no_reparacion: 'El cliente decidió no realizar el trabajo cotizado.'
+    } : {}
+  })
 }
 
 const modalNoReparacion = ref(null)
@@ -130,7 +107,10 @@ function cerrarNoReparacion() {
 async function guardarNoReparacion() {
   const orden = modalNoReparacion.value
   if (!orden || guardandoNoReparacion.value) return
-  const errorFormulario = validarNoReparacion(noReparacionForm.value, devolviendoEquipo.value)
+  const devolucionPorRechazo = devolviendoEquipo.value && orden.motivo_no_reparacion === 'Cliente no autorizó la cotización'
+  const errorFormulario = devolucionPorRechazo
+    ? (Number(orden.anticipo) > 0 && !noReparacionForm.value.notas.trim() ? 'Registra el acuerdo sobre el anticipo.' : '')
+    : validarNoReparacion(noReparacionForm.value, devolviendoEquipo.value)
   if (errorFormulario) return notificar(errorFormulario, 'error')
   guardandoNoReparacion.value = true
   try {
@@ -149,7 +129,7 @@ async function guardarNoReparacion() {
     const anterior = orden.estado
     const estado = devolviendoEquipo.value ? 'Devuelto sin reparación' : 'Pendiente de devolución'
     const payload = {
-      estado, diagnostico: noReparacionForm.value.diagnostico.trim(),
+      estado, diagnostico: noReparacionForm.value.diagnostico.trim() || orden.diagnostico,
       motivo_no_reparacion: noReparacionForm.value.motivo,
       explicacion_no_reparacion: noReparacionForm.value.explicacion.trim(),
       ...(devolviendoEquipo.value ? { notas_devolucion: noReparacionForm.value.notas.trim(), fecha_devolucion: new Date().toISOString() } : {})
@@ -282,27 +262,12 @@ async function guardarTrabajoFinal() {
   const orden = modalTrabajo.value
   const trabajo = trabajoTemporal.value.trim()
   if (!orden) return
-  if (!trabajo) {
-    notificar('Debes registrar el trabajo realizado.', 'error')
-    return
+  const campos = trabajo ? { trabajo_realizado: trabajo } : {}
+  await cambiarEstado(orden, 'En pruebas', true, { campos })
+  if (orden.estado === 'En pruebas') {
+    cerrarModalTrabajo()
+    ordenEnPruebas.value = orden.id
   }
-
-  guardando.value = orden.id
-  const { error } = await supabase
-    .from('ordenes')
-    .update({ trabajo_realizado: trabajo })
-    .eq('id', orden.id)
-  guardando.value = null
-
-  if (error) {
-    notificar(error.message, 'error')
-    return
-  }
-
-  orden.trabajo_realizado = trabajo
-  cerrarModalTrabajo()
-  await cambiarEstado(orden, 'Reparado')
-  notificar('Reparación terminada correctamente.')
 }
 
 function confirmarTechSoul(titulo, mensaje, confirmarTexto = 'Confirmar') {
@@ -374,7 +339,7 @@ const estados = [
   { value: 'Recibido', label: 'Recibido' },
   { value: 'Diagnóstico', label: 'Diagnóstico' },
   { value: 'Esperando autorización', label: 'Esperando autorización' },
-  { value: 'Esperando pieza', label: 'Esperando refacción' },
+  { value: 'Esperando pieza', label: 'Consiguiendo refacción' },
   { value: 'En reparación', label: 'En reparación' },
   { value: 'Reparado', label: 'Reparado' },
   { value: 'En pruebas', label: 'En pruebas' },
@@ -909,7 +874,7 @@ function etiquetaAccion(orden) {
     'Recibido': '🔎 Iniciar diagnóstico',
     'Diagnóstico': '📋 Registrar diagnóstico',
     'Esperando pieza': '🔧 Refacción recibida · Reparar',
-    'En reparación': '✓ Terminar reparación',
+    'En reparación': 'Terminar y pasar a pruebas',
     'Reparado': '🧪 Pasar a pruebas',
     'Pendiente de devolución': 'Registrar devolución sin reparación',
     'Listo': ''
@@ -917,10 +882,10 @@ function etiquetaAccion(orden) {
   return mapa[orden.estado] || ''
 }
 
-async function cambiarEstado(orden, nuevoEstado, evidenciaValidada = false) {
+async function cambiarEstado(orden, nuevoEstado, evidenciaValidada = false, { campos = {}, respuestaCliente } = {}) {
   if (guardando.value === orden.id) return
   if (orden.estado === nuevoEstado) return
-  if (ESTADOS_DEVOLUCION.includes(nuevoEstado)) {
+  if (ESTADOS_DEVOLUCION.includes(nuevoEstado) && !respuestaCliente) {
     if (nuevoEstado === 'Devuelto sin reparación' && orden.estado !== 'Pendiente de devolución') return notificar('Primero registra el motivo y deja el equipo pendiente de devolución.', 'error')
     abrirNoReparacion(orden, nuevoEstado === 'Devuelto sin reparación'); return
   }
@@ -948,11 +913,11 @@ async function cambiarEstado(orden, nuevoEstado, evidenciaValidada = false) {
   if (['Esperando autorización', 'Esperando pieza', 'Listo', 'Entregado', 'Cancelado', 'Pendiente de devolución', 'Devuelto sin reparación'].includes(nuevoEstado) && orden.produccion?.corriendo) await pausarSilencioso(orden)
 
   const anterior = orden.estado
-  const { data: estadoGuardado, error } = await supabase.from('ordenes').update({ estado: nuevoEstado }).eq('id', orden.id).eq('estado', anterior).select('id').single()
+  const { data: estadoGuardado, error } = await supabase.from('ordenes').update({ ...campos, estado: nuevoEstado }).eq('id', orden.id).eq('estado', anterior).select('id').single()
   guardando.value = null
   if (error || !estadoGuardado) return notificar(error?.message || 'La orden cambió en otro dispositivo. Recarga Taller.', 'error')
 
-  orden.estado = nuevoEstado
+  Object.assign(orden, campos, { estado: nuevoEstado })
   orden.updated_at = new Date().toISOString()
   if (nuevoEstado === 'Diagnóstico' && !orden.produccion?.iniciado_en) {
     const iso = new Date().toISOString()
@@ -962,19 +927,20 @@ async function cambiarEstado(orden, nuevoEstado, evidenciaValidada = false) {
   const etapaMap = {
     'Recibido': 'por_hacer', 'Diagnóstico': 'diagnostico', 'Esperando autorización': 'diagnostico',
     'Esperando pieza': 'reparacion', 'En reparación': 'reparacion', 'Reparado': 'reparacion', 'En pruebas': 'pruebas', 'Listo': 'listo',
-    'Entregado': 'listo', 'Garantía': 'por_hacer', 'Cancelado': 'por_hacer'
+    'Pendiente de devolución': 'listo', 'Entregado': 'listo', 'Garantía': 'por_hacer', 'Cancelado': 'por_hacer'
   }
 
   const produccionCambios = { etapa: etapaMap[nuevoEstado] || 'por_hacer' }
   if (nuevoEstado === 'En reparación' && !orden.produccion?.corriendo) { produccionCambios.corriendo = true; produccionCambios.ultima_reanudacion_en = new Date().toISOString() }
-  if (nuevoEstado === 'Listo') produccionCambios.finalizado_en = new Date().toISOString()
-  if (!['Listo', 'Entregado'].includes(nuevoEstado)) produccionCambios.finalizado_en = null
+  if (['Listo', 'Pendiente de devolución'].includes(nuevoEstado)) produccionCambios.finalizado_en = new Date().toISOString()
+  else if (nuevoEstado !== 'Entregado') produccionCambios.finalizado_en = null
   await guardarProduccion(orden, produccionCambios)
 
-  await registrarHistorial(orden, `Estado cambiado a ${etiquetaEstado(nuevoEstado)}`,
+  const historialGuardado = await registrarHistorial(orden, respuestaCliente || `Estado cambiado a ${etiquetaEstado(nuevoEstado)}`,
     `La orden cambió de ${etiquetaEstado(anterior)} a ${etiquetaEstado(nuevoEstado)} desde el Panel de Taller.`,
-    { tipo: 'estado', estado_anterior: anterior, estado_nuevo: nuevoEstado })
+    { tipo: respuestaCliente ? 'autorizacion' : 'estado', estado_anterior: anterior, estado_nuevo: nuevoEstado })
   emit('updated')
+  if (respuestaCliente && !historialGuardado) return notificar('Se guardó la decisión, pero no se pudo añadir al historial.', 'error')
 
   if (nuevoEstado === 'Listo') {
     try {
@@ -1179,8 +1145,9 @@ onBeforeUnmount(() => {
             <router-link v-if="!embedded && ['Recibido','Diagnóstico','Esperando autorización'].includes(orden.estado)" class="workflow-secondary" :to="`/cotizador?orden=${orden.id}`">Cotizar servicio</router-link>
             <button v-if="etiquetaAccion(orden)" type="button" class="workflow-primary" :disabled="guardando === orden.id" @click="accionPrincipal(orden)">{{ etiquetaAccion(orden) }}</button>
             <template v-if="orden.estado === 'Esperando autorización'">
-              <button type="button" class="workflow-primary" @click="orden.diagnostico ? compartirDiagnostico(orden) : abrirDiagnostico(orden)">Enviar diagnóstico y cotización</button>
-              <button type="button" class="workflow-secondary" :disabled="guardando === orden.id" @click="abrirRespuestaCliente(orden)">Registrar respuesta del cliente</button>
+              <button type="button" class="workflow-primary" @click="orden.diagnostico ? compartirDiagnostico(orden) : abrirDiagnostico(orden)">Enviar cotización por WhatsApp</button>
+              <button type="button" class="workflow-primary" :disabled="guardando === orden.id" @click="registrarRespuestaCliente(orden, 'autoriza')">Autorizó</button>
+              <button type="button" class="workflow-secondary" :disabled="guardando === orden.id" @click="registrarRespuestaCliente(orden, 'rechaza')">No autorizó</button>
             </template>
             <button v-if="['Diagnóstico', 'Esperando autorización', 'Esperando pieza', 'En reparación', 'En pruebas'].includes(orden.estado)" type="button" class="workflow-secondary" :disabled="guardando === orden.id" @click="abrirNoReparacion(orden)">No podemos continuar</button>
             <button v-if="orden.motivo_no_reparacion && ESTADOS_DEVOLUCION.includes(orden.estado)" type="button" class="workflow-secondary" @click="copiarAvisoNoReparacion(orden)">Copiar aviso al cliente</button>
@@ -1211,25 +1178,17 @@ onBeforeUnmount(() => {
       </article>
     </div>
 
-    <div v-if="modalRespuestaCliente" class="evidence-modal-backdrop response-modal" @click.self="cerrarRespuestaCliente">
-      <section class="evidence-modal" role="dialog" aria-modal="true" aria-labelledby="response-title">
-        <div class="evidence-modal-head"><div><span>{{ modalRespuestaCliente.folio }}</span><h2 id="response-title">Respuesta del cliente</h2></div><button type="button" :disabled="guardandoRespuestaCliente" @click="cerrarRespuestaCliente">×</button></div>
-        <label class="repair-description"><span>¿Qué decidió el cliente?</span><select v-model="respuestaClienteForm.respuesta"><option value="autoriza">Autorizó el trabajo</option><option value="rechaza">No autorizó la cotización</option></select></label>
-        <label v-if="respuestaClienteForm.respuesta === 'autoriza'" class="repair-description"><span>¿Podemos iniciar?</span><select v-model="respuestaClienteForm.faltaRefaccion"><option :value="false">Sí, iniciar reparación</option><option :value="true">Falta refacción, esperar su llegada</option></select></label>
-        <label class="repair-description"><span>Confirmación recibida *</span><textarea v-model="respuestaClienteForm.nota" rows="3" placeholder="Ej. Alejandro autorizó por WhatsApp el precio y el servicio cotizado."></textarea></label>
-        <p v-if="respuestaClienteForm.respuesta === 'rechaza'">Registrarás el motivo y la explicación antes de dejar el equipo pendiente de devolución.</p>
-        <div class="evidence-modal-actions"><button type="button" class="cancel-evidence" :disabled="guardandoRespuestaCliente" @click="cerrarRespuestaCliente">Cancelar</button><button type="button" class="save-evidence" :disabled="guardandoRespuestaCliente" @click="guardarRespuestaCliente">{{ guardandoRespuestaCliente ? 'Guardando...' : 'Registrar respuesta' }}</button></div>
-      </section>
-    </div>
-
     <div v-if="modalNoReparacion" class="evidence-modal-backdrop return-modal" @click.self="cerrarNoReparacion">
       <section class="evidence-modal" role="dialog" aria-modal="true" aria-labelledby="return-title">
         <div class="evidence-modal-head"><div><span>{{ modalNoReparacion.folio }}</span><h2 id="return-title">{{ devolviendoEquipo ? 'Devolver sin reparación' : 'No podemos continuar' }}</h2></div><button type="button" :disabled="guardandoNoReparacion" @click="cerrarNoReparacion">×</button></div>
+        <p v-if="devolviendoEquipo && modalNoReparacion.motivo_no_reparacion === 'Cliente no autorizó la cotización'">{{ modalNoReparacion.motivo_no_reparacion }}</p>
+        <template v-else>
         <label class="repair-description"><span>Motivo *</span><select v-model="noReparacionForm.motivo" :disabled="devolviendoEquipo"><option value="">Selecciona un motivo</option><option v-for="motivo in MOTIVOS_NO_REPARACION" :key="motivo">{{ motivo }}</option></select></label>
         <label class="repair-description"><span>Diagnóstico y pruebas realizadas *</span><textarea v-model="noReparacionForm.diagnostico" rows="3"></textarea></label>
         <label class="repair-description"><span>Explicación para el cliente *</span><textarea v-model="noReparacionForm.explicacion" rows="4" placeholder="Explica por qué no podemos realizar el trabajo. Evita afirmar que no tiene solución si no se pudo completar el diagnóstico."></textarea></label>
         <p>Las evidencias existentes se conservan. Puedes agregar pruebas y fotografías desde el apartado de Evidencias de la orden.</p>
-        <label v-if="devolviendoEquipo" class="repair-description"><span>Recibió el equipo y acuerdo de pagos *</span><textarea v-model="noReparacionForm.notas" rows="4" placeholder="Nombre de quien recibe, estado del equipo, cobro de diagnóstico y anticipo devuelto o pendiente. Si no hubo pagos, indícalo."></textarea></label>
+        </template>
+        <label v-if="devolviendoEquipo" class="repair-description"><span>Nota de devolución{{ modalNoReparacion.motivo_no_reparacion === 'Cliente no autorizó la cotización' && !(Number(modalNoReparacion.anticipo) > 0) ? ' (opcional)' : ' *' }}</span><textarea v-model="noReparacionForm.notas" rows="4" placeholder="Quién recibe el equipo y qué se acordó sobre los pagos"></textarea></label>
         <p>Revisa los cobros y anticipos antes de devolver el equipo. Esta acción registra el acuerdo; los movimientos de dinero se registran por separado en Caja.</p>
         <div class="evidence-modal-actions"><button type="button" class="cancel-evidence" :disabled="guardandoNoReparacion" @click="cerrarNoReparacion">Cancelar</button><button type="button" class="save-evidence" :disabled="guardandoNoReparacion" @click="guardarNoReparacion">{{ guardandoNoReparacion ? 'Guardando...' : devolviendoEquipo ? 'Confirmar devolución' : 'Guardar · Pendiente de devolución' }}</button></div>
       </section>
@@ -1298,15 +1257,14 @@ onBeforeUnmount(() => {
           <div><span>REPARACIÓN</span><h2>Finalizar reparación</h2></div>
           <button type="button" @click="cerrarModalTrabajo">×</button>
         </div>
-        <p>Describe el trabajo realizado antes de marcar la reparación como terminada.</p>
         <label class="techsoul-modal-field">
-          <span>Trabajo realizado *</span>
+          <span>Trabajo realizado (opcional)</span>
           <textarea v-model="trabajoTemporal" rows="5" placeholder="Ej. Se reemplazó cristal de cámara, se realizó limpieza y pruebas de funcionamiento."></textarea>
         </label>
         <div class="techsoul-modal-actions">
           <button type="button" class="modal-cancel" @click="cerrarModalTrabajo">Cancelar</button>
-          <button type="button" class="modal-confirm" :disabled="!trabajoTemporal.trim() || guardando === modalTrabajo.id" @click="guardarTrabajoFinal">
-            {{ guardando === modalTrabajo.id ? 'Guardando…' : '✓ Finalizar reparación' }}
+          <button type="button" class="modal-confirm" :disabled="guardando === modalTrabajo.id" @click="guardarTrabajoFinal">
+            {{ guardando === modalTrabajo.id ? 'Guardando…' : 'Terminar y pasar a pruebas' }}
           </button>
         </div>
       </section>
@@ -1331,7 +1289,7 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .is-embedded .orders-grid{grid-template-columns:minmax(0,1fr)}
-.workflow-more summary{cursor:pointer;color:#64748b;font-size:.75rem;padding:8px}.workflow-more[open]{display:grid;gap:8px}.workflow-more button{width:100%;margin-top:6px}.response-modal select{width:100%;padding:12px;border:1px solid #cbd5e1;border-radius:10px}
+.workflow-more summary{cursor:pointer;color:#64748b;font-size:.75rem;padding:8px}.workflow-more[open]{display:grid;gap:8px}.workflow-more button{width:100%;margin-top:6px}
 .return-modal{z-index:1200}.return-summary{padding:12px;border-radius:10px;background:#fff7ed;color:#9a3412;white-space:pre-wrap}.return-modal select{width:100%;padding:12px;border:1px solid #cbd5e1;border-radius:10px}
 .diagnostic-photo-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.diagnostic-photo-slot{display:grid;gap:9px;padding:12px;border:1px solid #dbe3ee;border-radius:14px}.diagnostic-photo-slot>strong{font-size:.85rem}.diagnostic-photo-slot img{width:100%;height:155px;object-fit:contain;border-radius:9px;background:#f1f5f9}.photo-empty{height:120px;display:grid;place-items:center;padding:12px;text-align:center;color:#64748b;border:1px dashed #cbd5e1;border-radius:9px;font-size:.8rem}.photo-camera-button{border:0;border-radius:10px;padding:12px;background:#0B43FF;color:#fff;font-weight:700;cursor:pointer}.photo-camera-button:disabled{opacity:.55;cursor:default}.photo-file-button{display:grid;gap:5px;color:#64748b;font-size:.75rem;overflow:hidden}.photo-file-button input{max-width:100%;font-size:.72rem}.camera-backdrop{position:fixed;inset:0;z-index:6000;background:rgba(15,23,42,.85);display:grid;place-items:center;padding:16px}.camera-dialog{width:min(640px,100%);max-height:95dvh;overflow:auto;background:white;border-radius:18px;padding:16px;display:grid;gap:12px;color:#101828}.camera-dialog header{display:flex;justify-content:space-between;align-items:center}.camera-dialog header button{border:0;background:#f1f5f9;border-radius:50%;width:36px;height:36px;font-size:24px}.camera-dialog video{width:100%;max-height:65dvh;object-fit:contain;background:#0B0F17;border-radius:10px}.evidence-modal{max-height:92dvh;overflow-y:auto}.evidence-modal-actions{position:sticky;bottom:-20px;background:#fff;padding-block:12px;z-index:1}@media(max-width:520px){.diagnostic-photo-grid{grid-template-columns:1fr}.diagnostic-photo-slot img{height:180px}}
 

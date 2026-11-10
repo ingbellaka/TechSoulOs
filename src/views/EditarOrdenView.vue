@@ -47,7 +47,7 @@ const estados = [
   { value: 'Recibido', label: 'Recibido', help: 'El equipo acaba de ingresar al taller.' },
   { value: 'Diagnóstico', label: 'En diagnóstico', help: 'Se está revisando la causa de la falla.' },
   { value: 'Esperando autorización', label: 'Esperando autorización', help: 'La cotización fue enviada y falta aprobación.' },
-  { value: 'Esperando pieza', label: 'Esperando refacción', help: 'La reparación depende de una pieza o material.' },
+  { value: 'Esperando pieza', label: 'Consiguiendo refacción', help: 'La reparación depende de una pieza o material.' },
   { value: 'En reparación', label: 'En reparación', help: 'El técnico ya está trabajando en el equipo.' },
   { value: 'Reparado', label: 'Reparado', help: 'El trabajo técnico terminó y está pendiente de pruebas.' },
   { value: 'En pruebas', label: 'En pruebas', help: 'El equipo está en control de calidad y validación.' },

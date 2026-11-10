@@ -1,5 +1,5 @@
-export function destinoRespuestaCliente(respuesta, faltaRefaccion) {
-  if (respuesta === 'autoriza') return faltaRefaccion ? 'Esperando pieza' : 'En reparación'
+export function destinoRespuestaCliente(respuesta) {
+  if (respuesta === 'autoriza') return 'Esperando pieza'
   if (respuesta === 'rechaza') return 'Pendiente de devolución'
   return ''
 }

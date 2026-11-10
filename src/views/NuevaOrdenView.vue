@@ -420,8 +420,9 @@ function guardarEquipoPendiente() {
   window.scrollTo({ top: 0, behavior: 'smooth' })
 }
 
-async function crearOrden() {
+async function crearOrden(recepcionRapida = false) {
   if (cargando.value || cargandoCita.value) return
+  if (recepcionRapida && (!validarPaso(1) || !validarPaso(2))) return
   if (route.query.cita && (errorCita.value || !citaOrigen.value)) return alert('No se pudo cargar la cita. Recarga antes de crear la orden.')
   if (citaOrigen.value?.orden_id) return router.push(`/ordenes/${citaOrigen.value.orden_id}`)
   const lote = [...equiposPendientes.value]
@@ -444,7 +445,7 @@ async function crearOrden() {
       descuento.value = ficha.descuento || { tipo: 'importe', valor: 0, motivo: '' }
       equipo.value = ficha.equipo; orden.value = ficha.orden; evidenciasRecepcion.value = ficha.evidencias
       checklist.value = ficha.checklist; servicios.value = ficha.servicios; pagosAnticipo.value = ficha.pagos
-      ids.push(await crearOrdenIndividual(grupo))
+      ids.push(await crearOrdenIndividual(grupo, recepcionRapida))
     }
     equiposPendientes.value = []
     alert(`Se crearon ${ids.length} orden(es): ${ids.map(x => x.folio).join(', ')}`)
@@ -453,13 +454,13 @@ async function crearOrden() {
   finally { cargando.value = false }
 }
 
-async function crearOrdenIndividual(grupo) {
+async function crearOrdenIndividual(grupo, recepcionRapida) {
   if (!cliente.value.cliente_id && !cliente.value.nombre.trim()) throw new Error('Selecciona o captura un cliente')
   if (!equipo.value.modelo.trim()) throw new Error('El modelo del equipo es obligatorio')
   if (!orden.value.falla_reportada.trim()) throw new Error('La falla reportada es obligatoria')
   if (pagosAnticipo.value.some(p => !p.metodo || !Number.isFinite(Number(p.monto)) || Number(p.monto) < 0 || (pagosAnticipo.value.length > 1 && Number(p.monto) <= 0))) throw new Error('Revisa los importes de cada método de pago')
   const serviciosValidos = servicios.value.filter(servicio => servicio.tipo && (servicio.tipo !== 'Otro' || servicio.descripcion.trim()))
-  if (serviciosValidos.length === 0) throw new Error('Agrega al menos un servicio a realizar')
+  if (serviciosValidos.length === 0 && !recepcionRapida) throw new Error('Agrega al menos un servicio a realizar')
   if (calculoDescuento.value.error) throw new Error(calculoDescuento.value.error)
   if (Number(orden.value.anticipo || 0) > totalConDescuento.value) throw new Error('El anticipo no puede ser mayor al total')
 
@@ -520,9 +521,8 @@ async function crearOrdenIndividual(grupo) {
       if(errorVinculo || !vinculada) throw errorVinculo || new Error(`La orden ${folio} se creó, pero la cita ya fue vinculada en otra sesión. Revisa Agenda antes de continuar.`)
     }
 
-    const serviciosParaGuardar = servicios.value
-      .filter(servicio => servicio.tipo && (servicio.tipo !== 'Otro' || servicio.descripcion.trim()))
-      .map((servicio, indice) => ({
+    if (serviciosValidos.length) {
+      const serviciosParaGuardar = serviciosValidos.map((servicio, indice) => ({
         orden_id: ordenId,
         tipo_servicio: servicio.tipo === 'Otro' ? servicio.descripcion.trim() : servicio.tipo,
         descripcion: servicio.descripcion.trim(),
@@ -531,8 +531,9 @@ async function crearOrdenIndividual(grupo) {
         orden_visual: indice
       }))
 
-    const { error: errorServicios } = await supabase.from('orden_servicios').insert(serviciosParaGuardar)
-    if (errorServicios) throw errorServicios
+      const { error: errorServicios } = await supabase.from('orden_servicios').insert(serviciosParaGuardar)
+      if (errorServicios) throw errorServicios
+    }
 
     for (const nombre of [...requisitosEvidencia.value, ...evidenciasOpcionales.value]) {
       const evidencia = evidenciasRecepcion.value[nombre]
@@ -649,7 +650,7 @@ onMounted(async () => {
       <div class="header-actions">
         <button class="btn btn-light" type="button" @click="router.push('/ordenes')">Cancelar</button>
         <button v-if="pasoActual === 5" type="button" class="btn btn-outline-primary" @click="guardarEquipoPendiente">+ Agregar otro equipo</button>
-            <button v-if="pasoActual === pasos.length" class="btn ts-btn-primary" type="button" :disabled="cargando" @click="crearOrden">
+        <button v-if="pasoActual === pasos.length" class="btn ts-btn-primary" type="button" :disabled="cargando" @click="crearOrden()">
           {{ cargando ? 'Creando...' : 'Crear orden' }}
         </button>
       </div>
@@ -952,12 +953,13 @@ onMounted(async () => {
           </section>
         </transition>
 
-        <footer class="wizard-footer">
+        <footer class="wizard-footer d-flex flex-wrap gap-2">
           <button class="btn btn-light" type="button" :disabled="pasoActual === 1" @click="pasoAnterior">← Anterior</button>
           <span class="mobile-step-count">{{ pasoActual }} / {{ pasos.length }}</span>
-          <button v-if="pasoActual < pasos.length" class="btn ts-btn-primary" type="button" @click="pasoSiguiente">Continuar →</button>
+          <button v-if="pasoActual < pasos.length" class="btn" :class="pasoActual === 2 ? 'btn-outline-primary' : 'ts-btn-primary'" type="button" @click="pasoSiguiente">{{ pasoActual === 2 ? 'Agregar fotos, pruebas o servicios' : 'Continuar →' }}</button>
+          <button v-if="pasoActual === 2" class="btn ts-btn-primary" type="button" :disabled="cargando" @click="crearOrden(true)">{{ cargando ? 'Recibiendo…' : 'Recibir equipo' }}</button>
           <button v-if="pasoActual === pasos.length" type="button" class="btn btn-outline-primary" @click="guardarEquipoPendiente">+ Otro equipo</button>
-          <button v-if="pasoActual === pasos.length" class="btn ts-btn-primary" type="button" :disabled="cargando" @click="crearOrden">{{ cargando ? 'Creando orden...' : 'Crear orden' }}</button>
+          <button v-if="pasoActual === pasos.length" class="btn ts-btn-primary" type="button" :disabled="cargando" @click="crearOrden()">{{ cargando ? 'Creando orden...' : 'Crear orden' }}</button>
         </footer>
       </main>
 
