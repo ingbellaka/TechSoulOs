@@ -3,6 +3,7 @@ import { useAuthStore as useNavigationAuth } from '../stores/auth'
 const puedeComprar = useNavigationAuth().can(['admin', 'recepcion'])
 import { computed, onMounted, ref } from 'vue'
 import { supabase } from '../lib/supabase'
+import { coincideBusquedaProducto } from '../utils/busqueda-productos'
 import { ajustarExistencia, registrarMovimientoInventario } from '../services/integracion.service'
 
 const DRAFT_KEY = 'techsoul_inventory_draft_v1'
@@ -40,19 +41,17 @@ const form = ref(formInicial())
 function moneda(valor) {
   return Number(valor || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN' })
 }
-function normalizar(valor) {
-  return String(valor || '').toLocaleLowerCase('es-MX').normalize('NFD').replace(/[\u0300-\u036f]/g, '')
-}
 function formatoFecha(fecha) {
   return new Date(fecha).toLocaleString('es-MX', { dateStyle: 'short', timeStyle: 'short' })
 }
 
 const categorias = computed(() => ['Todas', ...new Set(productos.value.map(p => p.categoria).filter(Boolean))])
 const productosFiltrados = computed(() => {
-  const q = normalizar(busqueda.value)
   return productos.value.filter((producto) => {
-    const coincideBusqueda = !q || [producto.nombre, producto.categoria, producto.tipo_producto, producto.compatible_con, producto.proveedor, producto.marca, producto.calidad]
-      .some(valor => normalizar(valor).includes(q))
+    const coincideBusqueda = coincideBusquedaProducto([
+      producto.nombre, producto.categoria, producto.tipo_producto, producto.compatible_con,
+      producto.proveedor, producto.marca, producto.calidad
+    ], busqueda.value)
     const coincideCategoria = categoriaFiltro.value === 'Todas' || producto.categoria === categoriaFiltro.value
     const bajoPedido = producto.modalidad === 'bajo_pedido'
     const bajo = !bajoPedido && Number(producto.stock || 0) <= Number(producto.stock_minimo || 0)
