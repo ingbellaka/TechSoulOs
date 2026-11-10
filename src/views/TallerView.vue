@@ -138,8 +138,8 @@ async function guardarNoReparacion() {
       for (const [indice, foto] of fotosDiagnostico.value.entries()) {
         if (!foto) continue
         const url = await subirEvidencia(foto, `orden-${orden.id}/diagnostico`)
-        const descripcion = `Diagnóstico · Foto ${indice + 1} obligatoria`
-        const { data: existentes, error: consultaError } = await supabase.from('evidencias').select('id').eq('orden_id', orden.id).eq('tipo', 'Diagnóstico').eq('descripcion', descripcion).limit(1)
+        const descripcion = `Diagnóstico · Foto ${indice + 1}`
+        const { data: existentes, error: consultaError } = await supabase.from('evidencias').select('id').eq('orden_id', orden.id).eq('tipo', 'Diagnóstico').in('descripcion', [descripcion, descripcion + ' obligatoria']).limit(1)
         if (consultaError) throw consultaError
         const evidencia = { orden_id: orden.id, tipo: 'Diagnóstico', descripcion, url_imagen: url }
         const resultado = existentes?.length ? await supabase.from('evidencias').update(evidencia).eq('id', existentes[0].id) : await supabase.from('evidencias').insert(evidencia)
@@ -734,6 +734,13 @@ async function solicitarEvidenciaInterna(orden) {
   return false
 }
 
+async function continuarSinFotoInterna() {
+  const orden = modalEvidencia.value
+  if (!orden || guardandoEvidencia.value) return
+  cerrarEvidenciaInterna()
+  await cambiarEstado(orden, 'En pruebas', true)
+}
+
 async function guardarEvidenciaInterna() {
   const orden = modalEvidencia.value
   if (!orden || guardandoEvidencia.value) return
@@ -855,13 +862,13 @@ async function guardarDiagnosticoYAutorizar() {
   if (!solucion) return notificar('Ingresa la solución o reparación propuesta.', 'error')
   if (!Number.isFinite(costo) || costo < 0) return notificar('Ingresa un costo válido.', 'error')
   if (costo < Number(orden.anticipo || 0)) return notificar('La cotización no puede ser menor al importe ya pagado.', 'error')
-  if (!fotosDiagnostico.value.every(Boolean)) return notificar('Toma las dos fotografías obligatorias del diagnóstico.', 'error')
   guardandoDiagnostico.value = true
   try {
     for (const [indice, foto] of fotosDiagnostico.value.entries()) {
-      const descripcion = `Diagnóstico · Foto ${indice + 1} obligatoria`
+      if (!foto) continue
+      const descripcion = `Diagnóstico · Foto ${indice + 1}`
       const url = await subirEvidencia(foto, `orden-${orden.id}/diagnostico`)
-      const { data: existentes, error: errorConsulta } = await supabase.from('evidencias').select('id').eq('orden_id', orden.id).eq('tipo', 'Diagnóstico').eq('descripcion', descripcion).limit(1)
+      const { data: existentes, error: errorConsulta } = await supabase.from('evidencias').select('id').eq('orden_id', orden.id).eq('tipo', 'Diagnóstico').in('descripcion', [descripcion, descripcion + ' obligatoria']).limit(1)
       if (errorConsulta) throw errorConsulta
       const payload = { orden_id: orden.id, tipo: 'Diagnóstico', url_imagen: url, descripcion }
       const resultado = existentes?.length
@@ -929,12 +936,9 @@ async function cambiarEstado(orden, nuevoEstado, evidenciaValidada = false) {
     }
   }
   if (nuevoEstado === 'Listo') {
-    const [{ data: controles, error: ec }, { data: fotos, error: ef }] = await Promise.all([
-      supabase.from('control_calidad_orden').select('estado').eq('orden_id', orden.id),
-      supabase.from('evidencias').select('tipo').eq('orden_id', orden.id).eq('tipo', 'Salida')
-    ])
-    if (ec || ef || controles?.some(control => control.estado === "No funciona") || !fotos?.length) {
-      notificar('Para marcar como Listo, las pruebas deben funcionar o no aplicar y debe estar completa la evidencia de salida.', 'error')
+    const { data: controles, error } = await supabase.from('control_calidad_orden').select('estado').eq('orden_id', orden.id)
+    if (error || controles?.some(control => control.estado === 'No funciona')) {
+      notificar(error?.message || 'Resuelve las fallas registradas antes de marcar el equipo como Listo.', 'error')
       return
     }
   }
@@ -1244,12 +1248,12 @@ onBeforeUnmount(() => {
           <article v-for="indice in [0, 1]" :key="indice" class="diagnostic-photo-slot">
             <strong>Foto {{ indice + 1 }} del diagnóstico *</strong>
             <img v-if="previewsDiagnostico[indice]" :src="previewsDiagnostico[indice]" :alt="`Foto ${indice + 1} del diagnóstico`">
-            <div v-else class="photo-empty">Interior del equipo · obligatoria</div>
+            <div v-else class="photo-empty">Interior del equipo · opcional</div>
             <button type="button" class="photo-camera-button" :disabled="guardandoDiagnostico" @click="abrirCamara({ tipo: 'diagnostico', indice })">📷 {{ fotosDiagnostico[indice] ? 'Volver a tomar' : 'Tomar foto' }}</button>
             <label class="photo-file-button">Elegir del carrete<input type="file" accept="image/*" :disabled="guardandoDiagnostico" @change="seleccionarFotoDiagnostico($event, indice)"></label>
           </article>
         </div>
-        <small>{{ fotosDiagnostico.filter(Boolean).length }} / 2 fotografías capturadas. Ambas son obligatorias.</small>
+        <small>{{ fotosDiagnostico.filter(Boolean).length }} / 2 fotografías capturadas. Son opcionales.</small>
         <div class="evidence-modal-actions"><button type="button" class="cancel-evidence" @click="cerrarDiagnostico">Cancelar</button><button type="button" class="save-evidence" :disabled="guardandoDiagnostico" @click="guardarDiagnosticoYAutorizar">{{ guardandoDiagnostico ? 'Guardando...' : 'Guardar y esperar autorización' }}</button></div>
       </section>
     </div>
@@ -1263,11 +1267,11 @@ onBeforeUnmount(() => {
         <p>Toma una fotografía del interior con los blindajes colocados, antes de cerrar el equipo y pasar a pruebas. Esta evidencia quedará vinculada permanentemente a la orden <strong>{{ modalEvidencia.folio }}</strong>.</p>
         <label class="internal-photo-box">
           <img v-if="previewInterna" :src="previewInterna" alt="Evidencia interna de reparación">
-          <div v-else><b>Interior con blindajes colocados</b><small>Elegir del carrete · Foto obligatoria</small></div>
+          <div v-else><b>Interior con blindajes colocados</b><small>Elegir del carrete · Foto opcional</small></div>
           <input type="file" accept="image/*" :disabled="guardandoEvidencia" @change="seleccionarFotoInterna">
         </label>
         <button type="button" class="photo-camera-button" :disabled="guardandoEvidencia" @click="abrirCamara({ tipo: 'blindajes' })">📷 {{ fotoInterna ? 'Volver a tomar foto de blindajes' : 'Tomar foto de blindajes' }}</button>
-        <div class="evidence-modal-actions"><button type="button" class="cancel-evidence" @click="cerrarEvidenciaInterna">Cancelar</button><button type="button" class="save-evidence" :disabled="guardandoEvidencia" @click="guardarEvidenciaInterna">{{ guardandoEvidencia ? 'Guardando...' : 'Guardar y pasar a pruebas' }}</button></div>
+        <div class="evidence-modal-actions"><button type="button" class="cancel-evidence" @click="cerrarEvidenciaInterna">Cancelar</button><button type="button" class="cancel-evidence" :disabled="guardandoEvidencia" @click="continuarSinFotoInterna">Pasar a pruebas sin foto</button><button type="button" class="save-evidence" :disabled="guardandoEvidencia || !fotoInterna" @click="guardarEvidenciaInterna">{{ guardandoEvidencia ? 'Guardando...' : 'Guardar y pasar a pruebas' }}</button></div>
       </section>
     </div>
 

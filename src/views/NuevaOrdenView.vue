@@ -30,7 +30,7 @@ const pasoActual = ref(1)
 const pasos = [
   { numero: 1, titulo: 'Cliente', subtitulo: 'Datos de contacto' },
   { numero: 2, titulo: 'Equipo', subtitulo: 'Modelo y falla' },
-  { numero: 3, titulo: 'Evidencia', subtitulo: 'Fotos obligatorias' },
+  { numero: 3, titulo: 'Evidencia', subtitulo: 'Fotos opcionales' },
   { numero: 4, titulo: 'Pruebas', subtitulo: 'Checklist rápido' },
   { numero: 5, titulo: 'Servicios', subtitulo: 'Trabajo y cobro' }
 ]
@@ -54,7 +54,6 @@ const evidenciasPorTipo = {
   Otro: ['Vista general 1', 'Vista general 2', 'Condición física']
 }
 const requisitosEvidencia = computed(() => evidenciasPorTipo[equipo.value.tipo_equipo] || evidenciasPorTipo.Otro)
-const evidenciaCompleta = computed(() => requisitosEvidencia.value.every(nombre => evidenciasRecepcion.value[nombre]?.file))
 const evidenciasOpcionales = computed(() => ['Celular', 'Tablet', 'iPad'].includes(equipo.value.tipo_equipo) ? ['Cámara frontal'] : [])
 const sumarPagos = pagos => pagos.reduce((total, p) => total + Math.round(Number(p.monto || 0) * 100), 0) / 100
 watch(pagosAnticipo, pagos => { orden.value.anticipo = sumarPagos(pagos) }, { deep: true })
@@ -380,7 +379,6 @@ function validarPaso(paso) {
   if (paso === 1 && !cliente.value.cliente_id && !cliente.value.nombre.trim()) { alert('Selecciona o captura un cliente'); return false }
   if (paso === 2 && !equipo.value.modelo.trim()) { alert('Captura el modelo del equipo'); return false }
   if (paso === 2 && !orden.value.falla_reportada.trim()) { alert('Describe la falla reportada'); return false }
-  if (paso === 3 && !evidenciaCompleta.value) { alert(`Faltan fotografías obligatorias de recepción para ${equipo.value.tipo_equipo}.`); return false }
   return true
 }
 
@@ -400,7 +398,7 @@ function irAPaso(numero) {
 }
 
 function guardarEquipoPendiente() {
-  if (!validarPaso(2) || !evidenciaCompleta.value) return alert('Completa las evidencias obligatorias del equipo.')
+  if (!validarPaso(2)) return
   if (!servicios.value.some(s => s.tipo)) return alert('Agrega un servicio para este equipo.')
   if (pagosAnticipo.value.some(p => !p.metodo || !Number.isFinite(Number(p.monto)) || Number(p.monto) < 0 || (pagosAnticipo.value.length > 1 && Number(p.monto) <= 0))) return alert('Revisa los métodos e importes.')
   if (calculoDescuento.value.error) return alert(calculoDescuento.value.error)
@@ -459,7 +457,6 @@ async function crearOrdenIndividual(grupo) {
   if (!cliente.value.cliente_id && !cliente.value.nombre.trim()) throw new Error('Selecciona o captura un cliente')
   if (!equipo.value.modelo.trim()) throw new Error('El modelo del equipo es obligatorio')
   if (!orden.value.falla_reportada.trim()) throw new Error('La falla reportada es obligatoria')
-  if (!evidenciaCompleta.value) throw new Error(`Completa las fotografías obligatorias de recepción para ${equipo.value.tipo_equipo}`)
   if (pagosAnticipo.value.some(p => !p.metodo || !Number.isFinite(Number(p.monto)) || Number(p.monto) < 0 || (pagosAnticipo.value.length > 1 && Number(p.monto) <= 0))) throw new Error('Revisa los importes de cada método de pago')
   const serviciosValidos = servicios.value.filter(servicio => servicio.tipo && (servicio.tipo !== 'Otro' || servicio.descripcion.trim()))
   if (serviciosValidos.length === 0) throw new Error('Agrega al menos un servicio a realizar')
@@ -537,9 +534,9 @@ async function crearOrdenIndividual(grupo) {
     const { error: errorServicios } = await supabase.from('orden_servicios').insert(serviciosParaGuardar)
     if (errorServicios) throw errorServicios
 
-    for (const nombre of [...requisitosEvidencia.value, ...evidenciasOpcionales.value.filter(n => evidenciasRecepcion.value[n]?.file)]) {
+    for (const nombre of [...requisitosEvidencia.value, ...evidenciasOpcionales.value]) {
       const evidencia = evidenciasRecepcion.value[nombre]
-      if (!evidencia?.file) throw new Error(`Falta evidencia obligatoria: ${nombre}`)
+      if (!evidencia?.file) continue
       const urlFoto = await subirEvidencia(evidencia.file, `orden-${ordenId}/recepcion`)
       const { error: errorEvidencia } = await supabase.from('evidencias').insert({
         orden_id: ordenId,
@@ -738,10 +735,10 @@ onMounted(async () => {
           </section>
 
           <section v-else-if="pasoActual === 3" key="evidence" class="wizard-step">
-            <div class="step-heading"><span class="step-kicker">REGISTRO VISUAL OBLIGATORIO</span><h2>Evidencia de recepción · {{ equipo.tipo_equipo }}</h2><p>Documenta cómo se recibe el equipo. No podrás crear la orden si falta una toma obligatoria.</p></div>
+            <div class="step-heading"><span class="step-kicker">REGISTRO VISUAL OPCIONAL</span><h2>Evidencia de recepción · {{ equipo.tipo_equipo }}</h2><p>Documenta cómo se recibe el equipo. Puedes continuar sin fotos.</p></div>
             <div class="evidence-grid">
               <article v-for="nombre in requisitosEvidencia" :key="nombre" class="evidence-slot" :class="{ complete: evidenciasRecepcion[nombre]?.file }">
-                <div class="evidence-slot-head"><strong>{{ nombre }}</strong><span>{{ evidenciasRecepcion[nombre]?.file ? '✓ Capturada' : 'Obligatoria' }}</span></div>
+                <div class="evidence-slot-head"><strong>{{ nombre }}</strong><span>{{ evidenciasRecepcion[nombre]?.file ? '✓ Capturada' : 'Opcional' }}</span></div>
                 <label class="evidence-capture">
                   <input type="file" accept="image/*" capture="environment" @change="manejarEvidencia($event, nombre)">
                   <img v-if="evidenciasRecepcion[nombre]?.preview" :src="evidenciasRecepcion[nombre].preview" :alt="nombre">
@@ -981,7 +978,7 @@ onMounted(async () => {
           <div :class="{ done: cliente.cliente_id || cliente.nombre.trim() }"><span>✓</span> Cliente</div>
           <div :class="{ done: equipo.modelo.trim() }"><span>✓</span> Equipo</div>
           <div :class="{ done: orden.falla_reportada.trim() }"><span>✓</span> Falla</div>
-          <div :class="{ done: evidenciaCompleta }"><span>✓</span> Evidencia {{ Object.keys(evidenciasRecepcion).length }}/{{ requisitosEvidencia.length }}</div>
+          <div>Fotos opcionales · {{ Object.keys(evidenciasRecepcion).length }} adjuntas</div>
         </div>
         <div v-if="orden.falla_reportada" class="summary-issue"><span>Falla reportada</span><p>{{ orden.falla_reportada }}</p></div>
       </aside>
