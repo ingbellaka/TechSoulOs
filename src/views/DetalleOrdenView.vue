@@ -88,12 +88,6 @@ const gastos = computed(() => movimientos.value.filter(m => m.tipo === 'Salida')
 const utilidad = computed(() => ingresos.value - gastos.value)
 const saldoOrden = computed(() => Math.max(0, Number(orden.value?.costo_total || 0) - Number(orden.value?.anticipo || 0)))
 
-const porcentajePagado = computed(() => {
-  const total = Number(orden.value?.costo_total || 0)
-  if (!total) return 0
-  return Math.min(100, Math.round((Number(orden.value?.anticipo || 0) / total) * 100))
-})
-
 const diasEnEspera = computed(() => {
   if (!orden.value?.fecha_listo || ['Entregado', 'Devuelto sin reparación'].includes(orden.value.estado)) return 0
   const ms = Date.now() - new Date(orden.value.fecha_listo).getTime()
@@ -656,34 +650,41 @@ onMounted(cargarDetalle)
 
 <template>
   <div v-if="orden" class="ts-order-detail-page">
-    <header class="ts-order-detail-header no-print">
-      <div>
-        <router-link to="/ordenes" class="ts-back-link">← Volver a órdenes</router-link>
-        <div class="ts-order-detail-title-row">
-          <div>
-            <span class="ts-order-eyebrow">Ficha de servicio</span>
-            <h1>Orden {{ orden.folio }}</h1><strong>{{ orden.equipos?.marca }} {{ orden.equipos?.modelo }}</strong>
-            <p>{{ orden.clientes?.nombre }} · Ingresó {{ fecha(orden.fecha_ingreso) }}</p>
-          </div>
-          <span class="ts-order-state-badge" :class="estadoOrdenClase()">{{ orden.estado }}</span>
+    <router-link to="/ordenes" class="ts-back-link no-print">← Volver a órdenes</router-link>
+    <header class="order-overview ts-detail-card no-print">
+      <div class="order-overview-top">
+        <div class="order-identity">
+          <p class="order-folio">{{ orden.folio }}</p>
+          <h1>{{ [orden.equipos?.marca, orden.equipos?.modelo].filter(Boolean).join(' ') || 'Equipo' }}</h1>
+          <p>{{ orden.clientes?.nombre || 'Sin cliente' }}<template v-if="orden.clientes?.telefono"> · {{ orden.clientes.telefono }}</template></p>
+          <p>Recibido {{ fecha(orden.fecha_ingreso) }}</p>
         </div>
+        <span class="ts-order-state-badge" :class="estadoOrdenClase()">{{ orden.estado }}</span>
       </div>
 
-      <div class="ts-order-detail-actions">
-        <router-link class="ts-action-primary ts-edit-order-action" :to="`/ordenes/${orden.id}/editar`">
-          <span class="ts-action-icon" aria-hidden="true">✎</span>
-          <span>Editar orden</span>
-        </router-link>
-        <a class="ts-action-secondary ts-whatsapp-button" :href="whatsappLink()" target="_blank" rel="noopener">WhatsApp</a>
+      <dl class="order-amounts">
+        <div><dt>Total</dt><dd>{{ moneda(orden.costo_total) }}</dd></div>
+        <div><dt>Pagado</dt><dd>{{ moneda(orden.anticipo) }}</dd></div>
+        <div class="order-balance"><dt>Saldo</dt><dd>{{ moneda(saldoOrden) }}</dd></div>
+      </dl>
+
+      <ol v-if="etapaOrden >= 0" class="order-steps" aria-label="Avance de la orden">
+        <li v-for="(etapa, i) in ['Recepción','Diagnóstico','Taller','Entrega']" :key="etapa" :class="{ done: i < etapaOrden }" :aria-current="i === etapaOrden ? 'step' : undefined">{{ etapa }}</li>
+      </ol>
+
+      <div class="order-overview-actions">
         <OrderCheckout :order="orden" :auto-open="route.query.entregar === '1' || route.query.cobrar === '1'" @saved="refrescarTrasCobro" />
-        <router-link v-if="['Recibido','Diagnóstico','Esperando autorización'].includes(orden.estado)" class="ts-action-secondary" :to="`/cotizador?orden=${orden.id}`">Cotizar servicio</router-link>
-        <button class="ts-action-secondary" type="button" @click="generarPdfOrden">Orden de servicio PDF</button>
+        <router-link class="ts-action-secondary" :to="`/ordenes/${orden.id}/editar`">Editar orden</router-link>
+        <details class="order-more">
+          <summary>Más acciones</summary>
+          <div class="order-more-actions">
+            <a class="ts-action-secondary" :href="whatsappLink()" target="_blank" rel="noopener">WhatsApp</a>
+            <router-link v-if="['Recibido','Diagnóstico','Esperando autorización'].includes(orden.estado)" class="ts-action-secondary" :to="`/cotizador?orden=${orden.id}`">Cotizar servicio</router-link>
+            <button class="ts-action-secondary" type="button" @click="generarPdfOrden">Orden de servicio PDF</button>
+          </div>
+        </details>
       </div>
     </header>
-    <ol v-if="etapaOrden >= 0" class="order-steps no-print" aria-label="Avance de la orden">
-      <li v-for="(etapa, i) in ['Recepción','Diagnóstico','Taller','Entrega']" :key="etapa" :class="{ done: i < etapaOrden }" :aria-current="i === etapaOrden ? 'step' : undefined">{{ etapa }}</li>
-    </ol>
-
 
     <section v-if="equiposRelacionados.length" class="ts-detail-card no-print" style="margin:12px 0">
       <strong>Otros equipos de esta recepción</strong>
@@ -699,8 +700,8 @@ onMounted(cargarDetalle)
     </section>
     <nav class="ts-order-tabs no-print" aria-label="Secciones de la orden">
       <button v-for="tab in [
-        ['seguimiento','Seguimiento'],['resumen','Detalles'],['historial','Actividad'],['evidencias','Fotos'],['finanzas','Finanzas'],['firma','Firma']
-      ]" :key="tab[0]" type="button" :class="{ active: seccionActiva === tab[0] }" @click="seccionActiva = tab[0]; tab[0] === 'firma' && nextTick(prepararCanvas)">
+        ['seguimiento','Seguimiento'],['resumen','Resumen'],['historial','Actividad'],['evidencias','Fotos'],['finanzas','Finanzas'],['firma','Firma']
+      ]" :key="tab[0]" type="button" :class="{ active: seccionActiva === tab[0] }" :aria-pressed="seccionActiva === tab[0]" @click="seccionActiva = tab[0]; tab[0] === 'firma' && nextTick(prepararCanvas)">
         {{ tab[1] }}
       </button>
     </nav>
@@ -708,18 +709,17 @@ onMounted(cargarDetalle)
     <section v-if="seccionActiva === 'seguimiento'" class="no-print"><TallerView :key="tallerVersion" :order-id="orden.id" embedded @updated="cargarDetalle" /></section>
     <section v-if="seccionActiva === 'resumen'" class="ts-order-detail-layout">
       <main class="ts-order-detail-main">
-        <article class="ts-detail-card reference-order-summary"><h2>Detalles de la orden</h2><dl class="reference-order-facts"><div><dt>Folio</dt><dd>{{ orden.folio }}</dd></div><div><dt>Estado</dt><dd>{{ orden.estado }}</dd></div><div><dt>Equipo</dt><dd>{{ orden.equipos?.marca }} {{ orden.equipos?.modelo }}</dd></div><div><dt>Cliente</dt><dd>{{ orden.clientes?.nombre }}</dd></div><div><dt>Recepción</dt><dd>{{ fecha(orden.fecha_ingreso) }}</dd></div></dl><dl class="order-checkout-summary no-print"><div><dt>Total</dt><dd>{{moneda(orden.costo_total)}}</dd></div><div><dt>Pagado</dt><dd>{{moneda(orden.anticipo)}}</dd></div><div><dt>Saldo</dt><dd>{{moneda(saldoOrden)}}</dd></div></dl></article>
         <article class="ts-detail-card ts-order-hero-card">
           <div class="ts-order-device-icon">{{ orden.equipos?.tipo_equipo === 'Tablet' ? '▰' : '▯' }}</div>
           <div>
-            <span class="ts-detail-label">Equipo recibido</span>
-            <h2>{{ orden.equipos?.marca }} {{ orden.equipos?.modelo }}</h2>
+            <h2>Datos del equipo</h2>
             <p>{{ orden.equipos?.tipo_equipo || 'Equipo' }}<span v-if="orden.equipos?.color"> · {{ orden.equipos.color }}</span></p>
           </div>
           <dl class="ts-order-device-meta">
             <div><dt>IMEI / Serie</dt><dd>{{ orden.equipos?.imei_serie || 'No registrado' }}</dd></div>
             <div><dt>Código</dt><dd>{{ orden.equipos?.codigo_bloqueo || 'No registrado' }}</dd></div>
             <div><dt>Técnico</dt><dd>{{ orden.tecnico || 'Sin asignar' }}</dd></div>
+            <div v-if="orden.fecha_listo"><dt>Fecha en que quedó listo</dt><dd>{{ fecha(orden.fecha_listo, false) }}</dd></div>
           </dl>
         </article>
 
@@ -762,45 +762,20 @@ onMounted(cargarDetalle)
       </main>
 
       <aside class="ts-order-detail-sidebar">
-        <article class="ts-detail-card">
-          <div class="order-card-heading"><h2>Fotos y pruebas</h2><button class="ts-action-secondary" type="button" @click="seccionActiva = 'evidencias'">Ver fotos ({{ evidencias.length }})</button></div>
+        <article class="ts-detail-card order-preview-card">
+          <div class="order-card-heading"><h2>Fotos</h2><button class="ts-action-secondary" type="button" @click="seccionActiva = 'evidencias'">Ver fotos ({{ evidencias.length }})</button></div>
           <div v-if="evidencias.length" class="order-photo-strip">
             <img v-for="foto in evidencias.slice(0, 3)" :key="foto.id" :src="foto.url_imagen" :alt="foto.descripcion || 'Evidencia'">
           </div>
           <p v-else>Aún no hay fotos.</p>
         </article>
-        <article class="ts-detail-card">
+        <article class="ts-detail-card order-preview-card">
           <div class="order-card-heading"><h2>Actividad</h2><button class="ts-action-secondary" type="button" @click="seccionActiva = 'historial'">Ver historial</button></div>
           <ul v-if="historial.length" class="order-recent-activity">
             <li v-for="evento in historial.slice(0, 2)" :key="evento.id"><strong>{{ evento.titulo || 'Actualización' }}</strong><small>{{ fecha(evento.created_at) }}</small></li>
           </ul>
           <p v-else>Aún no hay actividad registrada.</p>
         </article>
-        <article class="ts-detail-card ts-client-mini-card">
-          <span class="ts-detail-label">Cliente</span>
-          <div class="ts-client-mini-head"><div class="ts-client-avatar">{{ (orden.clientes?.nombre || 'C').charAt(0).toUpperCase() }}</div><div><h3>{{ orden.clientes?.nombre }}</h3><p>{{ orden.clientes?.telefono || 'Sin teléfono' }}</p></div></div>
-          <a :href="whatsappLink()" target="_blank" rel="noopener">Enviar actualización por WhatsApp</a>
-        </article>
-
-        <article class="ts-detail-card ts-payment-detail-card">
-          <span class="ts-detail-label">Estado de pago</span>
-          <div class="ts-payment-detail-total"><span>Total</span><strong>{{ moneda(orden.costo_total) }}</strong></div>
-          <div class="ts-detail-progress"><span :style="{ width: porcentajePagado + '%' }"></span></div>
-          <div class="ts-payment-detail-grid"><div><span>Pagado</span><strong>{{ moneda(orden.anticipo) }}</strong></div><div><span>Saldo</span><strong class="is-danger">{{ moneda(saldoOrden) }}</strong></div></div>
-          <small>{{ porcentajePagado }}% cubierto</small>
-        </article>
-
-        <article class="ts-detail-card ts-order-quick-info">
-          <span class="ts-detail-label">Información rápida</span>
-          <dl>
-            <div><dt>Folio</dt><dd>{{ orden.folio }}</dd></div>
-            <div><dt>Ingreso</dt><dd>{{ fecha(orden.fecha_ingreso, false) }}</dd></div>
-            <div><dt>Listo / notificado</dt><dd>{{ orden.fecha_listo ? fecha(orden.fecha_listo, false) : 'Aún no' }}</dd></div>
-            <div><dt>Evidencias</dt><dd>{{ evidencias.length }}</dd></div>
-            <div><dt>Firma digital</dt><dd>{{ firmaGarantiaRemota?.firmado_en ? 'Firmada' : 'Pendiente' }}</dd></div>
-          </dl>
-        </article>
-
         <article class="ts-detail-card" v-if="orden.fecha_listo && !['Entregado', 'Devuelto sin reparación'].includes(orden.estado)" :style="diasConCargo > 0 ? 'border-color:#f2b8b5;background:#fff8f7' : ''">
           <span class="ts-detail-label">Tiempo en espera</span>
           <div class="ts-payment-detail-total"><span>Días desde que se avisó</span><strong>{{ diasEnEspera }}</strong></div>
@@ -889,59 +864,35 @@ onMounted(cargarDetalle)
 </template>
 
 <style scoped>
-.order-checkout-summary{display:flex;flex-wrap:wrap;gap:12px 28px;margin:14px 0;padding:12px 16px;border:1px solid var(--ts-border);border-radius:12px;background:var(--ts-surface)}.order-checkout-summary dt{color:var(--ts-muted);font-size:.8rem}.order-checkout-summary dd{margin:2px 0 0;font-weight:750}
-.ts-receipt-link{border:1px solid #bfdbfe;background:#eff6ff;color:#175cff;border-radius:9px;padding:7px 10px;font-weight:800;font-size:.75rem;cursor:pointer}
-
-/* Acciones principales del detalle de orden */
-.ts-order-detail-actions{
-  display:flex;
-  align-items:center;
-  justify-content:flex-end;
-  gap:10px;
-  flex-wrap:wrap;
-}
-.ts-order-detail-actions > *{
-  min-height:42px;
-  display:inline-flex;
-  align-items:center;
-  justify-content:center;
-  white-space:nowrap;
-  text-decoration:none;
-}
-.ts-edit-order-action{
-  gap:8px;
-  min-width:142px;
-  box-shadow:0 8px 20px rgba(37,99,235,.18);
-}
-.ts-action-icon{
-  font-size:1rem;
-  line-height:1;
-}
-
-@media(max-width:900px){
-  .ts-order-detail-actions{
-    width:100%;
-    display:grid;
-    grid-template-columns:repeat(2,minmax(0,1fr));
-  }
-  .ts-order-detail-actions > *{width:100%;box-sizing:border-box}
-  .ts-edit-order-action{grid-column:1/-1}
-}
-
-@media(max-width:600px){
-  .ts-order-detail-actions{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
-  .ts-edit-order-action{grid-column:1/-1}
-  .ts-whatsapp-button{grid-column:auto}
-  .ts-order-detail-actions > :last-child{grid-column:1/-1}
-  .ts-detail-movement-item{display:grid!important;grid-template-columns:auto minmax(0,1fr)!important;gap:8px 10px!important}
-  .ts-detail-movement-item>b,.ts-receipt-link{grid-column:2!important;justify-self:start}
-}
-
-@media(max-width:420px){
-  .ts-order-detail-actions{grid-template-columns:1fr}
-  .ts-order-detail-actions > *,
-  .ts-edit-order-action,
-  .ts-order-detail-actions > :last-child{grid-column:1}
+.order-overview { padding: clamp(16px, 3vw, 28px); margin-block: 12px 20px; display: grid; gap: 18px; }
+.order-overview-top { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-start; gap: 12px; }
+.order-identity { min-width: 0; }
+.order-identity h1 { margin: 4px 0 8px; font-size: clamp(1.5rem, 3vw, 2.1rem); letter-spacing: -.025em; overflow-wrap: anywhere; }
+.order-identity p { margin: 4px 0 0; color: var(--ts-muted); font-size: .88rem; }
+.order-identity .order-folio { color: var(--ts-primary); font-weight: 750; }
+.order-amounts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin: 0; }
+.order-amounts > div { min-width: 0; padding: 12px; border-radius: 10px; background: var(--ts-surface-2); }
+.order-amounts dt { color: var(--ts-muted); font-size: .78rem; }
+.order-amounts dd { margin: 4px 0 0; font-size: clamp(.9rem, 2vw, 1.25rem); font-weight: 750; overflow-wrap: anywhere; }
+.order-amounts .order-balance { background: var(--ts-primary-soft); }
+.order-overview .order-steps { margin: 0; }
+.order-overview-actions, .order-more-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.order-overview-actions > :is(button, a), .order-more-actions > * { min-height: 44px; justify-content: center; white-space: normal; text-align: center; }
+.order-more { flex-basis: 100%; }
+.order-more summary { min-height: 44px; padding-block: 12px; color: var(--ts-muted); cursor: pointer; font-weight: 650; }
+.order-preview-card { padding: 16px; margin-bottom: 12px; }
+.order-card-heading { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 12px; }
+.order-card-heading h2 { margin: 0; font-size: 1.05rem; }
+.order-preview-card p { margin: 0; color: var(--ts-muted); }
+.order-recent-activity { margin: 0; padding-inline-start: 20px; }
+.order-recent-activity li + li { margin-top: 8px; }
+.order-recent-activity small { display: block; color: var(--ts-muted); }
+.ts-receipt-link { border: 1px solid #bfdbfe; background: #eff6ff; color: #175cff; border-radius: 9px; padding: 7px 10px; font-weight: 800; font-size: .75rem; cursor: pointer; }
+@media (max-width: 600px) {
+  .order-amounts > div { padding: 9px 7px; }
+  .order-overview-actions > :is(button, a), .order-more-actions > * { flex: 1 1 135px; }
+  .ts-detail-movement-item { display: grid !important; grid-template-columns: auto minmax(0, 1fr) !important; gap: 8px 10px !important; }
+  .ts-detail-movement-item > b, .ts-receipt-link { grid-column: 2 !important; justify-self: start; }
 }
 
 .ts-remote-signature-card{border:1px solid #b7e4c7;background:#f6fff8;border-radius:14px;padding:16px}

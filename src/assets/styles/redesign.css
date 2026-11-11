@@ -233,13 +233,6 @@
 .reference-home .priority-next {gap:.25rem}
 .reference-home .priority-open {display:block}
 .reference-home .dashboard-stats .agenda-panel {margin-top:1rem;min-height:0}
-.reference-order-summary h2 {font-size:1.1rem;margin-bottom:.8rem}
-.reference-order-facts {margin:0}
-.reference-order-facts div,.reference-order-summary .order-checkout-summary div {display:flex;justify-content:space-between;gap:1rem;padding:.5rem 0;border-bottom:1px solid var(--ts-border)}
-.reference-order-facts dd,.reference-order-summary .order-checkout-summary dd {margin:0;text-align:right;overflow-wrap:anywhere}
-.reference-order-facts dt,.reference-order-summary .order-checkout-summary dt {font-weight:500}
-.reference-order-summary .order-checkout-summary {display:block;padding:0;border:0;margin:.6rem 0 0}
-.reference-order-summary .order-checkout-summary div:last-child {background:var(--ts-primary-soft);border:0;border-radius:8px;padding:.65rem}
 @media(min-width:1100px) {
   .app-shell:has(.reference-home) .app-topbar .page-heading,
   .app-shell:has(.reference-home) .app-topbar .global-search,
