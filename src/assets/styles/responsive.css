@@ -6,6 +6,8 @@ body { min-width: 0; }
 img, svg, canvas, video { max-width: 100%; }
 input, select, textarea, button { max-width: 100%; }
 .app-workspace, .app-content, .ts-module-page, .ts-panel, .ts-form-panel { min-width: 0; max-width: 100%; }
+.app-content { container: workspace / inline-size; }
+.app-content > *, .order-card > *, .builder-section > * { min-width: 0; }
 .ts-module-page, .ts-order-detail-page, .ts-edit-order-page, .workshop-page, .agenda-page, .rent-page, .corte-page { width: 100%; }
 
 /* Flex/grid children are allowed to shrink instead of forcing horizontal scroll */
@@ -33,6 +35,17 @@ input, select, textarea, button { max-width: 100%; }
 /* Dialogs/modals */
 .modal-backdrop, .ts-confirm-backdrop { padding: 16px; }
 .modal-card, .ts-confirm-dialog { max-width: min(94vw, 720px); max-height: min(90dvh, 900px); overflow-y: auto; }
+.app-shell :is(.evidence-modal-backdrop, .techsoul-modal-backdrop, .payment-backdrop, .modal-backdrop) {
+  z-index: 2600 !important;
+  overflow-y: auto;
+}
+.app-shell :is(.evidence-modal, .techsoul-modal, .payment-modal, .ts-payment-modal, .checkout-dialog, .modal-card, .ts-confirm-dialog) {
+  min-width: 0;
+  max-width: 100%;
+  max-height: calc(100dvh - 32px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
 
 /* Caja: 5 logical areas. Prevent actions falling onto an unrelated grid row on desktop. */
 .ts-cash-row { grid-template-columns: 40px minmax(220px, 1fr) minmax(100px, 130px) minmax(110px, 140px) auto !important; }
@@ -279,6 +292,46 @@ input, select, textarea, button { max-width: 100%; }
   .ts-cash-icon { width: 42px !important; height: 42px !important; }
   .modal-backdrop, .ts-confirm-backdrop { padding: 8px !important; }
   .modal-card, .ts-confirm-dialog { max-width: 100% !important; border-radius: 16px !important; }
+}
+
+/* Match the usable workspace when the desktop sidebar is visible. */
+@container workspace (max-width: 760px) {
+  .ts-inventory-grid, .ts-customer-grid, .ts-order-grid, .ts-device-grid,
+  .catalog-grid, .orders-grid { grid-template-columns: minmax(0, 1fr) !important; }
+  .reception-layout, .checkout-layout { grid-template-columns: minmax(0, 1fr) !important; }
+  .live-summary { position: static !important; }
+  .ts-header-actions, .ts-order-detail-actions, .ts-edit-order-header-actions { flex-wrap: wrap; }
+}
+
+@media (max-width: 700px) {
+  /* These tables already render as cards in UsuariosView. */
+  .users-table, .permissions-table { min-width: 0 !important; }
+  .users-table-wrap, .permissions-table-wrap { margin-inline: 0; padding-inline: 0; }
+  .ts-user-card { min-width: 0; }
+  .ts-user-card > * { min-width: 0; }
+  .evidence-modal-actions, .techsoul-modal-actions {
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) !important;
+    gap: 10px;
+  }
+  .evidence-modal-actions > *, .techsoul-modal-actions > * { width: 100%; white-space: normal; }
+  .evidence-modal, .techsoul-modal { padding: 16px !important; }
+  .diagnostic-photo-grid { grid-template-columns: minmax(0, 1fr) !important; }
+  .photo-actions { flex-wrap: wrap; }
+  .payment-method-options, .ts-payment-method-options, .ts-payment-methods {
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 130px), 1fr)) !important;
+  }
+  .ts-order-detail-actions > *, .ts-edit-order-header-actions > *,
+  .workflow-primary, .workflow-secondary { white-space: normal; }
+  .techsoul-toast { bottom: calc(90px + env(safe-area-inset-bottom)) !important; }
+}
+
+@media (max-width: 480px) {
+  .split-payments { min-width: 0; }
+  .split-payment-row { grid-template-columns: minmax(0, 1fr) 44px !important; }
+  .split-payment-row select { grid-column: 1 / -1; }
+  .split-payment-row:not(:has(button)) input { grid-column: 1 / -1; }
+  .split-payment-row input, .split-payment-row select { min-height: 44px; }
 }
 
 /* Dark mode contrast hardening */

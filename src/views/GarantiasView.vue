@@ -121,9 +121,9 @@ onMounted(cargar)
   .ts-metric-strip-four{grid-template-columns:repeat(2,minmax(0,1fr))!important}
   .ts-orders-toolbar{display:grid!important;grid-template-columns:1fr 180px!important;gap:10px!important}
   .ts-data-table{overflow:visible!important}
-  .ts-data-row{grid-template-columns:110px minmax(180px,1.4fr) minmax(130px,1fr) 120px 100px minmax(140px,.9fr)!important}
+
 }
-@media (max-width: 680px){
+@media (max-width: 1100px){
   .ts-module-header{align-items:stretch!important;gap:14px!important}
   .ts-module-header .ts-action-primary{width:100%!important}
   .ts-metric-strip-four{grid-template-columns:repeat(2,minmax(0,1fr))!important;gap:10px!important}
@@ -135,9 +135,9 @@ onMounted(cargar)
   .ts-data-row:not(.ts-data-head){display:grid!important;grid-template-columns:1fr auto!important;gap:8px 12px!important;padding:16px!important;border:1px solid var(--ts-border,#dbe3ee)!important;border-radius:16px!important;background:var(--ts-surface,#fff)!important;box-shadow:0 8px 22px rgba(15,23,42,.06)!important}
   .ts-data-row:not(.ts-data-head)>strong{grid-column:1;font-size:.86rem!important}
   .ts-data-row:not(.ts-data-head)>span:nth-child(2){grid-column:1/-1;display:flex!important;flex-direction:column!important;gap:2px!important;font-size:1rem!important}
-  .ts-data-row:not(.ts-data-head)>span:nth-child(3){grid-column:1/-1;color:var(--ts-muted,#64748b)!important}
+  .ts-data-row:not(.ts-data-head)>span:nth-child(3){display:block!important;grid-column:1/-1;color:var(--ts-muted,#64748b)!important}
   .ts-data-row:not(.ts-data-head)>span:nth-child(3)::before{content:'Servicio: ';font-weight:800;color:var(--ts-text,#0f172a)}
-  .ts-data-row:not(.ts-data-head)>span:nth-child(4){grid-column:1;color:var(--ts-muted,#64748b)!important}
+  .ts-data-row:not(.ts-data-head)>span:nth-child(4){display:block!important;grid-column:1;color:var(--ts-muted,#64748b)!important}
   .ts-data-row:not(.ts-data-head)>span:nth-child(4)::before{content:'Vence: ';font-weight:800;color:var(--ts-text,#0f172a)}
   .ts-data-row:not(.ts-data-head)>span:nth-child(5){grid-column:2;grid-row:1;justify-self:end}
   .warranty-actions{grid-column:1/-1!important;border-top:1px solid var(--ts-border,#e2e8f0);padding-top:10px;margin-top:2px;width:100%;display:grid!important;grid-template-columns:1fr auto!important;align-items:center!important}
