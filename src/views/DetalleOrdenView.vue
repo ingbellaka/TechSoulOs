@@ -676,7 +676,9 @@ onMounted(cargarDetalle)
         <OrderCheckout :order="orden" :auto-open="route.query.entregar === '1' || route.query.cobrar === '1'" @saved="refrescarTrasCobro" />
         <router-link class="ts-action-secondary" :to="`/ordenes/${orden.id}/editar`">Editar orden</router-link>
         <details class="order-more">
-          <summary>Más acciones</summary>
+          <summary class="ts-action-secondary">
+            Más acciones <span class="order-more-chevron" aria-hidden="true">⌄</span>
+          </summary>
           <div class="order-more-actions">
             <a class="ts-action-secondary" :href="whatsappLink()" target="_blank" rel="noopener">WhatsApp</a>
             <router-link v-if="['Recibido','Diagnóstico','Esperando autorización'].includes(orden.estado)" class="ts-action-secondary" :to="`/cotizador?orden=${orden.id}`">Cotizar servicio</router-link>
@@ -877,9 +879,34 @@ onMounted(cargarDetalle)
 .order-amounts .order-balance { background: var(--ts-primary-soft); }
 .order-overview .order-steps { margin: 0; }
 .order-overview-actions, .order-more-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
-.order-overview-actions > :is(button, a), .order-more-actions > * { min-height: 44px; justify-content: center; white-space: normal; text-align: center; }
-.order-more { flex-basis: 100%; }
-.order-more summary { min-height: 44px; padding-block: 12px; color: var(--ts-muted); cursor: pointer; font-weight: 650; }
+.order-overview-actions > :is(button, a), .order-more summary, .order-more-actions > * {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  white-space: normal;
+  text-align: center;
+}
+.order-more { position: relative; }
+.order-more summary { gap: 8px; cursor: pointer; list-style: none; }
+.order-more summary::-webkit-details-marker { display: none; }
+.order-more summary:focus:not(:focus-visible) { outline: none; }
+.order-more summary:focus-visible { outline: 2px solid var(--ts-primary); outline-offset: 3px; }
+.order-more[open] .order-more-chevron { transform: rotate(180deg); }
+.order-more-actions {
+  position: absolute;
+  z-index: 10;
+  inset-block-start: calc(100% + 6px);
+  inset-inline-start: 0;
+  display: grid;
+  width: max-content;
+  max-width: min(260px, calc(100vw - 40px));
+  padding: 8px;
+  border: 1px solid var(--ts-border);
+  border-radius: 12px;
+  background: var(--ts-surface);
+  box-shadow: var(--ts-shadow-md);
+}
 .order-preview-card { padding: 16px; margin-bottom: 12px; }
 .order-card-heading { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 12px; }
 .order-card-heading h2 { margin: 0; font-size: 1.05rem; }
@@ -891,6 +918,10 @@ onMounted(cargarDetalle)
 @media (max-width: 600px) {
   .order-amounts > div { padding: 9px 7px; }
   .order-overview-actions > :is(button, a), .order-more-actions > * { flex: 1 1 135px; }
+  .order-more { flex: 1 1 135px; }
+  .order-more summary { width: 100%; }
+  .order-more[open] { flex-basis: 100%; }
+  .order-more-actions { position: static; width: 100%; max-width: none; margin-top: 6px; }
   .ts-detail-movement-item { display: grid !important; grid-template-columns: auto minmax(0, 1fr) !important; gap: 8px 10px !important; }
   .ts-detail-movement-item > b, .ts-receipt-link { grid-column: 2 !important; justify-self: start; }
 }
