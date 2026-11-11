@@ -204,6 +204,11 @@ onMounted(async () => {
     </header>
     <nav class="home-actions" aria-label="Acciones del taller">
       <router-link class="home-action home-action-primary" to="/nueva-orden"><svg class="home-action-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 8v8m-4-4h8"/></svg><strong>Recibir equipo</strong><small>Registra una nueva orden</small></router-link>
+      <router-link v-if="auth.can(['admin', 'recepcion'])" class="home-action home-action-sale" to="/ventas?nueva=1">
+        <svg class="home-action-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="20" r="1"/><circle cx="19" cy="20" r="1"/><path d="M3 3h2l2.4 11.5a2 2 0 0 0 2 1.5h8.8a2 2 0 0 0 2-1.6L22 7H6"/></svg>
+        <strong>Nueva venta</strong>
+        <small>Registrar una venta</small>
+      </router-link>
       <router-link class="home-action" to="/cotizador"><svg class="home-action-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9zM14 3v6h6M8 13h8m-8 4h6"/></svg><strong>Cotizar</strong><small>Calcula el precio de una reparación</small></router-link>
       <router-link class="home-action" to="/ordenes"><svg class="home-action-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/></svg><strong>Buscar orden</strong><small>Por folio, cliente o equipo</small></router-link>
     </nav>
@@ -353,7 +358,6 @@ onMounted(async () => {
         </header>
         <div class="quick-grid">
           <router-link to="/nueva-orden"><svg viewBox="0 0 24 24"><path d="M6 2h9l5 5v15H6z"/><path d="M14 2v6h6M9 13h8M9 17h5"/></svg><div><strong>Nueva orden</strong><span>Registrar equipo al taller</span></div></router-link>
-          <router-link to="/ventas?nueva=1"><svg viewBox="0 0 24 24"><circle cx="9" cy="20" r="1"/><circle cx="19" cy="20" r="1"/><path d="M3 3h2l2.4 11.5a2 2 0 0 0 2 1.5h8.8a2 2 0 0 0 2-1.6L22 7H6"/></svg><div><strong>Nueva venta</strong><span>Registrar una venta</span></div></router-link>
           <router-link to="/clientes"><svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="4"/><path d="M2 21v-2a7 7 0 0 1 14 0v2M17 11h5M19.5 8.5v5"/></svg><div><strong>Buscar cliente</strong><span>Por nombre o teléfono</span></div></router-link>
           <router-link to="/cotizador"><svg viewBox="0 0 24 24"><rect x="4" y="2" width="16" height="20" rx="2"/><path d="M8 6h8M8 11h.01M12 11h.01M16 11h.01M8 15h.01M12 15h.01M16 15h.01"/></svg><div><strong>Cotizador</strong><span>Consultar precios rápidos</span></div></router-link>
         </div>

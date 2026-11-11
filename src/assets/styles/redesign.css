@@ -217,6 +217,11 @@
   min-height:136px;justify-items:center;gap:.4rem;border-radius:12px;
   box-shadow:var(--ts-shadow-sm);padding:1rem .7rem;
 }
+.reference-home .home-actions:has(.home-action-sale) {grid-template-columns:repeat(4,minmax(0,1fr))}
+@container workspace (max-width: 700px) {
+  .reference-home .home-actions:has(.home-action-sale) {grid-template-columns:repeat(2,minmax(0,1fr))}
+  .reference-home .home-actions:has(.home-action-sale) .home-action-primary {grid-column:auto}
+}
 .home-action-icon {width:32px;height:32px;fill:none;stroke:currentColor;stroke-width:1.65;margin-bottom:.3rem}
 .reference-home .main-grid {display:block}
 .reference-home .priority-panel {padding:0;background:none;border:0;box-shadow:none}
