@@ -1084,39 +1084,6 @@ onBeforeUnmount(() => {
 
     <div v-else class="orders-grid">
       <article v-for="orden in ordenesVisibles" :key="orden.id" class="order-card" :class="claseTarjeta(orden)">
-        <div class="priority-banner">
-          <div class="priority-copy">
-            <span class="priority-icon">{{ encabezadoTarjeta(orden).icono }}</span>
-            <div>
-              <strong class="priority-title">{{ encabezadoTarjeta(orden).titulo }}</strong>
-              <small>{{ encabezadoTarjeta(orden).subtitulo }}</small>
-            </div>
-          </div>
-
-          <button class="date-block" type="button" @click="abrirFecha(orden)">
-            <span class="date-icon">▣</span>
-            <span><small>Entrega / cita</small><strong>{{ fechaBonita(fechaOrden(orden)) }}</strong></span>
-            <b>›</b>
-          </button>
-        </div>
-
-        <div v-if="editandoFechaId === orden.id" class="date-editor">
-          <div class="date-field">
-            <label>Fecha</label>
-            <input v-model="fechaTemporalDia" type="date" @change="asegurarHoraFechaValida">
-          </div>
-          <div class="date-field">
-            <label>Hora</label>
-            <select v-model="fechaTemporalHora" :disabled="!horasFechaDisponibles.length">
-              <option v-for="horaSlot in horasFechaDisponibles" :key="horaSlot" :value="horaSlot">{{ horaSlot }}</option>
-            </select>
-          </div>
-          <small class="date-schedule">{{ horarioDeFecha(fechaTemporalDia) ? `Horario ${etiquetaHorario(fechaTemporalDia)}` : 'Domingo · taller cerrado' }}</small>
-          <button type="button" class="save-date" :disabled="guardando === orden.id || !horasFechaDisponibles.length" @click="guardarFecha(orden)">Guardar</button>
-          <button v-if="orden.fecha_programada" type="button" class="clear-date" @click="quitarFecha(orden)">Quitar</button>
-          <button type="button" class="cancel-date" @click="editandoFechaId = null">×</button>
-        </div>
-
         <div class="card-body">
           <router-link :to="`/ordenes/${orden.id}`" class="folio">{{ orden.folio }}</router-link>
           <router-link :to="`/ordenes/${orden.id}`" class="equipment-link">
@@ -1125,55 +1092,95 @@ onBeforeUnmount(() => {
           <p class="client">♙ {{ orden.clientes?.nombre || 'Sin cliente' }}</p>
           <p class="failure">▧ {{ orden.falla_reportada || 'Sin falla reportada' }}</p>
 
-          <div class="main-controls">
-            <div class="stage-box">
-              <span>Etapa actual</span>
-              <strong>{{ etiquetaEstado(orden.estado) }}</strong>
-            </div>
-
-            <div class="worked-time">
-              <span>Tiempo trabajado</span>
-              <strong>◷ {{ formatoTiempo(segundosTrabajados(orden)) }}</strong>
-            </div>
+          <div class="order-status-line">
+            <span class="finished-label">{{ etiquetaEstado(orden.estado) }}</span>
+            <span v-if="['alta', 'urgente'].includes(prioridadEfectiva(orden))" class="order-priority-label">
+              {{ prioridadLabel(prioridadEfectiva(orden)) }}
+            </span>
           </div>
 
-          <p v-if="orden.motivo_no_reparacion" class="return-summary"><strong>{{ orden.motivo_no_reparacion }}</strong><br>{{ orden.explicacion_no_reparacion }}</p>
           <div class="workflow-actions">
-            <button v-if="auth.can(['admin','recepcion'])" type="button" class="workflow-secondary" @click="ordenEnGasto = orden">Registrar pieza o gasto</button>
-            <button v-if="!embedded" type="button" class="workflow-secondary" @click="abrirCobroTaller(orden, true)">Ticket · 58 mm</button>
-            <button v-if="!embedded && auth.can(['admin','recepcion']) && (orden.estado === 'Listo' || (Number(orden.costo_total) > Number(orden.anticipo || 0) && !['Entregado','Cancelado','Devuelto sin reparación'].includes(orden.estado)))" type="button" class="workflow-primary" @click="abrirCobroTaller(orden)">{{ orden.estado === 'Listo' ? 'Cobrar y entregar' : 'Registrar pago' }}</button>
-            <router-link v-if="!embedded && ['Recibido','Diagnóstico','Esperando autorización'].includes(orden.estado)" class="workflow-secondary" :to="`/cotizador?orden=${orden.id}`">Cotizar servicio</router-link>
             <button v-if="etiquetaAccion(orden)" type="button" class="workflow-primary" :disabled="guardando === orden.id" @click="accionPrincipal(orden)">{{ etiquetaAccion(orden) }}</button>
-            <template v-if="orden.estado === 'Esperando autorización'">
-              <button type="button" class="workflow-primary" @click="orden.diagnostico ? compartirDiagnostico(orden) : abrirDiagnostico(orden)">Enviar cotización por WhatsApp</button>
+            <button v-if="!embedded && auth.can(['admin','recepcion']) && orden.estado === 'Listo'" type="button" class="workflow-primary" @click="abrirCobroTaller(orden)">Cobrar y entregar</button>
+            <div v-if="orden.estado === 'Esperando autorización'" class="authorization-actions">
               <button type="button" class="workflow-primary" :disabled="guardando === orden.id" @click="registrarRespuestaCliente(orden, 'autoriza')">Autorizó</button>
               <button type="button" class="workflow-secondary" :disabled="guardando === orden.id" @click="registrarRespuestaCliente(orden, 'rechaza')">No autorizó</button>
-            </template>
-            <button v-if="['Diagnóstico', 'Esperando autorización', 'Esperando pieza', 'En reparación', 'En pruebas'].includes(orden.estado)" type="button" class="workflow-secondary" :disabled="guardando === orden.id" @click="abrirNoReparacion(orden)">No podemos continuar</button>
-            <button v-if="orden.motivo_no_reparacion && ESTADOS_DEVOLUCION.includes(orden.estado)" type="button" class="workflow-secondary" @click="copiarAvisoNoReparacion(orden)">Copiar aviso al cliente</button>
+            </div>
             <button v-if="orden.estado === 'En pruebas'" type="button" class="quality-link" @click="ordenEnPruebas = ordenEnPruebas === orden.id ? null : orden.id">{{ ordenEnPruebas === orden.id ? 'Ocultar pruebas' : 'Realizar pruebas y evidencia final' }}</button>
-            <button v-if="orden.estado === 'En pruebas'" type="button" class="workflow-secondary" :disabled="guardando === orden.id" @click="cambiarEstado(orden, 'Diagnóstico')">Pruebas fallidas · Volver a diagnóstico</button>
-            <details v-if="orden.estado === 'Esperando autorización' && orden.diagnostico" class="workflow-more">
-              <summary>Más opciones</summary>
-              <button type="button" class="workflow-secondary" @click="copiarDiagnostico(orden)">Copiar mensaje</button>
-              <button type="button" class="workflow-secondary" @click="abrirDiagnostico(orden)">Revisar diagnóstico y cotización</button>
-            </details>
           </div>
           <ControlCalidadView v-if="ordenEnPruebas === orden.id && orden.estado === 'En pruebas'" :order-id="orden.id" embedded @released="ordenEnPruebas=null; cargar(); emit('updated')" />
-          <div class="card-footer">
-            <label class="fixed-tech">
-              <span>Técnico</span>
-              <select class="form-select form-select-sm" :aria-label="'Técnico de ' + orden.folio" :value="orden.tecnico || ''" :disabled="asignandoTecnico !== null" @change="asignarTecnico(orden, $event)">
-                <option value="">Sin asignar</option>
-                <option v-if="orden.tecnico && !tecnicosTechSoul.includes(orden.tecnico)" :value="orden.tecnico">{{ orden.tecnico }}</option>
-                <option v-for="tecnico in tecnicosTechSoul" :key="tecnico">{{ tecnico }}</option>
-              </select>
-            </label>
 
-            <button v-if="orden.produccion?.corriendo" type="button" class="timer-btn pause"
-              :disabled="guardando === orden.id" @click="pausar(orden)">Ⅱ Pausar</button>
-            <span v-else class="finished-label">{{ etiquetaEstado(orden.estado) }}</span>
-          </div>
+          <details class="workflow-more">
+            <summary>Más opciones</summary>
+            <div class="priority-banner">
+              <div class="priority-copy">
+                <span class="priority-icon">{{ encabezadoTarjeta(orden).icono }}</span>
+                <div>
+                  <strong class="priority-title">{{ encabezadoTarjeta(orden).titulo }}</strong>
+                  <small>{{ encabezadoTarjeta(orden).subtitulo }}</small>
+                </div>
+              </div>
+
+              <button class="date-block" type="button" @click="abrirFecha(orden)">
+                <span class="date-icon">▣</span>
+                <span><small>Entrega / cita</small><strong>{{ fechaBonita(fechaOrden(orden)) }}</strong></span>
+                <b>›</b>
+              </button>
+            </div>
+
+            <div v-if="editandoFechaId === orden.id" class="date-editor">
+              <div class="date-field">
+                <label>Fecha</label>
+                <input v-model="fechaTemporalDia" type="date" @change="asegurarHoraFechaValida">
+              </div>
+              <div class="date-field">
+                <label>Hora</label>
+                <select v-model="fechaTemporalHora" :disabled="!horasFechaDisponibles.length">
+                  <option v-for="horaSlot in horasFechaDisponibles" :key="horaSlot" :value="horaSlot">{{ horaSlot }}</option>
+                </select>
+              </div>
+              <small class="date-schedule">{{ horarioDeFecha(fechaTemporalDia) ? `Horario ${etiquetaHorario(fechaTemporalDia)}` : 'Domingo · taller cerrado' }}</small>
+              <button type="button" class="save-date" :disabled="guardando === orden.id || !horasFechaDisponibles.length" @click="guardarFecha(orden)">Guardar</button>
+              <button v-if="orden.fecha_programada" type="button" class="clear-date" @click="quitarFecha(orden)">Quitar</button>
+              <button type="button" class="cancel-date" @click="editandoFechaId = null">×</button>
+            </div>
+
+            <div class="workflow-actions">
+              <button v-if="auth.can(['admin','recepcion'])" type="button" class="workflow-secondary" @click="ordenEnGasto = orden">Registrar pieza o gasto</button>
+              <button v-if="!embedded" type="button" class="workflow-secondary" @click="abrirCobroTaller(orden, true)">Ticket · 58 mm</button>
+              <button v-if="!embedded && auth.can(['admin','recepcion']) && Number(orden.costo_total) > Number(orden.anticipo || 0) && !['Listo','Entregado','Cancelado','Devuelto sin reparación'].includes(orden.estado)" type="button" class="workflow-secondary" @click="abrirCobroTaller(orden)">Registrar pago</button>
+              <router-link v-if="!embedded && ['Recibido','Diagnóstico','Esperando autorización'].includes(orden.estado)" class="workflow-secondary" :to="`/cotizador?orden=${orden.id}`">Cotizar servicio</router-link>
+              <template v-if="orden.estado === 'Esperando autorización'">
+                <button type="button" class="workflow-secondary" @click="orden.diagnostico ? compartirDiagnostico(orden) : abrirDiagnostico(orden)">Enviar cotización por WhatsApp</button>
+                <template v-if="orden.diagnostico">
+                  <button type="button" class="workflow-secondary" @click="copiarDiagnostico(orden)">Copiar mensaje</button>
+                  <button type="button" class="workflow-secondary" @click="abrirDiagnostico(orden)">Revisar diagnóstico y cotización</button>
+                </template>
+              </template>
+              <button v-if="['Diagnóstico', 'Esperando autorización', 'Esperando pieza', 'En reparación', 'En pruebas'].includes(orden.estado)" type="button" class="workflow-secondary" :disabled="guardando === orden.id" @click="abrirNoReparacion(orden)">No podemos continuar</button>
+              <button v-if="orden.motivo_no_reparacion && ESTADOS_DEVOLUCION.includes(orden.estado)" type="button" class="workflow-secondary" @click="copiarAvisoNoReparacion(orden)">Copiar aviso al cliente</button>
+              <button v-if="orden.estado === 'En pruebas'" type="button" class="workflow-secondary" :disabled="guardando === orden.id" @click="cambiarEstado(orden, 'Diagnóstico')">Pruebas fallidas · Volver a diagnóstico</button>
+            </div>
+            <p v-if="orden.motivo_no_reparacion" class="return-summary"><strong>{{ orden.motivo_no_reparacion }}</strong><br>{{ orden.explicacion_no_reparacion }}</p>
+            <div class="worked-time">
+              <span>Tiempo trabajado</span>
+              <strong>{{ formatoTiempo(segundosTrabajados(orden)) }}</strong>
+            </div>
+            <div class="card-footer">
+              <label class="fixed-tech">
+                <span>Técnico</span>
+                <select class="form-select form-select-sm" :aria-label="'Técnico de ' + orden.folio" :value="orden.tecnico || ''" :disabled="asignandoTecnico !== null" @change="asignarTecnico(orden, $event)">
+                  <option value="">Sin asignar</option>
+                  <option v-if="orden.tecnico && !tecnicosTechSoul.includes(orden.tecnico)" :value="orden.tecnico">{{ orden.tecnico }}</option>
+                  <option v-for="tecnico in tecnicosTechSoul" :key="tecnico">{{ tecnico }}</option>
+                </select>
+              </label>
+
+              <button v-if="orden.produccion?.corriendo" type="button" class="timer-btn pause"
+                :disabled="guardando === orden.id" @click="pausar(orden)">Ⅱ Pausar</button>
+            </div>
+
+          </details>
         </div>
       </article>
     </div>
@@ -1314,4 +1321,12 @@ onBeforeUnmount(() => {
 .techsoul-modal-backdrop{position:fixed;inset:0;z-index:1150;display:grid;place-items:center;padding:18px;background:rgba(15,23,42,.52);backdrop-filter:blur(3px)}.techsoul-modal{width:min(540px,100%);background:#fff;border:1px solid #e4e7ec;border-radius:20px;padding:22px;box-shadow:0 24px 70px rgba(16,24,40,.25);color:#102044}.techsoul-modal-head{display:flex;justify-content:space-between;align-items:flex-start;gap:14px}.techsoul-modal-head span{font-size:.68rem;font-weight:900;letter-spacing:.08em;color:#0b43ff}.techsoul-modal-head h2,.techsoul-confirm h2{margin:4px 0 0;font-size:1.35rem}.techsoul-modal-head>button{border:0;background:#eef2f7;border-radius:50%;width:34px;height:34px;font-size:1.3rem;cursor:pointer}.techsoul-modal>p{color:#667085;line-height:1.5;font-size:.84rem;margin:12px 0 16px}.techsoul-modal-field{display:flex;flex-direction:column;gap:6px}.techsoul-modal-field>span{font-size:.72rem;font-weight:850}.techsoul-modal-field textarea{width:100%;box-sizing:border-box;border:1.5px solid #d0d5dd;border-radius:12px;padding:12px;resize:vertical;font:inherit;color:#102044;outline:none}.techsoul-modal-field textarea:focus{border-color:#0b43ff;box-shadow:0 0 0 3px rgba(11,67,255,.1)}.techsoul-modal-actions{display:flex;justify-content:flex-end;gap:9px;margin-top:18px}.techsoul-modal-actions button{min-height:42px;border-radius:10px;padding:0 15px;font-weight:850;cursor:pointer}.modal-cancel{border:1px solid #d0d5dd;background:#fff;color:#344054}.modal-confirm{border:1px solid #0b43ff;background:#0b43ff;color:#fff}.modal-confirm:disabled{opacity:.45;cursor:not-allowed}.techsoul-confirm{text-align:center;max-width:440px}.confirm-icon{width:48px;height:48px;display:grid;place-items:center;margin:0 auto 10px;border-radius:50%;background:#eafaf6;color:#0b9a78;font-size:1.4rem;font-weight:950}.techsoul-confirm .techsoul-modal-actions{justify-content:center}
 @media(max-width:560px){.techsoul-toast{left:14px;right:14px;bottom:18px}.techsoul-modal-backdrop{align-items:end;padding:0}.techsoul-modal{border-radius:20px 20px 0 0;padding:20px 17px calc(18px + env(safe-area-inset-bottom))}.techsoul-modal-actions{display:grid;grid-template-columns:1fr 1fr}.techsoul-modal-actions button{width:100%}}
 
+.order-status-line { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.order-status-line .finished-label { color: #1d4ed8; background: #eaf1ff; }
+.order-priority-label { border-radius: 999px; padding: 5px 10px; background: #fff0dd; color: #92400e; font-size: .75rem; font-weight: 750; }
+.authorization-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.authorization-actions button { min-height: 44px; }
+.workflow-more { margin-top: 10px; border-top: 1px solid var(--ts-border); }
+.workflow-more > summary { min-height: 44px; padding: 12px 0; font-weight: 700; }
+.workflow-more .priority-banner { border-radius: 10px; overflow: hidden; }
 </style>
